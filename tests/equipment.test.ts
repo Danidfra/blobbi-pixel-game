@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateTurtleWorld } from '../src/world/turtle-world';
 import { LiveWorld, IDLE_INPUT, SWING, type LiveInput } from '../src/sim/live-world';
 import { LiveRenderer, Camera, DEFAULT_LIVE_OPTIONS } from '../src/render/live-render';
-import { attachTool, EquipmentRig, EQUIPMENT, STEEL, toolIcon, toolSprite } from '../src/game/equipment';
+import { armForHand, attachTool, EquipmentRig, EQUIPMENT, STEEL, toolIcon, toolSprite } from '../src/game/equipment';
 import { blobbiIdentity } from '../src/blobbi/identity';
 import { buildBlobbiSprite, REST_POSE, type BlobbiPose } from '../src/blobbi/sprite';
 import { ITEMS } from '../src/game/items';
@@ -49,7 +49,7 @@ function frameAt(live: LiveWorld, renderer: LiveRenderer, time = live.clock.time
 
 describe('the procedural axe', () => {
   it('has a wooden handle, a steel head, an outline and a grip, in every orientation, mirrored and scaled; the icon is the resting axe', () => {
-    for (const o of ['rest', 'lowered', 'raised', 'strike', 'strike-down', 'strike-up'] as const)
+    for (const o of ['rest', 'carry', 'raised', 'strike', 'strike-down', 'strike-up'] as const)
       for (const m of [false, true]) {
         const s = toolSprite(AXE, o, palette, m);
         let wood = 0;
@@ -91,33 +91,51 @@ describe('attachment to the Blobbi', () => {
     for (const v of views)
       for (const walk of [-1, 0, 2, 4] as const) {
         const pose = { ...REST_POSE, ...v, walk };
-        const arm = pose.view === 'side' ? 'near-arm' : 'right-arm';
+        const arm = armForHand(pose, 'left');
+        expect(arm).toBe(pose.view === 'front' ? 'right-arm' : pose.view === 'back' ? 'left-arm' : pose.facing < 0 ? 'near-arm' : 'far-arm');
         const hand = rig.hand(pose, arm, spriteOf);
         expect(hand.guessed).toBe(false);
         expect(hand.dy).toBeLessThan(-size * 0.2);
         expect(hand.dy).toBeGreaterThan(-size * 0.8);
-        if (pose.view === 'side') expect(Math.sign(hand.dx) || pose.facing).toBe(pose.facing);
+        // The anatomical left hand: viewer's right from the front, viewer's left from the back.
+        if (pose.view === 'front') expect(hand.dx).toBeGreaterThan(0);
+        if (pose.view === 'back') expect(hand.dx).toBeLessThan(0);
         expect(hand.behind).toBe(pose.view === 'back');
       }
   });
 
-  it('attaches per direction: mirrored for the left, in front for front and side, behind for the back at rest and in front when striking', () => {
+  it('keeps the axe in the anatomical left hand: viewer\'s right from the front, viewer\'s left from the back, the near hand facing left, the far hand (occluded) facing right', () => {
     const front = attachTool(AXE, { ...REST_POSE, view: 'front' }, 'idle', rig, spriteOf, palette);
     const back = attachTool(AXE, { ...REST_POSE, view: 'back' }, 'idle', rig, spriteOf, palette);
     const right = attachTool(AXE, { ...REST_POSE, view: 'side', facing: 1 }, 'idle', rig, spriteOf, palette);
     const left = attachTool(AXE, { ...REST_POSE, view: 'side', facing: -1 }, 'idle', rig, spriteOf, palette);
+    expect(front.arm).toBe('right-arm');
+    expect(front.dx).toBeGreaterThan(0);
     expect(front.behind).toBe(false);
-    expect(back.behind).toBe(true);
-    expect(right.behind).toBe(false);
-    expect(left.behind).toBe(false);
-    expect(right.orientation).toBe('lowered');
-    expect(left.orientation).toBe('lowered');
+    expect(front.visible).toBe(true);
     expect(front.orientation).toBe('rest');
-    expect(right.mirrored).toBe(false);
+    expect(back.arm).toBe('left-arm');
+    expect(back.dx).toBeLessThan(0);
+    expect(back.behind).toBe(true);
+    expect(back.visible).toBe(true);
+    expect(left.arm).toBe('near-arm');
+    expect(left.behind).toBe(false);
+    expect(left.visible).toBe(true);
+    expect(left.orientation).toBe('carry');
     expect(left.mirrored).toBe(true);
-    expect(Math.sign(left.dx)).toBe(-Math.sign(right.dx));
+    expect(right.arm).toBe('far-arm');
+    expect(right.behind).toBe(true);
+    expect(right.visible).toBe(false);
+    expect(right.orientation).toBe('carry');
+    // During a swing facing right the axe stays in the far hand, drawn behind the body.
+    for (const anim of ['raise', 'strike', 'recover'] as const) {
+      const swing = attachTool(AXE, { ...REST_POSE, view: 'side', facing: 1 }, anim, rig, spriteOf, palette);
+      expect(swing.arm).toBe('far-arm');
+      expect(swing.behind).toBe(true);
+      expect(swing.visible).toBe(true);
+    }
     // Not one fixed screen position: the four views place the axe differently.
-    const places = new Set([front, back, left, right].map((a) => `${a.dx},${a.dy},${a.orientation},${a.mirrored},${a.behind}`));
+    const places = new Set([front, back, left, right].map((a) => `${a.dx},${a.dy},${a.orientation},${a.mirrored},${a.behind},${a.visible}`));
     expect(places.size).toBe(4);
     // The strike orientation follows the view.
     expect(attachTool(AXE, { ...REST_POSE, view: 'front' }, 'strike', rig, spriteOf, palette).orientation).toBe('strike-down');
@@ -126,7 +144,7 @@ describe('attachment to the Blobbi', () => {
     expect(backStrike.behind).toBe(false);
     expect(attachTool(AXE, { ...REST_POSE, view: 'side', facing: 1 }, 'strike', rig, spriteOf, palette).orientation).toBe('strike');
     expect(attachTool(AXE, { ...REST_POSE, view: 'side', facing: 1 }, 'raise', rig, spriteOf, palette).orientation).toBe('raised');
-    expect(attachTool(AXE, { ...REST_POSE, view: 'side', facing: 1 }, 'recover', rig, spriteOf, palette).orientation).toBe('lowered');
+    expect(attachTool(AXE, { ...REST_POSE, view: 'side', facing: 1 }, 'recover', rig, spriteOf, palette).orientation).toBe('carry');
   });
 
   it('follows the walk: the grip moves with the kit arm swing, by small steps, never jumping', () => {
@@ -142,7 +160,8 @@ describe('attachment to the Blobbi', () => {
         expect(Math.abs(xs[i] - xs[i - 1])).toBeLessThanOrEqual(3);
         expect(Math.abs(ys[i] - ys[i - 1])).toBeLessThanOrEqual(3);
       }
-      expect(new Set(xs.map((x, i) => `${x},${ys[i]}`)).size).toBeGreaterThan(1); // it does move with the arm
+      // The near hand swings visibly through the walk; the hands in the front and back views may rest in place.
+      if (v.view === 'side' && v.facing === -1) expect(new Set(xs.map((x, i) => `${x},${ys[i]}`)).size).toBeGreaterThan(1);
     }
   });
 
@@ -187,51 +206,79 @@ function steelClusters(f: PixelBuffer): { count: number; minX: number; maxX: num
   return { count, minX, maxX };
 }
 
-describe('one axe, one hand (regression: the side views showed the tool across both arms)', () => {
-  it('draws exactly one axe head in every direction, standing, walking and chopping, on the near side of the body in the side views', () => {
+describe('one axe in the left hand (regression: the right-facing view showed the tool on the near side)', () => {
+  it('front: visible on the viewer\'s right; back: visible on the viewer\'s left; left: visible; right: hidden, standing and walking', () => {
     const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
     live.brain.enabled = false;
     live.inventory.add(AXE, 1);
     live.equip(AXE);
     const renderer = new LiveRenderer(live);
-    const check = (label: string, facing: -1 | 1 | 0) => {
+    const CX = 48; // the camera centres the Blobbi at x = 48 in a 96 px frame
+    const check = (label: string, rule: 'viewer-right' | 'viewer-left' | 'visible' | 'hidden') => {
+      // Stones on the ground share the axe head's greys; keep them out of the frame so the count is the tool's.
+      live.resources = live.resources.filter((n) => Math.hypot(n.x - live.blobbi.x, n.y - live.blobbi.y) > 60);
       const f = frameAt(live, renderer);
-      const clusters = steelClusters(f);
-      expect(clusters.count, label).toBe(1);
-      if (facing !== 0) {
-        // The head stays on the facing side of the body's centre line (never over at the far arm).
-        const cx = Math.round(live.blobbi.x) - Math.round(live.blobbi.x - 48); // the camera centres the Blobbi at x = 48 in a 96 px frame
-        if (facing > 0) expect(clusters.minX, label).toBeGreaterThanOrEqual(cx - 2);
-        else expect(clusters.maxX, label).toBeLessThanOrEqual(cx + 2);
-      }
+      const c = steelClusters(f);
+      if (rule === 'hidden') expect(c.count, label).toBe(0);
+      else expect(c.count, label).toBe(1);
+      if (rule === 'viewer-right') expect(c.minX, label).toBeGreaterThan(CX);
+      if (rule === 'viewer-left') expect(c.maxX, label).toBeLessThan(CX);
     };
-    for (const [dir, facing] of [['left', -1], ['right', 1], ['up', 0], ['down', 0]] as const) {
-      // Standing (after the turn settles), then every walking frame.
+    const rules = { down: 'viewer-right', up: 'viewer-left', left: 'visible', right: 'hidden' } as const;
+    for (const dir of ['down', 'up', 'left', 'right'] as const) {
       run(live, 1, { [dir]: true });
-      run(live, 8);
-      check(`${dir} standing`, facing);
+      run(live, 8); // the turn settles
+      check(`${dir} standing`, rules[dir]);
       for (let i = 0; i < 12; i++) {
         live.update(1 / 60, { ...IDLE_INPUT, [dir]: true });
-        check(`${dir} walking step ${i}`, facing);
+        check(`${dir} walking step ${i}`, rules[dir]);
       }
       run(live, 8);
     }
-    // Chopping from the left side of a tree (facing right) and from below (facing up): one axe through the swing.
-    for (const dir of ['right', 'up'] as const) {
-      faceTree(live, dir);
-      run(live, 1, { interact: true });
-      for (let i = 0; i < Math.ceil(SWING.end * 60) + 2; i++) {
-        live.update(1 / 60, IDLE_INPUT);
-        check(`${dir} swing step ${i}`, dir === 'right' ? 1 : 0);
-      }
+  });
+
+  it('chopping while facing right keeps the axe in the far hand behind the body with the same swing timing; facing up it chops on the viewer\'s left', () => {
+    const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
+    live.brain.enabled = false;
+    live.inventory.add(AXE, 1);
+    live.equip(AXE);
+    const renderer = new LiveRenderer(live);
+    const index = faceTree(live, 'right');
+    live.resources = live.resources.filter((n) => Math.hypot(n.x - live.blobbi.x, n.y - live.blobbi.y) > 60);
+    expect(steelClusters(frameAt(live, renderer)).count).toBe(0); // hidden at rest
+    run(live, 1, { interact: true });
+    const t0 = live.swing!.start;
+    let shownBehind = 0;
+    for (let i = 0; i < Math.ceil(SWING.end * 60) + 2; i++) {
+      live.update(1 / 60, IDLE_INPUT);
+      const pose = live.blobbi.animator.pose(live.clock.time);
+      const at = attachTool(AXE, pose, live.equipmentAnimation(live.clock.time), live.rig, (p) => live.blobbiSprite(p), palette);
+      expect(at.arm).toBe('far-arm'); // never transferred to the near hand
+      expect(at.behind).toBe(true);
+      if (at.visible) shownBehind++;
+      expect(steelClusters(frameAt(live, renderer)).count).toBeLessThanOrEqual(1);
     }
-    // And the attachment itself never spans the body: in the side views every axe pixel is within the tool's
-    // own sprite width of the near hand, and the sprite is narrower than the Blobbi.
-    for (const facing of [-1, 1] as const) {
-      const at = attachTool(AXE, { ...REST_POSE, view: 'side', facing }, 'idle', live.rig, (p) => live.blobbiSprite(p), palette);
-      expect(at.sprite.buffer.width).toBeLessThanOrEqual(9);
-      expect(Math.sign(at.dx) || facing).toBe(facing);
-    }
+    expect(shownBehind).toBeGreaterThan(0); // the swing is drawn (behind the body) while it lasts
+    expect(live.trees.get(index)).toEqual({ hits: 1, harvestedAt: null });
+    expect(live.trees.get(index)!.hits).toBe(1);
+    // The hit landed at the usual time: at SWING.hit after the press, not earlier.
+    const again = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
+    again.brain.enabled = false;
+    again.inventory.add(AXE, 1);
+    again.equip(AXE);
+    const idx2 = faceTree(again, 'right');
+    run(again, 1, { interact: true });
+    run(again, Math.floor(SWING.hit * 60) - 2);
+    expect(again.trees.get(idx2)).toBeUndefined();
+    run(again, 3);
+    expect(again.trees.get(idx2)?.hits).toBe(1);
+    expect(again.swing!.start).toBeCloseTo(t0, 5);
+    // Facing up (back view): the axe strikes from the viewer's left side.
+    faceTree(live, 'up');
+    live.resources = live.resources.filter((n) => Math.hypot(n.x - live.blobbi.x, n.y - live.blobbi.y) > 60);
+    const rest = steelClusters(frameAt(live, renderer));
+    expect(rest.count).toBe(1);
+    expect(rest.maxX).toBeLessThan(48);
   });
 });
 
@@ -248,10 +295,13 @@ describe('equipment in play', () => {
     expect(live.equip(AXE)).toBe(true);
     const held = steelPixels(frameAt(live, renderer));
     expect(held).toBeGreaterThanOrEqual(4);
-    // Every direction shows it.
+    // Every direction shows it except facing right, where the left hand is the far one and the body hides it.
     for (const dir of ['up', 'left', 'right', 'down'] as const) {
       run(live, 2, { [dir]: true });
-      expect(steelPixels(frameAt(live, renderer))).toBeGreaterThanOrEqual(3);
+      run(live, 8);
+      live.resources = live.resources.filter((n) => Math.hypot(n.x - live.blobbi.x, n.y - live.blobbi.y) > 60);
+      if (dir === 'right') expect(steelPixels(frameAt(live, renderer))).toBe(0);
+      else expect(steelPixels(frameAt(live, renderer))).toBeGreaterThanOrEqual(3);
     }
     live.unequip();
     expect(steelPixels(frameAt(live, renderer))).toBe(0);

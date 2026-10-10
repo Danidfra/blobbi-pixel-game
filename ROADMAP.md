@@ -172,10 +172,13 @@ Report: `REPORT-M2.3.md`. Images: `examples/equipment/`.
       chips at the impact point), recover; one press per swing; the
       three-hit mechanic and wood award unchanged.
 - [x] Inventory icon in the panel and beside the frame counter.
-- [x] Tests: 129 passing (9 new); typecheck and build pass.
+- [x] Tests: 130 passing (10 new); typecheck and build pass.
 - [x] Manual gameplay test by the user (2026-10-10): passed, with one
-      visual bug (the side views read as an axe in both hands) fixed by a
-      compact head-down hold from the near hand, with a regression test.
+      correction: the axe is in the Blobbi's anatomical left hand in every
+      view (viewer's right from the front, viewer's left from the back, the
+      near hand facing left, hidden behind the body facing right), with
+      regression tests and `scripts/four-directions.ts` as the visual
+      regression tool.
 
 ### M2.4 and beyond (not started)
 

@@ -38,7 +38,7 @@ function cell(identity: ReturnType<typeof blobbiIdentity>, size: number, pose: B
   const gx = CELL / 2;
   const gy = CELL - 6;
   const at = equipped ? attachTool(ITEMS.axe.id, pose, animation, rig, spriteOf, palette) : null;
-  const drawTool = () => at && buf.blit(at.sprite.buffer, Math.round(gx + at.dx) - at.sprite.anchorX, gy + at.dy - at.sprite.anchorY);
+  const drawTool = () => at && at.visible && buf.blit(at.sprite.buffer, Math.round(gx + at.dx) - at.sprite.anchorX, gy + at.dy - at.sprite.anchorY);
   if (at?.behind) drawTool();
   buf.blit(sprite.buffer, gx - sprite.anchorX, gy - sprite.anchorY);
   if (at && !at.behind) drawTool();
@@ -57,7 +57,7 @@ const rows: { label: string; cells: PixelBuffer[] }[] = [];
     c.blit(icon.buffer, Math.round((CELL - icon.buffer.width) / 2), Math.round((CELL - icon.buffer.height) / 2));
     cells.push(c);
   }
-  for (const o of ['rest', 'lowered', 'raised', 'strike', 'strike-down', 'strike-up'] as ToolOrientation[])
+  for (const o of ['rest', 'carry', 'raised', 'strike', 'strike-down', 'strike-up'] as ToolOrientation[])
     for (const m of [false, true]) {
       const s = toolSprite(ITEMS.axe.id, o, palette, m, 2);
       const c = new PixelBuffer(CELL, CELL);
@@ -65,7 +65,7 @@ const rows: { label: string; cells: PixelBuffer[] }[] = [];
       c.blit(s.buffer, Math.round((CELL - s.buffer.width) / 2), Math.round((CELL - s.buffer.height) / 2));
       cells.push(c);
     }
-  rows.push({ label: 'ICON 1X 2X 3X; REST LOWERED RAISED STRIKE STRIKE-DOWN STRIKE-UP (EACH AND MIRRORED) AT 2X', cells });
+  rows.push({ label: 'ICON 1X 2X 3X; REST CARRY RAISED STRIKE STRIKE-DOWN STRIKE-UP (EACH AND MIRRORED) AT 2X', cells });
 }
 const views: { name: string; pose: Partial<BlobbiPose> }[] = [
   { name: 'FRONT', pose: { view: 'front' } },

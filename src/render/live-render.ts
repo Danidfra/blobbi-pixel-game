@@ -260,7 +260,7 @@ export class LiveRenderer {
     // The equipped tool, attached to a hand, just behind or just in front of the Blobbi in the painter's order.
     if (live.equipped && EQUIPMENT[live.equipped]) {
       const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), live.rig, (p) => live.blobbiSprite(p), palette);
-      drawables.push({ y: by, x: bx + (at.behind ? -0.5 : 0.5), sprite: at.sprite, sway: 0, dy: hop, offset: { x: at.dx, y: at.dy } });
+      if (at.visible) drawables.push({ y: by, x: bx + (at.behind ? -0.5 : 0.5), sprite: at.sprite, sway: 0, dy: hop, offset: { x: at.dx, y: at.dy } });
     }
     drawables.sort((a, c) => a.y - c.y || a.x - c.x);
     for (const d of drawables) this.blitSway(frame, d.sprite, Math.round(d.x + (d.offset?.x ?? 0)) - d.sprite.anchorX - ox, d.y + (d.offset?.y ?? 0) - d.sprite.anchorY - oy + d.dy, d.sway);

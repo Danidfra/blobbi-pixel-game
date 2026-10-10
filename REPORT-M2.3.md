@@ -2,9 +2,8 @@
 
 Scope: `blobbi-pixel-game`, 2026-10-10. The axe the player crafts in M2.2 is
 now a thing the Blobbi visibly holds, carries while walking, and swings at
-a tree. M2.2 and M2.3 passed the user's manual gameplay test (one visual
-bug found and fixed, see "Bug fix" below) and are complete and committed
-locally. M2 as a whole continues with M2.4.
+a tree. M2.2 and M2.3 passed the user's manual gameplay test (one
+correction, see section 8) and are complete and committed locally.
 
 Images (`examples/equipment/`):
 
@@ -54,8 +53,8 @@ views.
 Per direction (`attachTool`):
 
 - front: `rest` at the right hand, edge outward, drawn in front;
-- back: `rest` behind the body (the far hand); raising or striking brings
-  it above the head, in front, as `strike-up`;
+- back: `rest` behind the body at the viewer's left; raising or striking
+  brings it above the head, in front, as `strike-up`;
 - side: `lowered` from the near hand, head down and forward, mirrored for
   the left, in front; the strike is horizontal toward the tree.
 
@@ -110,8 +109,8 @@ swing); all pass.
 
 ## 7. Tests
 
-129 pass (`npm test`; 120 after M2.2), typecheck and build pass. New
-`tests/equipment.test.ts` (9, including the one-axe regression): the axe's materials, outline, grip, size,
+130 pass (`npm test`; 120 after M2.2), typecheck and build pass. New
+`tests/equipment.test.ts` (10, including the left-hand regressions): the axe's materials, outline, grip, size,
 mirroring, scaling, icon and determinism; a hand found (never guessed) at
 arm height on the arm's side in every view and walk frame; per-direction
 attachment (mirroring, layers, orientations) and that the four directions
@@ -123,45 +122,55 @@ timings, the hit landing inside the strike, a second press ignored, frames
 differing across phases, no hop, wood only on the last landed hit; walking,
 autonomy and resources as before with the axe equipped.
 
-## 8. Bug fix after the gameplay test: "an axe in both hands" in the side views
+## 8. Correction after the gameplay test: one anatomical hand
 
-Reported: facing left or right, the axe appeared in both hands at once.
+Reported after the gameplay test: facing left or right, the axe seemed to
+be on both sides of the character.
 
-Investigation, in order: the renderer pushes exactly one equipment
-drawable per frame (one `attachTool` call after the Blobbi drawable, one
-icon in the HUD corner); a headless probe counted the connected clusters
-of steel pixels in live frames for all four directions, standing, during
-the turn frames and walking, and found one cluster in every frame, so no
-second axe was ever drawn. Mirroring, the hand finder and the layering
-were correct too (hand on the near side, mirrored for the left, one
-drawable in front).
+Investigation: the renderer draws exactly one equipment drawable per frame
+(verified headless and in the browser by counting connected clusters of
+steel pixels: one in every frame, all directions, turns, walking, swings).
+The actual defect was anatomical: the layer chose an arm per view, not per
+hand. The kit names arm parts by screen side in both the front and the
+back view, so "right-arm" from the front was the Blobbi's left hand, but
+"right-arm" from the back was its right hand, and "near-arm" in the side
+views was whichever hand faced the camera. The tool changed hands with the
+direction.
 
-Root cause: the side views' resting orientation was a shoulder carry, a
-diagonal from the near hand (front, low) up to the head over the far
-shoulder (back, high). At play zoom that diagonal spans both of the kit's
-arms, so the grip reads at one hand and the head at the other: one tool
-drawn as if held in two hands.
+The rule now (`armForHand` in `src/game/equipment.ts`): the axe is in the
+Blobbi's anatomical LEFT hand in every view.
 
-Fix: the side views now hold the axe `lowered`, hanging head-down from the
-near hand with the edge forward, a compact 7×6 template that never crosses
-the body. Front and back placements are unchanged; raise and strike are
-unchanged, so the swing still winds up over the shoulder and strikes
-forward. The Blobbi's anatomy and genome are untouched.
+| View | Arm part | Where the axe is |
+|---|---|---|
+| front | `right-arm` | visible, viewer's right (unchanged) |
+| back | `left-arm` | visible, viewer's left, behind the body |
+| facing screen-left | `near-arm` | visible, the upright carry (unchanged) |
+| facing screen-right | `far-arm` | hidden: behind the body while it hangs or walks; drawn behind the body during a swing, so only what the strike carries past the silhouette shows |
 
-Regression test (`tests/equipment.test.ts`, "one axe, one hand"): in live
-frames for every direction, standing, through twelve walking steps and
-through whole swings from the side and from below, exactly one steel
-cluster is drawn, and in the side views every head pixel stays on the
-facing side of the body's centre line; the side attachment's sprite is
-narrower than the Blobbi and sits on the facing side. Visual examples:
-`examples/equipment/axe-blobbi-9.png` (16 and 24 px standing, walking
-frames and swing phases for left and right) and `axe-swing-live.png`.
+Attachments gained `visible` and `arm`. Visibility is separate from
+attachment and animation state, so the swing keeps its timing and the hit
+still lands while facing right, without transferring the tool to the other
+hand. Templates, orientations, proportions, the front appearance, crafting,
+inventory, chopping and the Blobbi anatomy are unchanged. (An interim
+head-down side pose tried before the rule was clarified was reverted.)
+
+Regression tests (`tests/equipment.test.ts`): in live frames, front visible
+on the viewer's right, back visible on the viewer's left, left visible,
+right hidden, standing and through twelve walking steps each; chopping
+while facing right keeps the arm `far-arm`, drawn behind, with the same
+swing timing and the hit registered; the back view strikes from the
+viewer's left; the arm mapping, layers and visibility per view and swing
+state. Images: `examples/equipment/four-directions.png` (standing, walking
+frames and swing phases per direction, by `scripts/four-directions.ts`, kept
+as the visual regression tool), `four-directions-chop-live.png`, and the
+before state `side-views-before-browser.png`.
 
 ## 9. What was reviewed
 
 The user tested crafting, equipping, chopping and regrowth in play and
-approved M2.2 and M2.3 with the side-view fix above. The swing length
-(0.32 s), the head's size at 16 px and the corner icon stand as delivered.
+approved the M2.2 and M2.3 mechanics with the left-hand correction above.
+The swing length (0.32 s), the head's size at 16 px and the corner icon
+stand as delivered.
 
 ## Limitations
 

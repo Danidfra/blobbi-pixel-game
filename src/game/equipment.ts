@@ -17,7 +17,7 @@ import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { ITEMS } from './items';
 
 /** How the tool is held: at rest, pulled back, or striking (sideways, down toward the viewer, up away). */
-export type ToolOrientation = 'rest' | 'lowered' | 'raised' | 'strike' | 'strike-down' | 'strike-up';
+export type ToolOrientation = 'rest' | 'carry' | 'raised' | 'strike' | 'strike-down' | 'strike-up';
 /** The swing's phases, from the live world. */
 export type EquipmentAnimation = 'idle' | 'raise' | 'strike' | 'recover';
 
@@ -28,8 +28,27 @@ export interface Attachment {
   dy: number;
   /** Drawn behind the Blobbi (a hand on the far side) or in front. */
   behind: boolean;
+  /** Whether to draw it at all: a tool in the far hand is occluded by the body while it hangs there. */
+  visible: boolean;
+  /** The kit arm part the tool is attached to (`right-arm`, `left-arm`, `near-arm`, `far-arm`). */
+  arm: string;
   orientation: ToolOrientation;
   mirrored: boolean;
+}
+
+/** The Blobbi's anatomical hands. Tools are held in one hand in every view; the kit names arms by screen side. */
+export type Hand = 'left' | 'right';
+
+/**
+ * The kit arm part that is the given anatomical hand in a pose. From the front the Blobbi's left is the viewer's
+ * right (`right-arm`); from the back it is the viewer's left (`left-arm`); facing screen-left it is the near
+ * arm, facing screen-right the far one.
+ */
+export function armForHand(pose: BlobbiPose, hand: Hand): string {
+  if (pose.view === 'front') return hand === 'left' ? 'right-arm' : 'left-arm';
+  if (pose.view === 'back') return hand === 'left' ? 'left-arm' : 'right-arm';
+  const near = (hand === 'left') === (pose.facing < 0);
+  return near ? 'near-arm' : 'far-arm';
 }
 
 /** Template characters: h/H/d handle mid/light/dark, s/S/k steel mid/light/dark, g the grip pixel (handle). */
@@ -38,9 +57,8 @@ type Template = readonly string[];
 const AXE: Record<ToolOrientation, Template> = {
   // Handle up, head on top, the cutting edge (k) outward (to the right; mirrored when needed).
   rest: ['..Ssk..', '.Ssssk.', '..hssk.', '..h....', '..H....', '..h....', '..g....'],
-  // Held low at the side (the side views' rest): the head hangs below the near hand, edge forward. Compact, so it
-  // reads as one tool in one hand and never crosses the body to the far arm or the face.
-  lowered: ['..g....', '..h....', '..H....', '..hssk.', '.Ssssk.', '..Ssk..'],
+  // Carried over the shoulder (the side views' rest): head up and behind, away from the face, edge forward.
+  carry: ['.Ssk...', 'Sssk...', '..h....', '...H...', '....h..', '.....g.'],
   // Pulled back for the swing: higher and further behind.
   raised: ['Ssk....', 'ssk....', '.h.....', '.h.....', '..H....', '..h....', '...g...'],
   // Sideways strike: the head forward, edge down into the trunk.
@@ -54,12 +72,12 @@ const AXE: Record<ToolOrientation, Template> = {
 export interface EquipmentVisual {
   item: string;
   templates: Record<ToolOrientation, Template>;
-  /** Which hand holds it, per view: the `data-part` of the arm. */
-  arm: { front: string; back: string; side: string };
+  /** The anatomical hand that holds it, in every view. */
+  hand: Hand;
 }
 
 export const EQUIPMENT: Record<string, EquipmentVisual> = {
-  [ITEMS.axe.id]: { item: ITEMS.axe.id, templates: AXE, arm: { front: 'right-arm', back: 'right-arm', side: 'near-arm' } },
+  [ITEMS.axe.id]: { item: ITEMS.axe.id, templates: AXE, hand: 'left' },
 };
 
 export const STEEL: Ramp = ramp(hex('#aeb7c2'), { step: 0.1, hueShift: 4 });
@@ -172,22 +190,31 @@ export class EquipmentRig {
   }
 }
 
-/** Where the tool goes for a pose and animation state: orientation, mirroring, layer and offset. */
+/**
+ * Where the tool goes for a pose and animation state: the arm that is the holding hand in this view, the hand on
+ * it, orientation, mirroring, layer, offset and visibility. The tool never changes hands: facing screen-right the
+ * holding (left) hand is the far one, so the tool sits behind the body, hidden while it hangs there and showing
+ * only where a swing carries it past the silhouette.
+ */
 export function attachTool(item: string, pose: BlobbiPose, animation: EquipmentAnimation, rig: EquipmentRig, spriteOf: (pose: BlobbiPose) => Sprite, palette: WorldPalette): Attachment {
   const visual = EQUIPMENT[item];
-  const arm = pose.view === 'front' ? visual.arm.front : pose.view === 'back' ? visual.arm.back : visual.arm.side;
+  const arm = armForHand(pose, visual.hand);
   const hand = rig.hand(pose, arm, spriteOf);
   const scale = Math.max(1, Math.round(rig.size / 16));
+  const farSide = arm === 'far-arm';
   // The edge faces away from the body (front and back views) or forward (side views).
   const outward = pose.view === 'side' ? pose.facing : hand.dx < 0 ? -1 : 1;
   const mirrored = outward < 0;
-  // At rest the axe hangs head-up at the side (front and back) or head-down from the near hand (side views).
-  let orientation: ToolOrientation = pose.view === 'side' ? 'lowered' : 'rest';
-  let behind = hand.behind;
+  // At rest the axe hangs at the side (front and back) or rides on the shoulder (side views, clear of the face).
+  let orientation: ToolOrientation = pose.view === 'side' ? 'carry' : 'rest';
+  let behind = hand.behind || farSide;
   if (animation === 'raise') orientation = 'raised';
   else if (animation === 'strike') orientation = pose.view === 'front' ? 'strike-down' : pose.view === 'back' ? 'strike-up' : 'strike';
   // Striking or raising from the back view brings the axe above the head, in front of the body.
   if (pose.view === 'back' && (animation === 'raise' || animation === 'strike')) behind = false;
+  // In the far hand the tool is occluded by the body: not drawn while it hangs or walks there; during a swing it
+  // is drawn behind the body, so only what the swing carries past the silhouette shows.
+  const visible = !farSide || animation !== 'idle';
   const sprite = toolSprite(item, orientation, palette, mirrored, scale);
-  return { sprite, dx: hand.dx, dy: hand.dy, behind, orientation, mirrored };
+  return { sprite, dx: hand.dx, dy: hand.dy, behind, visible, arm, orientation, mirrored };
 }
