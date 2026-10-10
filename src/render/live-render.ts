@@ -15,6 +15,8 @@ import { type Color, hex } from '../core/color';
 import { paletteFor } from '../world/generate';
 import { paintTerrain } from './paint-terrain';
 import { turtleUnderlay, turtleBodyForWorld } from './compose';
+import { resourceSprite, RESOURCE_KINDS } from '../game/resources';
+import { PICKUP_SECONDS } from '../sim/live-world';
 import { windAt } from '../sim/live-world';
 import { T, type Layer, type Placement } from '../world/types';
 import type { LiveWorld } from '../sim/live-world';
@@ -27,11 +29,13 @@ export interface LiveRenderOptions {
   debugCollision: boolean;
   /** Draw the brain's path, target and nav grid. */
   debugPath: boolean;
+  /** The resource counter in the corner of the frame. */
+  hud: boolean;
   animateWater: boolean;
   animateWind: boolean;
 }
 
-export const DEFAULT_LIVE_OPTIONS: LiveRenderOptions = { vegetation: true, structures: true, details: true, shadows: true, debugCollision: false, debugPath: false, animateWater: true, animateWind: true };
+export const DEFAULT_LIVE_OPTIONS: LiveRenderOptions = { vegetation: true, structures: true, details: true, shadows: true, debugCollision: false, debugPath: false, animateWater: true, animateWind: true, hud: true };
 
 export interface FrameTimings {
   copy: number;
@@ -234,6 +238,12 @@ export class LiveRenderer {
       const sway = o.animateWind && sprite.swayRow !== undefined ? live.swayOf(world.objects.length + k, p.x, 'tree', time) : 0;
       drawables.push({ y: p.y, x: p.x, sprite, sway, dy: 0 });
     });
+    // Resources on the ground, and the one in reach marked.
+    const reachable = live.nearestResource();
+    for (const n of live.resources) {
+      if (n.x < ox - 8 || n.x > ox + viewW + 8 || n.y < oy - 8 || n.y > oy + viewH + 8) continue;
+      drawables.push({ y: n.y, x: n.x, sprite: resourceSprite(n.kind, n.variant, palette), sway: 0, dy: 0 });
+    }
     // The Blobbi.
     const b = live.blobbi;
     const pose = b.animator.pose(time);
@@ -247,6 +257,31 @@ export class LiveRenderer {
     this.timings.drawn = drawables.length;
     const t3 = performance.now();
 
+    // ── Pickups floating up, the reach marker, the resource counter ──────
+    for (const p of live.pickups) {
+      const t = Math.min(1, (time - p.start) / PICKUP_SECONDS);
+      if (t >= 1 || ((t * 10) | 0) % 3 === 2) continue; // flickers out near the end
+      const s = resourceSprite(p.node.kind, p.node.variant, palette);
+      frame.blit(s.buffer, p.node.x - s.anchorX - ox, p.node.y - s.anchorY - Math.round(t * 14) - oy);
+    }
+    if (reachable) {
+      const s = resourceSprite(reachable.kind, reachable.variant, palette);
+      const bob = Math.round(Math.sin(time * 6) * 1);
+      const mx = reachable.x - ox;
+      const my = reachable.y - s.buffer.height - 3 - oy + bob;
+      const ink = hex('#fffaf0');
+      frame.set(mx, my, ink);
+      frame.set(mx - 1, my - 1, ink);
+      frame.set(mx + 1, my - 1, ink);
+      frame.set(mx, my - 1, ink);
+    }
+    if (o.hud) {
+      const counts = live.counts();
+      const text = RESOURCE_KINDS.map((k) => `${k.toUpperCase()}S ${counts[k]}`).join('  ');
+      const w = text.length * 4 + 3;
+      frame.fillRect(2, 2, w, 9, hex('#1b1f2a'));
+      drawTinyText(frame, text, 4, 4, hex('#f4efe4'));
+    }
     // ── Front particles and the speech bubble ─────────────────────────────
     live.particles.draw(frame, ox, oy, true);
     if (live.bubble) this.drawBubble(frame, live.bubble.text, live.bubble.x - ox, live.bubble.y - oy);

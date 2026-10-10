@@ -19,6 +19,8 @@ import { PALETTES, COZY } from '../core/palette';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex } from '../core/color';
 import { LiveWorld, type LiveInput } from '../sim/live-world';
+import { localStore } from '../game/persistence';
+import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { Camera, LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { blobbiIdentity } from '../blobbi/identity';
 import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT } from '../blobbi/canonical';
@@ -155,7 +157,11 @@ app.innerHTML = `
       <label class="check"><input id="live-debug" type="checkbox" /> debug collision</label>
       <label class="check"><input id="live-autonomy" type="checkbox" /> autonomy (WASD takes over, resumes after 5 s)</label>
       <label class="check"><input id="live-path" type="checkbox" /> debug path and nav grid</label>
-      <div class="hint">WASD / arrows move · E or Space interact · P plant a tree · click the view first</div>
+      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, else interact · P plant a tree · click the view first</div>
+      <h2>Inventory</h2>
+      <div id="inventory" class="stats"></div>
+      <div class="row"><button id="progress-reset">Reset resources &amp; inventory</button></div>
+      <div class="hint">Sticks lie under trees, stones by rocks and on the forest floor, seeds by bushes and flowers. Collected resources and the inventory persist per world in this browser (versioned, keyed by seed, turtle, variant and size). Autonomy never collects.</div>
     </section>
     <section id="panel-blobbi" class="hidden">
       <h2>Blobbi</h2>
@@ -341,8 +347,9 @@ let rafId = 0;
 
 function startLive(): void {
   if (!world) return;
-  live = new LiveWorld(world, state.blobbiSeed, state.blobbiSize);
+  live = new LiveWorld(world, state.blobbiSeed, state.blobbiSize, { store: localStore() });
   liveRenderer = new LiveRenderer(live);
+  showInventory();
   live.clock.speed = state.speed;
   camera.follow(live.blobbi.x, live.blobbi.y, view.width / state.playZoom, view.height / state.playZoom, world.options.width, world.options.height, 0, true);
 }
@@ -404,8 +411,19 @@ function playFrame(now: number): void {
   }
 }
 
+function showInventory(): void {
+  if (!live) return;
+  const inv = live.inventory;
+  const near = live.nearestResource();
+  $('inventory').innerHTML =
+    RESOURCE_KINDS.map((k) => `${RESOURCE_LABEL[k].padEnd(9)} <b>${inv.count(RESOURCE_ITEM[k])}</b> / ${inv.limit(RESOURCE_ITEM[k])}`).join('\n') +
+    `\nleft      ${live.resources.length} of ${live.allResources.length} on the ground   collected ${live.stats.collected} this session` +
+    `\nin reach  ${near ? `<b>${near.kind}</b> (E to collect)` : '-'}   revision ${inv.revision}`;
+}
+
 function showPlayStats(): void {
   if (!live || !liveRenderer) return;
+  showInventory();
   const b = live.blobbi;
   const t = liveRenderer.timings;
   $('stats').innerHTML =
@@ -441,6 +459,11 @@ $('play-toggle').addEventListener('click', () => {
 });
 $('play-reset').addEventListener('click', () => {
   startLive();
+  view.focus();
+});
+$('progress-reset').addEventListener('click', () => {
+  live?.resetProgress();
+  showInventory();
   view.focus();
 });
 $('play-speed').addEventListener('change', (e) => {

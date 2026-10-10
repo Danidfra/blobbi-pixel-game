@@ -14,7 +14,7 @@ Farm). It is **not a game** and **not a package**. Findings are in
 [REPORT-2.md](./REPORT-2.md) (phase 2: the living world) and
 [REPORT-3.md](./REPORT-3.md) (phase 3: Blobbi fidelity, world scale, the
 comparison lab), [REPORT-4.md](./REPORT-4.md) (phase 4: faces, mouths and
-horns) and [REPORT-M1.md](./REPORT-M1.md) (M1: the living turtle) and [REPORT-SHELL.md](./REPORT-SHELL.md) (shell variants and the World Carrier). The
+horns) and [REPORT-M1.md](./REPORT-M1.md) (M1: the living turtle) and [REPORT-SHELL.md](./REPORT-SHELL.md) (shell variants and the World Carrier) and [REPORT-M2.1.md](./REPORT-M2.1.md) (M2.1: resource gathering). The
 milestones are in [ROADMAP.md](./ROADMAP.md).
 
 **M1: the turtle is the island.** `src/turtle/turtle.ts` generates a
@@ -91,9 +91,29 @@ seed ─► world/layout ─► world/terrain ─► world/bridges ─► world/
 | `blobbi/animation.ts` | Pose state machine: walk phases, breathing, seeded blink and glance schedules, turning through a side frame, reactions with a hop. |
 | `sim/clock.ts`, `sim/collision.ts`, `sim/particles.ts`, `sim/live-world.ts` | Fixed-step clock with speed and pause; walkability mask (water, footprints, cliff rims, bridges and piers) with sliding movement; seeded particles (leaves, petals, sparkles, hearts, notes, smoke, dust); the live world: input, wind, ambient events, interactions, planting and growth. |
 | `render/paint-terrain.ts`, `render/compose.ts`, `render/live-render.ts` | Terrain painter; the static compositor; the live renderer: cached static layer, per-frame foam and wave strokes from precomputed lists, objects with wind sway, the Blobbi in painter's order, particles, speech bubble, debug overlay, camera. |
+| `carrier/` | The World Carrier: the turtle as the creature carrying the island. Shell variants (B default), the carrier record (species, variant, coverage, canvas, the island frame's `origin`), the enlarged-shell anatomy fit, the procedural shell surface (plates, soil, moss, lip) and the embedding of an island-frame world into the carrier's canvas by one explicit translation. |
+| `game/resources.ts`, `game/inventory.ts`, `game/persistence.ts` | M2.1 gameplay: resource nodes generated from the world (sticks, stones, seeds; stable ids), the local inventory (item ids, stack limits, snapshots; shaped for a later `@nostr-games/inventory` adapter), and the versioned per-world save record (collected nodes, inventory) in any key-value store. |
 | `render/audit.ts` | Structural validity checks. |
 | `playground/` | Vanilla TypeScript and Canvas 2D. |
 | `scripts/` | `render-seeds`, `sheet` (one object kind), `blobbi-sheet`, `growth-sheet`, `live-frames` (scripted headless run to PNG), `perf`. |
+
+### World growth (requirements for later milestones)
+
+The island and the turtle will grow. Growth is not implemented; these rules
+keep the door open (full list in `ROADMAP.md`):
+
+- Stable world coordinates: new land is added around the existing island
+  frame, never by scaling. A translation of the frame (as the carrier does
+  today with `origin`) is explicit and tested.
+- Nothing already generated changes: terrain pixels, buildings, object and
+  Blobbi dimensions keep their classes, places and sizes.
+- Region-based generation from `(seed, region)` keyed streams, so a new
+  region never re-rolls an old one; the shell outline is the union of the
+  regions.
+- Deterministic from a growth history (`[{region, seed, unlockedAt}]`), which
+  is also what a future Nostr layer would publish; the M2.1 save record
+  (versioned, keyed by world identity) is its local seed.
+- No region machinery until growth is scheduled.
 
 ### Why Canvas 2D and a software raster
 

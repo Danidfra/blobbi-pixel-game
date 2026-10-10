@@ -21,6 +21,9 @@ import { blobbiIdentity, type PixelBlobbiIdentity } from '../blobbi/identity';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
 import { Brain, NavGrid } from './brain';
+import { generateResources, kindOfItem, REACH, RESOURCE_ITEM, RESOURCE_LABEL, RESOURCE_STACK, type ResourceKind, type ResourceNode } from '../game/resources';
+import { Inventory } from '../game/inventory';
+import { loadSave, storeSave, clearSave, worldIdentity, type KeyValueStore } from '../game/persistence';
 
 export interface LiveInput {
   up: boolean;
@@ -66,6 +69,21 @@ export interface LiveStats {
   interactions: number;
   particles: number;
   planted: number;
+  /** Resources collected by the player in this session. */
+  collected: number;
+}
+
+/** A resource being picked up: its sprite floats up from the node for a moment. */
+export interface Pickup {
+  node: ResourceNode;
+  start: number;
+}
+
+export const PICKUP_SECONDS = 0.55;
+
+export interface LiveOptions {
+  /** Where collected resources and the inventory persist; nothing persists without it. */
+  store?: KeyValueStore | null;
 }
 
 /** Wind strength 0..1 at a world x and time: slow gusts that travel across the map. */
@@ -73,6 +91,11 @@ export function windAt(time: number, x: number): number {
   const gust = Math.sin(time * 0.45 - x / 140) * Math.sin(time * 0.17 + 0.8);
   return Math.max(0, gust) ** 1.5;
 }
+
+const stackLimit = (item: string): number => {
+  const kind = kindOfItem(item);
+  return kind ? RESOURCE_STACK[kind] : 99;
+};
 
 export class LiveWorld {
   readonly clock = new SimClock();
@@ -93,7 +116,17 @@ export class LiveWorld {
   readonly impulses = new Map<number, { until: number; strength: number }>();
   bubble: Bubble | null = null;
   growDuration = 45;
-  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0 };
+  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0, collected: 0 };
+  /** Resource nodes still on the ground (the generated set minus what the player collected). */
+  resources: ResourceNode[] = [];
+  /** Every node the world generates, collected or not. */
+  readonly allResources: ResourceNode[];
+  readonly collected = new Set<string>();
+  inventory: Inventory;
+  readonly pickups: Pickup[] = [];
+  /** The identity the save record is keyed by. */
+  readonly identity: string;
+  private readonly store: KeyValueStore | null;
   private readonly ambient: Rng;
   private readonly shallow: Int32Array;
   private readonly chimneys: { x: number; y: number }[] = [];
@@ -105,7 +138,10 @@ export class LiveWorld {
     readonly world: WorldDescription,
     blobbiSeed: string,
     blobbiSize = 16,
+    options: LiveOptions = {},
   ) {
+    this.store = options.store ?? null;
+    this.identity = worldIdentity(world);
     this.particles = new ParticleSystem(world.seed);
     this.ambient = stream(world.seed, 'ambient');
     const phases = stream(world.seed, 'sway');
@@ -125,6 +161,77 @@ export class LiveWorld {
     this.blobbi = this.makeBlobbi(blobbiSeed, blobbiSize);
     this.placeBlobbiAtStart();
     this.rebuildBrain();
+    // Resources on the ground, minus what a saved game says the player already collected.
+    this.allResources = generateResources(world, (x, y, rx, ry) => this.collision.canStand(x, y, rx, ry));
+    this.inventory = new Inventory(this.identity, stackLimit);
+    const save = this.store ? loadSave(this.store, this.identity) : null;
+    if (save) {
+      for (const id of save.collected) this.collected.add(id);
+      this.inventory = Inventory.fromSnapshot(save.inventory, stackLimit);
+    }
+    this.resources = this.allResources.filter((n) => !this.collected.has(n.id));
+  }
+
+  /** The resource node within reach of the Blobbi, nearest first, or null. Reach is from the ground point. */
+  nearestResource(reach = REACH): ResourceNode | null {
+    const b = this.blobbi;
+    let best: ResourceNode | null = null;
+    let bestD = Infinity;
+    for (const n of this.resources) {
+      const d = Math.hypot(n.x - b.x, (n.y - b.y) * 1.25);
+      if (d <= reach && d < bestD) {
+        best = n;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Collect the nearest resource in reach. Only the player's own interaction calls this; the brain never does.
+   * Returns the node collected, or null (nothing in reach, or the stack is full).
+   */
+  collect(): ResourceNode | null {
+    const node = this.nearestResource();
+    if (!node) return null;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const item = RESOURCE_ITEM[node.kind];
+    if (this.inventory.add(item, 1) === 0) {
+      this.bubble = { text: `${RESOURCE_LABEL[node.kind]} full`, until: time + 1.6, x: b.x, y: b.y - b.size - 2 };
+      b.animator.react('sad', time, 0.8, 0);
+      return null;
+    }
+    this.collected.add(node.id);
+    this.resources = this.resources.filter((n) => n !== node);
+    this.pickups.push({ node, start: time });
+    this.particles.sparkle(node.x, node.y - 2, hex('#ffffff'));
+    this.particles.sparkle(node.x + 2, node.y - 1, hex('#fff2b0'));
+    this.bubble = { text: `+1 ${node.kind}  ${this.inventory.count(item)}/${this.inventory.limit(item)}`, until: time + 1.4, x: b.x, y: b.y - b.size - 2 };
+    b.animator.react('happy', time, 0.7, 2);
+    this.stats.collected++;
+    this.save();
+    return node;
+  }
+
+  /** Counts per resource kind, for the HUD. */
+  counts(): Record<ResourceKind, number> {
+    return { stick: this.inventory.count(RESOURCE_ITEM.stick), stone: this.inventory.count(RESOURCE_ITEM.stone), seed: this.inventory.count(RESOURCE_ITEM.seed) };
+  }
+
+  /** Write the collected set and the inventory to the store, if there is one. */
+  save(): void {
+    if (!this.store) return;
+    storeSave(this.store, { version: 1, world: this.identity, collected: [...this.collected].sort(), inventory: this.inventory.snapshot() });
+  }
+
+  /** Forget this world's progress: every node is back and the inventory is empty. */
+  resetProgress(): void {
+    if (this.store) clearSave(this.store, this.identity);
+    this.collected.clear();
+    this.inventory = new Inventory(this.identity, stackLimit);
+    this.resources = [...this.allResources];
+    this.pickups.length = 0;
   }
 
   /** The nav grid and brain depend on the Blobbi's foot size and the world; rebuilt when either changes. */
@@ -231,8 +338,10 @@ export class LiveWorld {
     this.movedLastStep = Math.hypot(b.x - before.x, b.y - before.y) > 0.01;
     b.animator.step(dt, time, { moving, direction });
     b.animator.state.sleeping = this.brain.state === 'rest';
+    // The brain's interactions never touch resources; the player's try to collect first.
     if (brainInteract) this.interact();
-    if (input.interact) this.interact();
+    if (input.interact && !this.collect()) this.interact();
+    while (this.pickups.length && time - this.pickups[0].start > PICKUP_SECONDS) this.pickups.shift();
     if (input.plant) this.plantTree();
 
     // ── Ambient life ──────────────────────────────────────────────────────

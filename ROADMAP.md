@@ -60,16 +60,82 @@ plates, soil and moss), and a minimal World / World Carrier separation
 (`src/carrier/`). Head, face, neck, flippers, expressions, animations,
 terrain, collision, navigation and the Blobbi are identical in all four
 (tested). Baseline commit `ccc2021`. Images in `examples/turtle/variants/`.
-- [ ] The user selects a preferred variant (or keeps 0). Not complete until
-      then.
+- [x] The user selected Variant B (70%) as the default (2026-10-10); the
+      other variants stay selectable. M1 committed locally as `0d9e88c`.
 
 Known gaps to review: expression range of the turtle (one head design),
 flipper animation is a 1 px paddle, the Blobbi has no sit/sleep pose for
 resting beyond closed eyes, the plateau is one level.
 
-## M2 and beyond (not started)
+## World growth: architectural requirements (documented, not implemented)
 
-From the scope list: resource gathering, inventory, crafting, buildings
-with interiors, farming gameplay, multiplayer, Nostr integration, Bitcoin
-payments, combat. Each belongs to a later milestone and none is touched by
-M1.
+The turtle and its playable island must grow over time. Growth is a later
+milestone; these are the requirements every milestone before it must not
+break. See also the "World growth" section of README.md.
+
+Growth must:
+- expand the playable terrain and the turtle's shell;
+- preserve existing buildings, object dimensions and Blobbi dimensions:
+  nothing is rescaled, a 16 px Blobbi stays 16 px, a house stays where it
+  was and as big as it was;
+- preserve previously generated terrain: every pixel the player has walked
+  on keeps its class, elevation and coordinates;
+- introduce new procedural regions beside the old ones;
+- stay deterministic: the same seed and the same growth history give the
+  same world;
+- support future persistence through Nostr: the growth history, not the
+  raster, is what gets published.
+
+Design constraints:
+- **Stable world coordinates.** The island frame introduced with the World
+  Carrier (`carrier.origin`, a whole-cell translation of a frame that never
+  changes) is the pattern: new land is added around the old frame, never by
+  scaling the world. Coordinates a save file or a Nostr event refers to must
+  mean the same place forever; a growth step may enlarge the canvas and
+  translate the origin, and that translation is explicit and tested, as it
+  is today.
+- **Region-based generation.** Terrain, placement and resources are
+  generated per region (the current island is region 0) from `(seed, region
+  id)` keyed streams, so adding region N never re-rolls regions 0..N-1.
+  Shore bands, paths and bridges between regions are resolved at region
+  boundaries, the way bridges are resolved off the raster today.
+- **The carrier grows with the island.** The shell's radius function is the
+  union of the regions' outlines; anatomy part sizes stay fixed (the shell
+  fit already separates part sizes from shell size), positions follow the
+  edge by whole pixels.
+- **Save and protocol state is a history, not a snapshot of pixels:**
+  `[{region, seed, unlockedAt}]` plus the player's per-region state. The
+  M2.1 persistence record (versioned, keyed by world identity) is the
+  seed of this; growth adds a version.
+- **Avoid premature complexity.** No region system is built until growth is
+  scheduled. Until then: keep generation keyed by seed and feature, keep
+  every coordinate in the island frame, keep sizes absolute (never relative
+  to the canvas), and keep the carrier the only thing that knows the canvas.
+
+## M2: Gameplay (in progress; not complete)
+
+### M2.1: Resource gathering (implemented, awaiting gameplay review)
+
+Report: `REPORT-M2.1.md`. Images: `examples/gathering/`.
+- [x] Resources in the procedural world: sticks under trees, stones by rocks
+      and on the forest floor, seeds by bushes and flowers; deterministic,
+      on walkable ground, stable ids.
+- [x] Collection with E within reach (11 px from the ground point, never
+      through a footprint), with pickup animation, sparkles, bubble,
+      counter and panel; stack limits with feedback.
+- [x] Local inventory (`src/game/inventory.ts`): item ids, quantities, stack
+      limits, add/remove, snapshots; shape compatible with
+      `@nostr-games/inventory` without reimplementing its protocol.
+- [x] Local persistence (`src/game/persistence.ts`): versioned record per
+      world identity; collected nodes stay gone across reloads, the
+      inventory survives; unrelated worlds never mix; reset button.
+- [x] Autonomy never collects; manual control overrides at once.
+- [x] Tests: 110 passing (9 new); typecheck and build pass.
+- [ ] Gameplay review by the user.
+
+### M2.2 and beyond (not started)
+
+Crafting, tools, building construction, farming, survival, Nostr events
+(inventory as kind:31633 through `@nostr-games/inventory`), multiplayer,
+payments, world growth (see the requirements above), combat. None is touched
+by M2.1.
