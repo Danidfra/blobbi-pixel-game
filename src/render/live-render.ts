@@ -16,6 +16,8 @@ import { paletteFor } from '../world/generate';
 import { paintTerrain } from './paint-terrain';
 import { turtleUnderlay, turtleBodyForWorld } from './compose';
 import { resourceSprite, RESOURCE_KINDS } from '../game/resources';
+import { ITEMS } from '../game/items';
+import { attachTool, toolIcon, EQUIPMENT } from '../game/equipment';
 import { PICKUP_SECONDS } from '../sim/live-world';
 import { windAt } from '../sim/live-world';
 import { T, type Layer, type Placement } from '../world/types';
@@ -61,6 +63,8 @@ interface Drawable {
   sprite: Sprite;
   sway: number;
   dy: number;
+  /** World offset of the sprite's anchor from (x, y), for attached equipment. */
+  offset?: { x: number; y: number };
 }
 
 export class Camera {
@@ -226,8 +230,8 @@ export class LiveRenderer {
     for (const { index, p } of this.sorted) {
       if (!enabled(p.layer)) continue;
       if (p.x < ox - margin || p.x > ox + viewW + margin || p.y < oy - margin || p.y > oy + viewH + margin) continue;
-      const sprite = live.spriteOf(p);
-      const sway = o.animateWind && sprite.swayRow !== undefined ? live.swayOf(index, p.x, p.kind, time) : 0;
+      const sprite = live.objectSprite(index);
+      const sway = (o.animateWind && sprite.swayRow !== undefined) || live.impulses.has(index) ? live.swayOf(index, p.x, p.kind, time) : 0;
       drawables.push({ y: p.y, x: p.x, sprite, sway, dy: 0 });
     }
     live.planted.forEach((t, k) => {
@@ -251,9 +255,15 @@ export class LiveRenderer {
     const bx = Math.round(b.x);
     const by = Math.round(b.y);
     if (o.shadows) this.paintShadow(frame, bx, by - 1, b.footRx, 2, ox, oy);
-    drawables.push({ y: by, x: bx, sprite: bs, sway: 0, dy: b.animator.hop(time) });
+    const hop = b.animator.hop(time);
+    drawables.push({ y: by, x: bx, sprite: bs, sway: 0, dy: hop });
+    // The equipped tool, attached to a hand, just behind or just in front of the Blobbi in the painter's order.
+    if (live.equipped && EQUIPMENT[live.equipped]) {
+      const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), live.rig, (p) => live.blobbiSprite(p), palette);
+      drawables.push({ y: by, x: bx + (at.behind ? -0.5 : 0.5), sprite: at.sprite, sway: 0, dy: hop, offset: { x: at.dx, y: at.dy } });
+    }
     drawables.sort((a, c) => a.y - c.y || a.x - c.x);
-    for (const d of drawables) this.blitSway(frame, d.sprite, d.x - d.sprite.anchorX - ox, d.y - d.sprite.anchorY - oy + d.dy, d.sway);
+    for (const d of drawables) this.blitSway(frame, d.sprite, Math.round(d.x + (d.offset?.x ?? 0)) - d.sprite.anchorX - ox, d.y + (d.offset?.y ?? 0) - d.sprite.anchorY - oy + d.dy, d.sway);
     this.timings.drawn = drawables.length;
     const t3 = performance.now();
 
@@ -277,10 +287,16 @@ export class LiveRenderer {
     }
     if (o.hud) {
       const counts = live.counts();
-      const text = RESOURCE_KINDS.map((k) => `${k.toUpperCase()}S ${counts[k]}`).join('  ');
+      const text = RESOURCE_KINDS.map((k) => `${k.toUpperCase()}S ${counts[k]}`).join('  ') + `  WOOD ${live.inventory.count(ITEMS.wood.id)}`;
       const w = text.length * 4 + 3;
       frame.fillRect(2, 2, w, 9, hex('#1b1f2a'));
       drawTinyText(frame, text, 4, 4, hex('#f4efe4'));
+      // The equipped tool's icon beside the counter.
+      if (live.equipped && EQUIPMENT[live.equipped]) {
+        const icon = toolIcon(live.equipped, palette);
+        frame.fillRect(2 + w + 1, 2, icon.buffer.width + 2, icon.buffer.height + 2, hex('#1b1f2a'));
+        frame.blit(icon.buffer, 2 + w + 2, 3);
+      }
     }
     // ── Front particles and the speech bubble ─────────────────────────────
     live.particles.draw(frame, ox, oy, true);

@@ -9,15 +9,16 @@ import { hex, type Color } from '../core/color';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import type { WorldPalette } from '../core/palette';
 import { T, WALKABLE, type Placement, type WorldDescription } from '../world/types';
+import { ITEMS } from './items';
 
 export type ResourceKind = 'stick' | 'stone' | 'seed';
 export const RESOURCE_KINDS: readonly ResourceKind[] = ['stick', 'stone', 'seed'];
 
-/** Item ids in the `game:category:name` style of the inventory protocol's `d` tags. */
-export const RESOURCE_ITEM: Record<ResourceKind, string> = { stick: 'blobbi-pixel:resource:stick', stone: 'blobbi-pixel:resource:stone', seed: 'blobbi-pixel:resource:seed' };
-export const RESOURCE_LABEL: Record<ResourceKind, string> = { stick: 'sticks', stone: 'stones', seed: 'seeds' };
+/** Item ids and labels from the item registry. */
+export const RESOURCE_ITEM: Record<ResourceKind, string> = { stick: ITEMS.stick.id, stone: ITEMS.stone.id, seed: ITEMS.seed.id };
+export const RESOURCE_LABEL: Record<ResourceKind, string> = { stick: ITEMS.stick.plural, stone: ITEMS.stone.plural, seed: ITEMS.seed.plural };
 /** Stack limits per resource. */
-export const RESOURCE_STACK: Record<ResourceKind, number> = { stick: 50, stone: 30, seed: 20 };
+export const RESOURCE_STACK: Record<ResourceKind, number> = { stick: ITEMS.stick.stack, stone: ITEMS.stone.stack, seed: ITEMS.seed.stack };
 
 export const kindOfItem = (item: string): ResourceKind | null => (RESOURCE_KINDS.find((k) => RESOURCE_ITEM[k] === item) ?? null);
 

@@ -14,8 +14,15 @@ export interface KeyValueStore {
   remove(key: string): void;
 }
 
-export const SAVE_VERSION = 1;
-const PREFIX = 'blobbi-pixel-lab:save';
+/** The record schema. 1: collected nodes and inventory (M2.1). 2: adds the equipped tool, tree states and world time (M2.2). */
+export const SAVE_VERSION = 2;
+/** The key namespace: records of every schema this code can migrate share it. */
+const NAMESPACE = 'blobbi-pixel-lab:save:v1';
+
+export interface TreeSaveState {
+  hits: number;
+  harvestedAt: number | null;
+}
 
 export interface WorldSave {
   version: typeof SAVE_VERSION;
@@ -24,6 +31,12 @@ export interface WorldSave {
   /** Ids of the resource nodes the player collected. */
   collected: string[];
   inventory: InventorySnapshot;
+  /** The equipped tool's item id, or null. */
+  equipped: string | null;
+  /** Harvest state per tree placement index (only trees that were ever chopped). */
+  trees: Record<string, TreeSaveState>;
+  /** Simulated seconds this world has lived, so regrowth continues across reloads. */
+  worldTime: number;
 }
 
 /** Everything that decides which world this is: seed, kind, turtle, shell variant, canvas and scale. */
@@ -34,17 +47,34 @@ export function worldIdentity(world: WorldDescription): string {
 }
 
 export function saveKey(identity: string): string {
-  return `${PREFIX}:v${SAVE_VERSION}:${identity}`;
+  return `${NAMESPACE}:${identity}`;
 }
 
+/** Read a record; a version 1 record is migrated, anything else unknown or malformed is ignored whole. */
 export function loadSave(store: KeyValueStore, identity: string): WorldSave | null {
   const raw = store.get(saveKey(identity));
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<WorldSave>;
-    if (parsed.version !== SAVE_VERSION || parsed.world !== identity) return null;
+    const parsed = JSON.parse(raw) as Partial<Omit<WorldSave, 'version' | 'trees'>> & { version?: number; trees?: Record<string, Partial<TreeSaveState>> };
+    if ((parsed.version !== 1 && parsed.version !== 2) || parsed.world !== identity) return null;
     if (!Array.isArray(parsed.collected) || !parsed.inventory || parsed.inventory.version !== 1) return null;
-    return { version: SAVE_VERSION, world: identity, collected: parsed.collected.filter((id) => typeof id === 'string'), inventory: parsed.inventory };
+    const trees: Record<string, TreeSaveState> = {};
+    if (parsed.version === 2 && parsed.trees && typeof parsed.trees === 'object')
+      for (const [k, v] of Object.entries(parsed.trees)) {
+        if (!/^\d+$/.test(k) || !v || typeof v !== 'object') continue;
+        const hits = typeof v.hits === 'number' && Number.isInteger(v.hits) && v.hits >= 0 ? v.hits : 0;
+        const harvestedAt = typeof v.harvestedAt === 'number' && Number.isFinite(v.harvestedAt) ? v.harvestedAt : null;
+        if (hits > 0 || harvestedAt !== null) trees[k] = { hits, harvestedAt };
+      }
+    return {
+      version: SAVE_VERSION,
+      world: identity,
+      collected: parsed.collected.filter((id) => typeof id === 'string'),
+      inventory: parsed.inventory,
+      equipped: parsed.version === 2 && typeof parsed.equipped === 'string' ? parsed.equipped : null,
+      trees,
+      worldTime: parsed.version === 2 && typeof parsed.worldTime === 'number' && Number.isFinite(parsed.worldTime) && parsed.worldTime >= 0 ? parsed.worldTime : 0,
+    };
   } catch {
     return null;
   }

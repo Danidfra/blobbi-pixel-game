@@ -33,6 +33,8 @@ export interface CanonicalOptions {
   outline?: boolean;
   /** Gradient bands (default 4). */
   bands?: number;
+  /** Extra `data-part` prefixes to leave out (the equipment layer finds a hand by drawing the sprite without its arm). */
+  skipParts?: readonly string[];
 }
 
 /** Map a lab pose onto the kit's state. */
@@ -89,7 +91,7 @@ export function buildCanonicalSprite(genome: BlobbiGenome, pose: BlobbiPose, siz
     height,
     bands: options.bands ?? 4,
     outline,
-    skipParts: ['body-shadow', 'left-foot-shadow', 'right-foot-shadow', 'near-foot-shadow', 'far-foot-shadow', 'ground-shadow'],
+    skipParts: ['body-shadow', 'left-foot-shadow', 'right-foot-shadow', 'near-foot-shadow', 'far-foot-shadow', 'ground-shadow', ...(options.skipParts ?? [])],
     // The kit paints markings at half opacity over a gradient; at pixel scale that contrast is lost, so markings
     // are given a floor. The colour and the shape are still the kit's.
     minOpacity: { pattern: 0.8, 'special-mark': 1, freckle: 1 },

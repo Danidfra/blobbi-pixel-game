@@ -21,6 +21,10 @@ import { hex } from '../core/color';
 import { LiveWorld, type LiveInput } from '../sim/live-world';
 import { localStore } from '../game/persistence';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
+import { ITEMS, itemLabel } from '../game/items';
+import { RECIPES, canCraft } from '../game/crafting';
+import { toolIcon } from '../game/equipment';
+import { paletteFor } from '../world/generate';
 import { Camera, LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { blobbiIdentity } from '../blobbi/identity';
 import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT } from '../blobbi/canonical';
@@ -157,9 +161,14 @@ app.innerHTML = `
       <label class="check"><input id="live-debug" type="checkbox" /> debug collision</label>
       <label class="check"><input id="live-autonomy" type="checkbox" /> autonomy (WASD takes over, resumes after 5 s)</label>
       <label class="check"><input id="live-path" type="checkbox" /> debug path and nav grid</label>
-      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, else interact · P plant a tree · click the view first</div>
+      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, chop a tree with the axe, else interact · C craft · Q equip · P plant a tree · click the view first</div>
       <h2>Inventory</h2>
       <div id="inventory" class="stats"></div>
+      <div class="row" id="axe-icon-row" style="align-items:center;gap:8px"><canvas id="axe-icon" width="36" height="36"></canvas><span class="hint" id="axe-icon-label">simple axe</span></div>
+      <h2>Crafting</h2>
+      <div id="crafting" class="stats"></div>
+      <div class="row"><button id="craft-axe" class="primary">Craft simple axe (C)</button><button id="equip-axe">Equip axe (Q)</button></div>
+      <div class="hint">Simple axe: 3 sticks + 2 stones. With the axe equipped, face a tree and press E three times to fell it: wood goes in the bag, a stump stays, and the same tree regrows over four minutes of world time (continuing across reloads).</div>
       <div class="row"><button id="progress-reset">Reset resources &amp; inventory</button></div>
       <div class="hint">Sticks lie under trees, stones by rocks and on the forest floor, seeds by bushes and flowers. Collected resources and the inventory persist per world in this browser (versioned, keyed by seed, turtle, variant and size). Autonomy never collects.</div>
     </section>
@@ -349,6 +358,7 @@ function startLive(): void {
   if (!world) return;
   live = new LiveWorld(world, state.blobbiSeed, state.blobbiSize, { store: localStore() });
   liveRenderer = new LiveRenderer(live);
+  drawAxeIcon();
   showInventory();
   live.clock.speed = state.speed;
   camera.follow(live.blobbi.x, live.blobbi.y, view.width / state.playZoom, view.height / state.playZoom, world.options.width, world.options.height, 0, true);
@@ -417,8 +427,49 @@ function showInventory(): void {
   const near = live.nearestResource();
   $('inventory').innerHTML =
     RESOURCE_KINDS.map((k) => `${RESOURCE_LABEL[k].padEnd(9)} <b>${inv.count(RESOURCE_ITEM[k])}</b> / ${inv.limit(RESOURCE_ITEM[k])}`).join('\n') +
+    `\nwood      <b>${inv.count(ITEMS.wood.id)}</b> / ${inv.limit(ITEMS.wood.id)}\naxe       <b>${inv.count(ITEMS.axe.id) ? (live.equipped === ITEMS.axe.id ? 'equipped' : 'in the bag') : 'none'}</b>` +
     `\nleft      ${live.resources.length} of ${live.allResources.length} on the ground   collected ${live.stats.collected} this session` +
     `\nin reach  ${near ? `<b>${near.kind}</b> (E to collect)` : '-'}   revision ${inv.revision}`;
+  const lines = RECIPES.map((r) => {
+    const check = canCraft(inv, r);
+    const ings = r.ingredients.map((i) => `${inv.count(i.item) >= i.quantity ? '<b>' : ''}${i.quantity} ${itemLabel(i.item)} (${inv.count(i.item)})${inv.count(i.item) >= i.quantity ? '</b>' : ''}`).join(' + ');
+    return `${r.label.padEnd(11)} ${ings} → ${check.ok ? '<b>ready</b>' : check.outputFull ? 'already own one' : 'missing ingredients'}`;
+  });
+  const facing = live.facingObject();
+  let treeLine = '';
+  if (facing && facing.placement.kind === 'tree' && facing.index < live.world.objects.length) {
+    const c = live.treeAt(facing.index);
+    if (c.phase === 'grown' || c.phase === 'chopping') treeLine = `facing a tree: ${live.equipped === ITEMS.axe.id ? `E to chop (${live.trees.get(facing.index)?.hits ?? 0}/3)` : 'equip the axe to chop'}`;
+    else treeLine = `facing a ${c.phase === 'stump' ? 'stump' : 'regrowing tree'}, ${Math.ceil(c.remaining)} s to regrow`;
+  }
+  $('crafting').innerHTML = lines.join('\n') + `\nchops ${live.stats.chops}   felled ${live.stats.felled}   crafted ${live.stats.crafted}   world time ${live.worldTime.toFixed(0)} s` + (treeLine ? `\n${treeLine}` : '');
+  $('craft-axe').toggleAttribute('disabled', !canCraft(inv, RECIPES[0]).ok);
+  $('equip-axe').textContent = live.equipped === ITEMS.axe.id ? 'Unequip axe (Q)' : 'Equip axe (Q)';
+  $('equip-axe').toggleAttribute('disabled', inv.count(ITEMS.axe.id) === 0);
+  $('axe-icon-row').classList.toggle('hidden', inv.count(ITEMS.axe.id) === 0);
+  $('axe-icon-label').textContent = live.equipped === ITEMS.axe.id ? 'simple axe, equipped (in hand)' : 'simple axe, in the bag';
+  if (live.swing) $('crafting').innerHTML += `\nswing     ${live.equipmentAnimation(live.clock.time)}`;
+}
+
+function drawAxeIcon(): void {
+  const c = $<HTMLCanvasElement>('axe-icon');
+  const icon = toolIcon(ITEMS.axe.id, paletteFor(state.options.palette), 4);
+  c.width = icon.buffer.width;
+  c.height = icon.buffer.height;
+  c.getContext('2d')!.drawImage(toCanvas(icon.buffer), 0, 0);
+}
+
+function craftAxe(): void {
+  if (!live) return;
+  live.craftRecipe(RECIPES[0]);
+  showInventory();
+}
+
+function toggleAxe(): void {
+  if (!live) return;
+  if (live.equipped === ITEMS.axe.id) live.unequip();
+  else live.equip(ITEMS.axe.id);
+  showInventory();
 }
 
 function showPlayStats(): void {
@@ -447,6 +498,12 @@ view.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyE' || e.code === 'Space') interactPressed = true;
   if (e.code === 'KeyP') plantPressed = true;
+  if (e.code === 'KeyC') craftAxe();
+  if (e.code === 'KeyQ') toggleAxe();
+});
+window.addEventListener('beforeunload', () => live?.save());
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) live?.save();
 });
 view.addEventListener('keyup', (e) => keys.delete(e.code));
 view.addEventListener('blur', () => keys.clear());
@@ -459,6 +516,14 @@ $('play-toggle').addEventListener('click', () => {
 });
 $('play-reset').addEventListener('click', () => {
   startLive();
+  view.focus();
+});
+$('craft-axe').addEventListener('click', () => {
+  craftAxe();
+  view.focus();
+});
+$('equip-axe').addEventListener('click', () => {
+  toggleAxe();
   view.focus();
 });
 $('progress-reset').addEventListener('click', () => {

@@ -21,9 +21,13 @@ import { blobbiIdentity, type PixelBlobbiIdentity } from '../blobbi/identity';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
 import { Brain, NavGrid } from './brain';
-import { generateResources, kindOfItem, REACH, RESOURCE_ITEM, RESOURCE_LABEL, RESOURCE_STACK, type ResourceKind, type ResourceNode } from '../game/resources';
+import { generateResources, REACH, RESOURCE_ITEM, RESOURCE_LABEL, type ResourceKind, type ResourceNode } from '../game/resources';
 import { Inventory } from '../game/inventory';
-import { loadSave, storeSave, clearSave, worldIdentity, type KeyValueStore } from '../game/persistence';
+import { loadSave, storeSave, clearSave, worldIdentity, type KeyValueStore, type TreeSaveState } from '../game/persistence';
+import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } from '../game/items';
+import { canCraft, craft, type Recipe } from '../game/crafting';
+import { HITS_TO_FELL, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
+import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
 
 export interface LiveInput {
   up: boolean;
@@ -71,6 +75,10 @@ export interface LiveStats {
   planted: number;
   /** Resources collected by the player in this session. */
   collected: number;
+  /** Axe hits, trees felled and items crafted by the player in this session. */
+  chops: number;
+  felled: number;
+  crafted: number;
 }
 
 /** A resource being picked up: its sprite floats up from the node for a moment. */
@@ -80,6 +88,17 @@ export interface Pickup {
 }
 
 export const PICKUP_SECONDS = 0.55;
+
+/** The axe swing: raise, strike (the hit lands), recover. Seconds from the press. */
+export const SWING = { raise: 0.1, hit: 0.18, end: 0.32 } as const;
+
+export interface Swing {
+  start: number;
+  /** The tree's placement index. */
+  index: number;
+  /** Whether the hit has landed. */
+  landed: boolean;
+}
 
 export interface LiveOptions {
   /** Where collected resources and the inventory persist; nothing persists without it. */
@@ -92,10 +111,7 @@ export function windAt(time: number, x: number): number {
   return Math.max(0, gust) ** 1.5;
 }
 
-const stackLimit = (item: string): number => {
-  const kind = kindOfItem(item);
-  return kind ? RESOURCE_STACK[kind] : 99;
-};
+const stackLimit = (item: string): number => registryStack(item);
 
 export class LiveWorld {
   readonly clock = new SimClock();
@@ -116,7 +132,19 @@ export class LiveWorld {
   readonly impulses = new Map<number, { until: number; strength: number }>();
   bubble: Bubble | null = null;
   growDuration = 45;
-  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0, collected: 0 };
+  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0, collected: 0, chops: 0, felled: 0, crafted: 0 };
+  /** The equipped tool's item id, or null. Only the player equips. */
+  equipped: string | null = null;
+  /** Harvest state per world tree (placement index); absent means an untouched, grown tree. */
+  readonly trees = new Map<number, TreeState>();
+  /** Simulated seconds this world had lived before this session (from the save record). */
+  private timeOffset = 0;
+  private lastAutosave = 0;
+  private readonly stumpCache = new Map<string, Sprite>();
+  /** The axe swing in progress, if any. */
+  swing: Swing | null = null;
+  /** Finds the Blobbi's hands for the equipment layer; rebuilt with the Blobbi. */
+  rig: EquipmentRig;
   /** Resource nodes still on the ground (the generated set minus what the player collected). */
   resources: ResourceNode[] = [];
   /** Every node the world generates, collected or not. */
@@ -159,6 +187,7 @@ export class LiveWorld {
     }
     this.collision = CollisionMap.fromWorld(world, (p) => this.spriteOf(p));
     this.blobbi = this.makeBlobbi(blobbiSeed, blobbiSize);
+    this.rig = new EquipmentRig(this.blobbi.identity, this.blobbi.size);
     this.placeBlobbiAtStart();
     this.rebuildBrain();
     // Resources on the ground, minus what a saved game says the player already collected.
@@ -168,6 +197,12 @@ export class LiveWorld {
     if (save) {
       for (const id of save.collected) this.collected.add(id);
       this.inventory = Inventory.fromSnapshot(save.inventory, stackLimit);
+      this.timeOffset = save.worldTime;
+      for (const [k, v] of Object.entries(save.trees)) {
+        const index = Number(k);
+        if (index >= 0 && index < world.objects.length && world.objects[index].kind === 'tree') this.trees.set(index, { hits: v.hits, harvestedAt: v.harvestedAt });
+      }
+      if (save.equipped && isTool(save.equipped) && this.inventory.count(save.equipped) > 0) this.equipped = save.equipped;
     }
     this.resources = this.allResources.filter((n) => !this.collected.has(n.id));
   }
@@ -214,6 +249,157 @@ export class LiveWorld {
     return node;
   }
 
+  /** Simulated seconds this world has lived, across sessions. Tree regrowth is measured in it. */
+  get worldTime(): number {
+    return this.timeOffset + this.clock.time;
+  }
+
+  /** A world tree's condition now (grown, being chopped, a stump, regrowing). */
+  treeAt(index: number): TreeCondition {
+    return treeCondition(this.trees.get(index), this.worldTime);
+  }
+
+  /** The sprite a world object shows now: trees may be stumps or regrowing; everything else is as generated. */
+  objectSprite(index: number): Sprite {
+    const p = this.world.objects[index];
+    if (p.kind !== 'tree' || !this.trees.has(index)) return this.spriteOf(p);
+    const c = this.treeAt(index);
+    if (c.phase === 'stump') {
+      const key = `${this.world.options.palette}|${p.seed}|${p.size}`;
+      const hit = this.stumpCache.get(key);
+      if (hit) return hit;
+      const s = stumpSprite(this.spriteOf(p) as TreeResult, paletteFor(this.world.options.palette));
+      this.stumpCache.set(key, s);
+      return s;
+    }
+    if (c.phase === 'regrowing') return this.spriteOf(p, c.growth);
+    return this.spriteOf(p);
+  }
+
+  // ─── Tools and crafting: the player's actions only ───────────────────────
+
+  /** Equip a tool from the inventory. False when it is not there or not a tool. */
+  equip(item: string): boolean {
+    if (!isTool(item) || this.inventory.count(item) === 0) return false;
+    this.equipped = item;
+    this.brain.manual(this.clock.time);
+    this.save();
+    return true;
+  }
+
+  unequip(): void {
+    if (this.equipped === null) return;
+    this.equipped = null;
+    this.brain.manual(this.clock.time);
+    this.save();
+  }
+
+  /** Craft a recipe once, atomically, with feedback. False leaves the inventory untouched. */
+  craftRecipe(recipe: Recipe): boolean {
+    const time = this.clock.time;
+    const b = this.blobbi;
+    this.brain.manual(time);
+    const check = canCraft(this.inventory, recipe);
+    if (!check.ok) {
+      const why = check.outputFull ? `already have a ${itemLabel(recipe.output.item)}` : check.missing.map((m) => `need ${m.need - m.have} ${itemLabel(m.item)}`).join(', ');
+      this.bubble = { text: why, until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+      b.animator.react('sad', time, 0.7, 0);
+      return false;
+    }
+    if (!craft(this.inventory, recipe)) return false;
+    this.stats.crafted++;
+    for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-6, 6), b.y - b.size * 0.6 + this.particles.rng.range(-5, 5), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
+    this.particles.note(b.x + 4, b.y - b.size - 2);
+    this.bubble = { text: `crafted a ${itemLabel(recipe.output.item)}!`, until: time + 2, x: b.x, y: b.y - b.size - 2 };
+    b.animator.react('excited', time, 1.1, 3);
+    this.save();
+    return true;
+  }
+
+  /**
+   * Chop the tree in front with the equipped axe. One hit per press; the third fells it, leaves a stump and
+   * awards wood. Returns true when the press was spent on a tree (so no other interaction runs).
+   */
+  chop(): boolean {
+    if (!this.equipped || !toolSupports(this.equipped, 'chop')) return false;
+    const target = this.facingObject();
+    if (!target || target.placement.kind !== 'tree' || target.index >= this.world.objects.length) return false;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const { index, placement: o, sprite } = target;
+    const condition = this.treeAt(index);
+    if (condition.phase === 'stump' || condition.phase === 'regrowing') {
+      const m = Math.ceil(condition.remaining / 60);
+      this.bubble = { text: condition.phase === 'stump' ? `a stump. regrows in ${m} min` : `regrowing, ${m} min to go`, until: time + 1.8, x: o.x, y: o.y - sprite.anchorY - 2 };
+      b.animator.react('neutral', time, 0.5, 0);
+      return true;
+    }
+    // A press during a swing is ignored: one swing at a time, no queue.
+    if (this.swing) return true;
+    this.swing = { start: time, index, landed: false };
+    b.animator.react('excited', time, SWING.end, 0);
+    return true;
+  }
+
+  /** The axe lands on tree `index`: a hit, or the felling on the last one. Called by the swing, never directly. */
+  private landChop(index: number): void {
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const o = this.world.objects[index];
+    const sprite = this.objectSprite(index);
+    const condition = this.treeAt(index);
+    if (condition.phase === 'stump' || condition.phase === 'regrowing') return;
+    const state = this.trees.get(index) ?? { hits: 0, harvestedAt: null };
+    state.hits++;
+    this.trees.set(index, state);
+    this.stats.chops++;
+    // The impact: the trunk shakes, chips fly from the point of contact, a few leaves fall.
+    this.impulses.set(index, { until: time + 0.4, strength: 1.6 });
+    const palette = paletteFor(this.world.options.palette);
+    const impact = this.impactPoint(o, sprite);
+    for (let i = 0; i < 5; i++) this.particles.dust(impact.x + this.particles.rng.range(-1, 1), impact.y - this.particles.rng.range(0, 2), i % 2 ? palette.wood.light : palette.wood.mid);
+    const tree = sprite as TreeResult;
+    const foliage = palette.foliage[tree.variation.foliage % 4];
+    const top = o.y - sprite.anchorY;
+    for (let i = 0; i < 3; i++) this.particles.leaf(o.x + this.particles.rng.range(-sprite.buffer.width * 0.3, sprite.buffer.width * 0.3), top + this.particles.rng.range(2, Math.max(3, (sprite.swayRow ?? sprite.anchorY) - 1)), i % 2 ? foliage.dark : foliage.mid);
+    if (state.hits < HITS_TO_FELL) {
+      this.bubble = { text: `chop ${state.hits}/${HITS_TO_FELL}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2 };
+      this.save();
+      return;
+    }
+    // Felled: a stump from now, wood into the bag (what fits), the rest of the tree's canopy comes down as leaves.
+    state.hits = 0;
+    state.harvestedAt = this.worldTime;
+    this.stats.felled++;
+    const wood = woodYield(o.seed, o.size);
+    const got = this.inventory.add(ITEMS.wood.id, wood);
+    for (let i = 0; i < 10; i++) this.particles.leaf(o.x + this.particles.rng.range(-sprite.buffer.width * 0.4, sprite.buffer.width * 0.4), top + this.particles.rng.range(1, Math.max(3, (sprite.swayRow ?? sprite.anchorY) - 1)), i % 2 ? foliage.dark : foliage.mid);
+    for (let i = 0; i < 4; i++) this.particles.dust(o.x + this.particles.rng.range(-4, 4), o.y - 1, paletteFor(this.world.options.palette).wood.light);
+    this.impulses.delete(index);
+    this.bubble = { text: got === wood ? `+${got} wood  ${this.inventory.count(ITEMS.wood.id)}/${this.inventory.limit(ITEMS.wood.id)}` : got > 0 ? `+${got} wood, bag full` : 'wood full', until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+    b.animator.react('happy', time, 1, 3);
+    this.save();
+    return;
+  }
+
+  /** Where the axe meets the trunk: the trunk's near side at the Blobbi's hand height. */
+  private impactPoint(o: Placement, sprite: Sprite): { x: number; y: number } {
+    const b = this.blobbi;
+    const toward = Math.sign(o.x - b.x) || 1;
+    const dir = b.animator.state.direction;
+    if (dir === 'left' || dir === 'right') return { x: o.x - toward * Math.max(1, Math.round(sprite.footRx * 0.5)), y: Math.round(b.y - b.size * 0.4) };
+    return { x: o.x, y: dir === 'up' ? o.y - 1 : Math.round(o.y - Math.min(sprite.anchorY * 0.3, b.size * 0.5)) };
+  }
+
+  /** The equipment layer's animation state now. */
+  equipmentAnimation(time: number): EquipmentAnimation {
+    if (!this.swing) return 'idle';
+    const t = time - this.swing.start;
+    if (t < SWING.raise) return 'raise';
+    if (t < SWING.hit + 0.06) return 'strike';
+    return t < SWING.end ? 'recover' : 'idle';
+  }
+
   /** Counts per resource kind, for the HUD. */
   counts(): Record<ResourceKind, number> {
     return { stick: this.inventory.count(RESOURCE_ITEM.stick), stone: this.inventory.count(RESOURCE_ITEM.stone), seed: this.inventory.count(RESOURCE_ITEM.seed) };
@@ -222,7 +408,10 @@ export class LiveWorld {
   /** Write the collected set and the inventory to the store, if there is one. */
   save(): void {
     if (!this.store) return;
-    storeSave(this.store, { version: 1, world: this.identity, collected: [...this.collected].sort(), inventory: this.inventory.snapshot() });
+    const trees: Record<string, TreeSaveState> = {};
+    for (const [index, t] of [...this.trees.entries()].sort((a, b) => a[0] - b[0])) if (t.hits > 0 || t.harvestedAt !== null) trees[String(index)] = { hits: t.hits, harvestedAt: t.harvestedAt };
+    storeSave(this.store, { version: 2, world: this.identity, collected: [...this.collected].sort(), inventory: this.inventory.snapshot(), equipped: this.equipped, trees, worldTime: this.worldTime });
+    this.lastAutosave = this.clock.time;
   }
 
   /** Forget this world's progress: every node is back and the inventory is empty. */
@@ -232,6 +421,9 @@ export class LiveWorld {
     this.inventory = new Inventory(this.identity, stackLimit);
     this.resources = [...this.allResources];
     this.pickups.length = 0;
+    this.trees.clear();
+    this.equipped = null;
+    this.timeOffset = -this.clock.time;
   }
 
   /** The nav grid and brain depend on the Blobbi's foot size and the world; rebuilt when either changes. */
@@ -262,6 +454,8 @@ export class LiveWorld {
     this.blobbi.x = x;
     this.blobbi.y = y;
     this.blobbiCache.clear();
+    this.rig = new EquipmentRig(this.blobbi.identity, this.blobbi.size);
+    this.swing = null;
     this.rebuildBrain();
   }
 
@@ -340,7 +534,17 @@ export class LiveWorld {
     b.animator.state.sleeping = this.brain.state === 'rest';
     // The brain's interactions never touch resources; the player's try to collect first.
     if (brainInteract) this.interact();
-    if (input.interact && !this.collect()) this.interact();
+    if (input.interact && !this.collect() && !this.chop()) this.interact();
+    // The swing: the hit lands part-way through, the axe is back at rest at the end.
+    if (this.swing) {
+      if (!this.swing.landed && time >= this.swing.start + SWING.hit) {
+        this.swing.landed = true;
+        this.landChop(this.swing.index);
+      }
+      if (time >= this.swing.start + SWING.end) this.swing = null;
+    }
+    // Autosave every ten simulated seconds, so world time (and regrowth) survives a reload.
+    if (this.store && time - this.lastAutosave >= 10) this.save();
     while (this.pickups.length && time - this.pickups[0].start > PICKUP_SECONDS) this.pickups.shift();
     if (input.plant) this.plantTree();
 
@@ -419,7 +623,7 @@ export class LiveWorld {
     for (let i = 0; i < all.length; i++) {
       const o = all[i];
       if (o.kind === 'grass' || o.kind === 'bridge') continue;
-      const sprite = i < this.world.objects.length ? this.spriteOf(o) : this.spriteOf(o, this.growthOf(this.planted[i - this.world.objects.length]));
+      const sprite = i < this.world.objects.length ? this.objectSprite(i) : this.spriteOf(o, this.growthOf(this.planted[i - this.world.objects.length]));
       const dx = o.x - b.x;
       const dy = o.y - b.y;
       const d = Math.hypot(dx, dy) - sprite.footRx;

@@ -192,7 +192,7 @@ describe('persistence', () => {
     expect(again.collected).toEqual(live.collected);
     // The record is versioned and keyed by the world identity.
     const key = saveKey(worldIdentity(world));
-    expect(key).toContain(`:v${SAVE_VERSION}:`);
+    expect(key).toContain('blobbi-pixel-lab:save:v1:'); // the key namespace; the record carries SAVE_VERSION
     expect(key).toContain('turtle-1');
     expect(key).toContain('variant=2');
     const raw = JSON.parse(store.get(key)!);
@@ -256,7 +256,10 @@ describe('autonomy and resources', () => {
       expect(live.resources.length).toBe(count);
       expect(live.inventory.total()).toBe(0);
       expect(live.stats.collected).toBe(0);
-      expect(store.data.size).toBe(0);
+      // The autosave (world time) runs, but the record holds no collected node and an empty bag.
+      const record = loadSave(store, live.identity);
+      expect(record?.collected ?? []).toEqual([]);
+      expect(record?.inventory.items ?? []).toEqual([]);
       expect(live.brain.state).not.toBe('manual');
       // It walked past resources (within reach at least once) and inspected things on its own.
       expect(nearSteps).toBeGreaterThan(0);

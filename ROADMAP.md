@@ -112,7 +112,7 @@ Design constraints:
   every coordinate in the island frame, keep sizes absolute (never relative
   to the canvas), and keep the carrier the only thing that knows the canvas.
 
-## M2: Gameplay (in progress; not complete)
+## M2: Gameplay (in progress: M2.1-M2.3 complete; not complete as a whole)
 
 ### M2.1: Resource gathering (implemented, awaiting gameplay review)
 
@@ -131,11 +131,55 @@ Report: `REPORT-M2.1.md`. Images: `examples/gathering/`.
       inventory survives; unrelated worlds never mix; reset button.
 - [x] Autonomy never collects; manual control overrides at once.
 - [x] Tests: 110 passing (9 new); typecheck and build pass.
-- [ ] Gameplay review by the user.
+- [x] Gameplay review by the user (2026-10-10): approved. Committed locally
+      as `89c2c10`.
 
-### M2.2 and beyond (not started)
+### M2.2: Basic crafting and tools (complete)
 
-Crafting, tools, building construction, farming, survival, Nostr events
-(inventory as kind:31633 through `@nostr-games/inventory`), multiplayer,
-payments, world growth (see the requirements above), combat. None is touched
-by M2.1.
+Report: `REPORT-M2.2.md`. Images: `examples/crafting/`.
+- [x] Item registry with stable ids, categories, stack limits, tool types
+      and supported interactions (`src/game/items.ts`).
+- [x] Recipes as data; the simple axe (3 sticks + 2 stones); atomic
+      crafting with validation, no duplication; crafting block in the Play
+      panel, C key, feedback (`src/game/crafting.ts`).
+- [x] One equipped slot; equip and unequip the axe (Q); persisted.
+- [x] Chopping: E with the axe on a tree in front, three hits with shake,
+      chips, leaves and a hop; the third fells it, awards wood (new
+      material), leaves a stump; no second harvest until regrown; tree
+      identity, footprint and navigation untouched.
+- [x] Regeneration in world time through the existing growth stages (stump
+      20 s, regrow 240 s), continuing across reloads (`src/game/trees.ts`).
+- [x] Save schema version 2 (equipped, tree states, world time) with
+      migration from version 1; autosave every ten simulated seconds and on
+      leaving the page.
+- [x] Autonomy never crafts, chops, equips or touches the inventory.
+- [x] Tests: 120 passing (10 new); typecheck and build pass.
+- [x] Manual gameplay test by the user (2026-10-10): passed.
+
+### M2.3: Visual equipment and interaction polish (complete)
+
+Report: `REPORT-M2.3.md`. Images: `examples/equipment/`.
+- [x] Procedural pixel-art axe: wooden handle, steel head, outline, hand-set
+      templates per orientation, mirrored and integer-scaled; no assets, no
+      randomness (`src/game/equipment.ts`).
+- [x] Equipment layer: hands found on the canonical sprite (the arm drawn
+      alone), the tool attached to the right or near hand, following the
+      walk cycle and every view; the Blobbi sprite untouched.
+- [x] Direction-aware rendering: mirrored for the left, over the shoulder
+      in side views, behind the body in the back view, in front otherwise;
+      strike up, down or sideways by view.
+- [x] Swing: raise, strike (the hit lands inside it, with the shake and
+      chips at the impact point), recover; one press per swing; the
+      three-hit mechanic and wood award unchanged.
+- [x] Inventory icon in the panel and beside the frame counter.
+- [x] Tests: 129 passing (9 new); typecheck and build pass.
+- [x] Manual gameplay test by the user (2026-10-10): passed, with one
+      visual bug (the side views read as an axe in both hands) fixed by a
+      compact head-down hold from the near hand, with a regression test.
+
+### M2.4 and beyond (not started)
+
+Further tools, building construction, farming, survival needs, cozy and
+survival modes, Nostr events (inventory as kind:31633 through
+`@nostr-games/inventory`), multiplayer, payments, world growth (see the
+requirements above), combat. None is touched by M2.2 or M2.3.
