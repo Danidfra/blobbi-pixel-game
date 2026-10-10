@@ -28,6 +28,9 @@ import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } f
 import { canCraft, craft, type Recipe } from '../game/crafting';
 import { HITS_TO_FELL, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
 import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
+import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, type RockCondition, type RockState } from '../game/rocks';
+import { RESPAWN_SECONDS } from '../game/resources';
+import type { RockSaveState } from '../game/persistence';
 import { BUILDINGS, buildingProgress, buildingSprite, checkPlacement, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck } from '../game/buildings';
 import { consumeIngredients } from '../game/crafting';
 
@@ -83,6 +86,9 @@ export interface LiveStats {
   crafted: number;
   /** Buildings placed by the player in this session. */
   built: number;
+  /** Pickaxe hits and rocks broken by the player in this session. */
+  mines: number;
+  mined: number;
 }
 
 /** A resource being picked up: its sprite floats up from the node for a moment. */
@@ -97,6 +103,8 @@ export const PICKUP_SECONDS = 0.55;
 export const SWING = { raise: 0.1, hit: 0.18, end: 0.32 } as const;
 
 export interface Swing {
+  /** What the swing does when it lands: chop a tree (axe) or mine a rock (pickaxe). */
+  action: 'chop' | 'mine';
   start: number;
   /** The tree's placement index. */
   index: number;
@@ -136,7 +144,7 @@ export class LiveWorld {
   readonly impulses = new Map<number, { until: number; strength: number }>();
   bubble: Bubble | null = null;
   growDuration = 45;
-  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0, collected: 0, chops: 0, felled: 0, crafted: 0, built: 0 };
+  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0, collected: 0, chops: 0, felled: 0, crafted: 0, built: 0, mines: 0, mined: 0 };
   /** Buildings the player placed, in canvas coordinates (saved in the island frame). */
   readonly buildings: Building[] = [];
   /** Build mode: a placement preview in front of the Blobbi; E places, B leaves. */
@@ -151,6 +159,12 @@ export class LiveWorld {
   /** Simulated seconds this world had lived before this session (from the save record). */
   private timeOffset = 0;
   private lastAutosave = 0;
+  /** Mining state per large world rock (placement index); absent means whole and untouched. */
+  readonly rocks = new Map<number, RockState>();
+  /** World time each collected node was taken; it grows back RESPAWN_SECONDS later. */
+  readonly collectedAt = new Map<string, number>();
+  private respawnTimer = 0;
+  private readonly rubbleCache = new Map<string, Sprite>();
   private readonly stumpCache = new Map<string, Sprite>();
   /** The axe swing in progress, if any. */
   swing: Swing | null = null;
@@ -172,6 +186,9 @@ export class LiveWorld {
   private smokeTimer = 0;
   private lastInput: LiveInput = IDLE_INPUT;
   private movedLastStep = false;
+  /** Edge-triggered presses not yet consumed by a step. */
+  private pendingInteract = false;
+  private pendingPlant = false;
 
   constructor(
     readonly world: WorldDescription,
@@ -206,7 +223,15 @@ export class LiveWorld {
     this.inventory = new Inventory(this.identity, stackLimit);
     const save = this.store ? loadSave(this.store, this.identity) : null;
     if (save) {
-      for (const id of save.collected) this.collected.add(id);
+      for (const id of save.collected) {
+        this.collected.add(id);
+        this.collectedAt.set(id, save.collectedAt[id] ?? save.worldTime);
+      }
+      for (const [k, v] of Object.entries(save.rocks)) {
+        const index = Number(k);
+        const o = world.objects[index];
+        if (o && o.kind === 'rock' && isLargeRock(o.size)) this.rocks.set(index, { hits: v.hits, minedAt: v.minedAt });
+      }
       this.inventory = Inventory.fromSnapshot(save.inventory, stackLimit);
       this.timeOffset = save.worldTime;
       for (const [k, v] of Object.entries(save.trees)) {
@@ -258,6 +283,7 @@ export class LiveWorld {
       return null;
     }
     this.collected.add(node.id);
+    this.collectedAt.set(node.id, this.worldTime);
     this.resources = this.resources.filter((n) => n !== node);
     this.pickups.push({ node, start: time });
     this.particles.sparkle(node.x, node.y - 2, hex('#ffffff'));
@@ -282,6 +308,15 @@ export class LiveWorld {
   /** The sprite a world object shows now: trees may be stumps or regrowing; everything else is as generated. */
   objectSprite(index: number): Sprite {
     const p = this.world.objects[index];
+    if (p.kind === 'rock' && this.rocks.has(index) && this.rockAt(index).phase === 'rubble') {
+      const key = `${this.world.options.palette}|${p.seed}|${p.size}`;
+      const hit = this.rubbleCache.get(key);
+      if (hit) return hit;
+      const whole = this.spriteOf(p);
+      const s = rubbleSprite(p.seed, whole.footRx, whole.footRy, paletteFor(this.world.options.palette));
+      this.rubbleCache.set(key, s);
+      return s;
+    }
     if (p.kind !== 'tree' || !this.trees.has(index)) return this.spriteOf(p);
     const c = this.treeAt(index);
     if (c.phase === 'stump') {
@@ -294,6 +329,37 @@ export class LiveWorld {
     }
     if (c.phase === 'regrowing') return this.spriteOf(p, c.growth);
     return this.spriteOf(p);
+  }
+
+  /** A world rock's condition now (whole, being mined, rubble). */
+  rockAt(index: number): RockCondition {
+    return rockCondition(this.rocks.get(index), this.worldTime);
+  }
+
+  /**
+   * Bring collected nodes back once their respawn time has passed, when their spot is still free (not under a
+   * building, not under the Blobbi's feet). Checked once a second; deterministic in world time.
+   */
+  private stepRespawn(dt: number): void {
+    this.respawnTimer -= dt;
+    if (this.respawnTimer > 0 || this.collectedAt.size === 0) return;
+    this.respawnTimer = 1;
+    const now = this.worldTime;
+    const b = this.blobbi;
+    let changed = false;
+    for (const node of this.allResources) {
+      const at = this.collectedAt.get(node.id);
+      if (at === undefined || now - at < RESPAWN_SECONDS[node.kind]) continue;
+      if (this.collision.isBlocked(node.x + 0.5, node.y + 0.5)) continue;
+      if (Math.abs(node.x - b.x) <= b.footRx + 2 && Math.abs(node.y - b.y) <= b.footRy + 2) continue;
+      this.collectedAt.delete(node.id);
+      this.collected.delete(node.id);
+      changed = true;
+    }
+    if (!changed) return;
+    // Keep generation order, so the nearest-node tie-break never depends on respawn order.
+    this.resources = this.allResources.filter((n) => !this.collected.has(n.id));
+    this.save();
   }
 
   // ─── Tools and crafting: the player's actions only ───────────────────────
@@ -356,9 +422,76 @@ export class LiveWorld {
     }
     // A press during a swing is ignored: one swing at a time, no queue.
     if (this.swing) return true;
-    this.swing = { start: time, index, landed: false };
+    this.swing = { action: 'chop', start: time, index, landed: false };
     b.animator.react('excited', time, SWING.end, 0);
     return true;
+  }
+
+  /**
+   * Mine the large rock in front with the equipped pickaxe: one swing per press, four landed hits break it into
+   * rubble and award stones. Returns true when the press was spent on a rock.
+   */
+  mine(): boolean {
+    if (!this.equipped || !toolSupports(this.equipped, 'mine')) return false;
+    const target = this.facingObject();
+    if (!target || target.placement.kind !== 'rock' || target.index >= this.world.objects.length) return false;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const { index, placement: o, sprite } = target;
+    if (!isLargeRock(o.size)) {
+      // No swing (nothing to mine), but a clear answer: the bubble, a puff of dust on the rock and a small shrug.
+      this.bubble = { text: 'too small to mine', until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+      const palette = paletteFor(this.world.options.palette);
+      for (let i = 0; i < 3; i++) this.particles.dust(o.x + this.particles.rng.range(-1, 1), o.y - sprite.anchorY + 1, palette.stone.light);
+      b.animator.react('surprised', time, 0.6, 1);
+      return true;
+    }
+    const condition = this.rockAt(index);
+    if (condition.phase === 'rubble') {
+      this.bubble = { text: `rubble. whole again in ${Math.ceil(condition.remaining / 60)} min`, until: time + 1.8, x: o.x, y: o.y - sprite.anchorY - 2 };
+      b.animator.react('neutral', time, 0.5, 0);
+      return true;
+    }
+    if (this.swing) return true;
+    this.swing = { action: 'mine', start: time, index, landed: false };
+    b.animator.react('excited', time, SWING.end, 0);
+    return true;
+  }
+
+  /** The pickaxe lands on rock `index`: a hit, or the breaking on the last one. Called by the swing only. */
+  private landMine(index: number): void {
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const o = this.world.objects[index];
+    if (this.rockAt(index).phase === 'rubble') return;
+    const sprite = this.objectSprite(index);
+    const state = this.rocks.get(index) ?? { hits: 0, minedAt: null };
+    // A rock that grew back after rubble starts a fresh count.
+    if (state.minedAt !== null) {
+      state.minedAt = null;
+      state.hits = 0;
+    }
+    state.hits++;
+    this.rocks.set(index, state);
+    this.stats.mines++;
+    const palette = paletteFor(this.world.options.palette);
+    const impact = this.impactPoint(o, sprite);
+    for (let i = 0; i < 5; i++) this.particles.dust(impact.x + this.particles.rng.range(-1, 1), impact.y - this.particles.rng.range(0, 2), i % 2 ? palette.stone.light : palette.stone.mid);
+    this.particles.sparkle(impact.x, impact.y - 1, hex('#fff2b0'));
+    if (state.hits < HITS_TO_MINE) {
+      this.bubble = { text: `mine ${state.hits}/${HITS_TO_MINE}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2 };
+      this.save();
+      return;
+    }
+    state.hits = 0;
+    state.minedAt = this.worldTime;
+    this.stats.mined++;
+    const stones = stoneYield(o.seed, o.size);
+    const got = this.inventory.add(ITEMS.stone.id, stones);
+    for (let i = 0; i < 8; i++) this.particles.dust(o.x + this.particles.rng.range(-sprite.footRx, sprite.footRx), o.y - this.particles.rng.range(0, 6), i % 2 ? palette.stone.light : palette.stone.dark);
+    this.bubble = { text: got === stones ? `+${got} stone  ${this.inventory.count(ITEMS.stone.id)}/${this.inventory.limit(ITEMS.stone.id)}` : got > 0 ? `+${got} stone, bag full` : 'stones full', until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+    b.animator.react('happy', time, 1, 3);
+    this.save();
   }
 
   /** The axe lands on tree `index`: a hit, or the felling on the last one. Called by the swing, never directly. */
@@ -559,7 +692,12 @@ export class LiveWorld {
     for (const [index, t] of [...this.trees.entries()].sort((a, b) => a[0] - b[0])) if (t.hits > 0 || t.harvestedAt !== null) trees[String(index)] = { hits: t.hits, harvestedAt: t.harvestedAt };
     const origin = this.world.carrier?.origin ?? { x: 0, y: 0 };
     const buildings = this.buildings.map((b) => ({ id: b.id, kind: b.kind, x: b.x - origin.x, y: b.y - origin.y, placedAt: b.placedAt, seed: b.seed }));
-    storeSave(this.store, { version: 3, world: this.identity, collected: [...this.collected].sort(), inventory: this.inventory.snapshot(), equipped: this.equipped, trees, worldTime: this.worldTime, buildings });
+    const rocks: Record<string, RockSaveState> = {};
+    for (const [index, r] of [...this.rocks.entries()].sort((a, b) => a[0] - b[0])) if (r.hits > 0 || r.minedAt !== null) rocks[String(index)] = { hits: r.hits, minedAt: r.minedAt };
+    const collected = [...this.collected].sort();
+    const collectedAt: Record<string, number> = {};
+    for (const id of collected) collectedAt[id] = this.collectedAt.get(id) ?? this.worldTime;
+    storeSave(this.store, { version: 4, world: this.identity, collected, inventory: this.inventory.snapshot(), equipped: this.equipped, trees, worldTime: this.worldTime, buildings, collectedAt, rocks });
     this.lastAutosave = this.clock.time;
   }
 
@@ -567,6 +705,8 @@ export class LiveWorld {
   resetProgress(): void {
     if (this.store) clearSave(this.store, this.identity);
     this.collected.clear();
+    this.collectedAt.clear();
+    this.rocks.clear();
     this.inventory = new Inventory(this.identity, stackLimit);
     this.resources = [...this.allResources];
     this.pickups.length = 0;
@@ -645,11 +785,17 @@ export class LiveWorld {
 
   /** Run as many fixed steps as `realSeconds` allows. Returns the number of steps run. */
   update(realSeconds: number, input: LiveInput): number {
+    // Edge-triggered keys wait for the next step that runs. A display faster than the step rate (120 Hz and up)
+    // has frames with no step at all; a press on such a frame used to vanish ("E did nothing").
+    this.pendingInteract ||= input.interact;
+    this.pendingPlant ||= input.plant;
     const steps = this.clock.advance(realSeconds);
     for (let i = 0; i < steps; i++) {
-      // Edge-triggered keys fire once per update, on the first step.
-      this.step(i === 0 ? input : { ...input, interact: false, plant: false });
+      // Edge-triggered keys fire once, on the first step.
+      this.step(i === 0 ? { ...input, interact: this.pendingInteract, plant: this.pendingPlant } : { ...input, interact: false, plant: false });
     }
+    // A paused world drops presses rather than replaying them on resume.
+    if (steps > 0 || this.clock.paused) this.pendingInteract = this.pendingPlant = false;
     this.lastInput = input;
     return steps;
   }
@@ -694,14 +840,16 @@ export class LiveWorld {
     if (brainInteract) this.interact();
     if (input.interact) {
       if (this.buildMode) this.placeBuilding();
-      else if (!this.collect() && !this.chop()) this.interact();
+      else if (!this.collect() && !this.chop() && !this.mine()) this.interact();
     }
     this.stepConstruction(dt);
+    this.stepRespawn(dt);
     // The swing: the hit lands part-way through, the axe is back at rest at the end.
     if (this.swing) {
       if (!this.swing.landed && time >= this.swing.start + SWING.hit) {
         this.swing.landed = true;
-        this.landChop(this.swing.index);
+        if (this.swing.action === 'mine') this.landMine(this.swing.index);
+        else this.landChop(this.swing.index);
       }
       if (time >= this.swing.start + SWING.end) this.swing = null;
     }

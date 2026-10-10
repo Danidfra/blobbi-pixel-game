@@ -69,6 +69,16 @@ const AXE: Record<ToolOrientation, Template> = {
   'strike-up': ['.kkk.', '.sSs.', '.Ss..', '..h..', '..H..', '..h..', '..g..'],
 };
 
+// The pickaxe: the same handle and grip conventions, a curved two-pointed steel head across the handle's end.
+const PICKAXE: Record<ToolOrientation, Template> = {
+  rest: ['.sSSs.', 'k.h..k', '..h...', '..H...', '..h...', '..g...'],
+  carry: ['....k..', '...S...', '..s....', '.s.h...', 'k...H..', '.....h.', '......g'],
+  raised: ['.sSs...', 'k.h.k..', '..h....', '..H....', '...h...', '...g...'],
+  strike: ['......k', '.....S.', 'gHhhhs.', '.....s.', '......k'],
+  'strike-down': ['..g..', '..h..', '..H..', '..h..', '.sSs.', 'k...k'],
+  'strike-up': ['k...k', '.sSs.', '..h..', '..H..', '..h..', '..g..'],
+};
+
 export interface EquipmentVisual {
   item: string;
   templates: Record<ToolOrientation, Template>;
@@ -78,6 +88,7 @@ export interface EquipmentVisual {
 
 export const EQUIPMENT: Record<string, EquipmentVisual> = {
   [ITEMS.axe.id]: { item: ITEMS.axe.id, templates: AXE, hand: 'left' },
+  [ITEMS.pickaxe.id]: { item: ITEMS.pickaxe.id, templates: PICKAXE, hand: 'left' },
 };
 
 export const STEEL: Ramp = ramp(hex('#aeb7c2'), { step: 0.1, hueShift: 4 });

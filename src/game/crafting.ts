@@ -28,6 +28,16 @@ export const RECIPES: readonly Recipe[] = [
     ],
     output: { item: ITEMS.axe.id, quantity: 1 },
   },
+  {
+    id: 'blobbi-pixel:recipe:simple-pickaxe',
+    label: 'Simple pickaxe',
+    ingredients: [
+      { item: ITEMS.wood.id, quantity: 2 },
+      { item: ITEMS.stick.id, quantity: 2 },
+      { item: ITEMS.stone.id, quantity: 3 },
+    ],
+    output: { item: ITEMS.pickaxe.id, quantity: 1 },
+  },
 ];
 
 export const recipeById = (id: string): Recipe | undefined => RECIPES.find((r) => r.id === id);

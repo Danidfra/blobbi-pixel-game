@@ -302,7 +302,7 @@ describe('persistence and reloads', () => {
     const identity = worldIdentity(world);
     store.set(saveKey(identity), JSON.stringify({ version: 1, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] } }));
     const v1 = loadSave(store, identity)!;
-    expect(v1).toEqual({ version: SAVE_VERSION, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [] });
+    expect(v1).toEqual({ version: SAVE_VERSION, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [], collectedAt: { 'stick:0': 0 }, rocks: {} });
     const live = new LiveWorld(world, 'blobbi-9', 16, { store });
     expect(live.collected.has('stick:0')).toBe(true);
     expect(live.inventory.count(ITEMS.stick.id)).toBe(2);

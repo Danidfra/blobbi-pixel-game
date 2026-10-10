@@ -21,8 +21,8 @@ export const CANONICAL_STANDING_HEIGHT = (() => {
   return (geo.ground.y - geo.body.top) * DOCUMENT_TRANSFORM.scale;
 })();
 
-const VIEWBOX_W = 211.66666;
-const VIEWBOX_H = 238.125;
+export const VIEWBOX_W = 211.66666;
+export const VIEWBOX_H = 238.125;
 
 /** Walking phases per cycle and idle phases per breath: the animation's frame budget. */
 export const WALK_FRAMES = 6;

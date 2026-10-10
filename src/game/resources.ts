@@ -20,6 +20,9 @@ export const RESOURCE_LABEL: Record<ResourceKind, string> = { stick: ITEMS.stick
 /** Stack limits per resource. */
 export const RESOURCE_STACK: Record<ResourceKind, number> = { stick: ITEMS.stick.stack, stone: ITEMS.stone.stack, seed: ITEMS.seed.stack };
 
+/** Seconds of world time before a collected node is back on the ground (if its spot is still free). */
+export const RESPAWN_SECONDS: Record<ResourceKind, number> = { stick: 120, stone: 180, seed: 150 };
+
 export const kindOfItem = (item: string): ResourceKind | null => (RESOURCE_KINDS.find((k) => RESOURCE_ITEM[k] === item) ?? null);
 
 export interface ResourceNode {

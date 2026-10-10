@@ -1,0 +1,1050 @@
+{
+  "size": 32,
+  "seeds": [
+    "blobbi-0",
+    "blobbi-1",
+    "blobbi-9",
+    "blobbi-19",
+    "horns-1",
+    "pattern-0"
+  ],
+  "poses": [
+    "FRONT",
+    "HAPPY",
+    "SIDE"
+  ],
+  "summary": [
+    {
+      "strategy": "direct",
+      "silhouetteIoU": 0.898,
+      "colourError": 29.4,
+      "inkIoU": 0.464,
+      "colours": 40.2,
+      "note": "the gameplay sprite: rasterized at the target size, 4 gradient bands, feature-aware face, outline"
+    },
+    {
+      "strategy": "bands6",
+      "silhouetteIoU": 0.898,
+      "colourError": 27.1,
+      "inkIoU": 0.472,
+      "colours": 45.6,
+      "note": "the same raster with 6 gradient bands instead of 4"
+    },
+    {
+      "strategy": "no-outline",
+      "silhouetteIoU": 0.954,
+      "colourError": 27.2,
+      "inkIoU": 0.464,
+      "colours": 39.2,
+      "note": "the gameplay raster without the outside outline"
+    },
+    {
+      "strategy": "supersample",
+      "silhouetteIoU": 0.884,
+      "colourError": 26.6,
+      "inkIoU": 0.524,
+      "colours": 27.9,
+      "note": "rasterized at twice the size with the feature-aware face, reduced by the most frequent colour per 2x2 block, then outlined"
+    },
+    {
+      "strategy": "nearest16x2",
+      "silhouetteIoU": 0.794,
+      "colourError": 54.9,
+      "inkIoU": 0.129,
+      "colours": 24.5,
+      "note": "the 16 px gameplay sprite scaled 2x nearest-neighbour (what a 16 px Blobbi at zoom 2 shows)"
+    }
+  ],
+  "perCase": [
+    {
+      "seed": "blobbi-0",
+      "pose": "FRONT",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8868660598179454,
+        "colourError": 30.148908527553832,
+        "inkIoU": 0.3793103448275862,
+        "colours": 38
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "FRONT",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8868660598179454,
+        "colourError": 27.546244595448293,
+        "inkIoU": 0.3793103448275862,
+        "colours": 45
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "FRONT",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9549418604651163,
+        "colourError": 28.368513863133348,
+        "inkIoU": 0.3793103448275862,
+        "colours": 37
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "FRONT",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8743589743589744,
+        "colourError": 24.780385367803163,
+        "inkIoU": 0.4642857142857143,
+        "colours": 24
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "FRONT",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7724687144482366,
+        "colourError": 58.210350562263564,
+        "inkIoU": 0.10526315789473684,
+        "colours": 19
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "HAPPY",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8868660598179454,
+        "colourError": 30.847007087898934,
+        "inkIoU": 0.3793103448275862,
+        "colours": 40
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "HAPPY",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8868660598179454,
+        "colourError": 28.28462554614794,
+        "inkIoU": 0.3793103448275862,
+        "colours": 48
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "HAPPY",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9549418604651163,
+        "colourError": 29.09317629563771,
+        "inkIoU": 0.3793103448275862,
+        "colours": 39
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "HAPPY",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8743589743589744,
+        "colourError": 25.14728293855026,
+        "inkIoU": 0.4642857142857143,
+        "colours": 25
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "HAPPY",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7724687144482366,
+        "colourError": 60.480763557472116,
+        "inkIoU": 0.10526315789473684,
+        "colours": 24
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "SIDE",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.9028400597907325,
+        "colourError": 26.4283182129721,
+        "inkIoU": 0.35294117647058826,
+        "colours": 38
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "SIDE",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.9028400597907325,
+        "colourError": 23.502054663974388,
+        "inkIoU": 0.35294117647058826,
+        "colours": 42
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "SIDE",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9523026315789473,
+        "colourError": 23.744127262102058,
+        "inkIoU": 0.35294117647058826,
+        "colours": 37
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "SIDE",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8830409356725146,
+        "colourError": 20.753972427069595,
+        "inkIoU": 0.6428571428571429,
+        "colours": 25
+      }
+    },
+    {
+      "seed": "blobbi-0",
+      "pose": "SIDE",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.806970509383378,
+        "colourError": 48.3651481142917,
+        "inkIoU": 0.04878048780487805,
+        "colours": 26
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "FRONT",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8850129198966409,
+        "colourError": 29.267095682787275,
+        "inkIoU": 0.4411764705882353,
+        "colours": 42
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "FRONT",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8850129198966409,
+        "colourError": 26.523979231494195,
+        "inkIoU": 0.4411764705882353,
+        "colours": 47
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "FRONT",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9593613933236574,
+        "colourError": 26.997189931618063,
+        "inkIoU": 0.4411764705882353,
+        "colours": 41
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "FRONT",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8681875792141952,
+        "colourError": 28.036427952873503,
+        "inkIoU": 0.4642857142857143,
+        "colours": 28
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "FRONT",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7799539170506913,
+        "colourError": 57.68110095278371,
+        "inkIoU": 0.21428571428571427,
+        "colours": 22
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "HAPPY",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8850129198966409,
+        "colourError": 29.597148486348633,
+        "inkIoU": 0.4411764705882353,
+        "colours": 42
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "HAPPY",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8850129198966409,
+        "colourError": 26.89454248598591,
+        "inkIoU": 0.4411764705882353,
+        "colours": 48
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "HAPPY",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9593613933236574,
+        "colourError": 27.3392264980924,
+        "inkIoU": 0.4411764705882353,
+        "colours": 41
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "HAPPY",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8681875792141952,
+        "colourError": 28.496582541782963,
+        "inkIoU": 0.4642857142857143,
+        "colours": 28
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "HAPPY",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7799539170506913,
+        "colourError": 58.2210832345147,
+        "inkIoU": 0.21428571428571427,
+        "colours": 22
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "SIDE",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.895500725689405,
+        "colourError": 22.951575067967692,
+        "inkIoU": 0.5,
+        "colours": 35
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "SIDE",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.895500725689405,
+        "colourError": 19.816024928251686,
+        "inkIoU": 0.5,
+        "colours": 39
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "SIDE",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9565916398713826,
+        "colourError": 20.590191081825747,
+        "inkIoU": 0.5,
+        "colours": 34
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "SIDE",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8839541547277937,
+        "colourError": 21.0857620136545,
+        "inkIoU": 0.6,
+        "colours": 24
+      }
+    },
+    {
+      "seed": "blobbi-1",
+      "pose": "SIDE",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7927927927927928,
+        "colourError": 43.04571281212129,
+        "inkIoU": 0.18181818181818182,
+        "colours": 21
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "FRONT",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.9112021857923497,
+        "colourError": 34.250340254902554,
+        "inkIoU": 0.4166666666666667,
+        "colours": 43
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "FRONT",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.9112021857923497,
+        "colourError": 32.30192539392497,
+        "inkIoU": 0.4166666666666667,
+        "colours": 47
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "FRONT",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9523099850968704,
+        "colourError": 32.46083591347995,
+        "inkIoU": 0.4166666666666667,
+        "colours": 42
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "FRONT",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8917112299465241,
+        "colourError": 29.457088936443,
+        "inkIoU": 0.56,
+        "colours": 29
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "FRONT",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.8085365853658537,
+        "colourError": 65.8287192542077,
+        "inkIoU": 0.047619047619047616,
+        "colours": 29
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "HAPPY",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.9112021857923497,
+        "colourError": 33.99947392935655,
+        "inkIoU": 0.4166666666666667,
+        "colours": 40
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "HAPPY",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.9112021857923497,
+        "colourError": 32.030378618667534,
+        "inkIoU": 0.4166666666666667,
+        "colours": 44
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "HAPPY",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9523099850968704,
+        "colourError": 32.19897701028873,
+        "inkIoU": 0.4166666666666667,
+        "colours": 39
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "HAPPY",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8917112299465241,
+        "colourError": 29.884235404580902,
+        "inkIoU": 0.56,
+        "colours": 30
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "HAPPY",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.8085365853658537,
+        "colourError": 63.79500614668794,
+        "inkIoU": 0.047619047619047616,
+        "colours": 27
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "SIDE",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8990963855421686,
+        "colourError": 27.198656222374282,
+        "inkIoU": 0.5,
+        "colours": 39
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "SIDE",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8990963855421686,
+        "colourError": 24.239467962656587,
+        "inkIoU": 0.5,
+        "colours": 42
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "SIDE",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.961730449251248,
+        "colourError": 25.886312318054408,
+        "inkIoU": 0.5,
+        "colours": 38
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "SIDE",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8897168405365127,
+        "colourError": 27.412373807679298,
+        "inkIoU": 0.5833333333333334,
+        "colours": 28
+      }
+    },
+    {
+      "seed": "blobbi-9",
+      "pose": "SIDE",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.8086838534599728,
+        "colourError": 45.43264777414048,
+        "inkIoU": 0.10810810810810811,
+        "colours": 23
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "FRONT",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.9097839898348158,
+        "colourError": 37.15643888808924,
+        "inkIoU": 0.5714285714285714,
+        "colours": 45
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "FRONT",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.9097839898348158,
+        "colourError": 36.1746334083121,
+        "inkIoU": 0.5714285714285714,
+        "colours": 50
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "FRONT",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.941908713692946,
+        "colourError": 33.80301731305127,
+        "inkIoU": 0.5714285714285714,
+        "colours": 44
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "FRONT",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8927680798004988,
+        "colourError": 33.52529515781949,
+        "inkIoU": 0.52,
+        "colours": 30
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "FRONT",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7915742793791575,
+        "colourError": 62.885295489618166,
+        "inkIoU": 0.15789473684210525,
+        "colours": 25
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "HAPPY",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.9097839898348158,
+        "colourError": 37.521432961942644,
+        "inkIoU": 0.5714285714285714,
+        "colours": 44
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "HAPPY",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.9097839898348158,
+        "colourError": 36.5987136985733,
+        "inkIoU": 0.5714285714285714,
+        "colours": 51
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "HAPPY",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.941908713692946,
+        "colourError": 34.1867702600102,
+        "inkIoU": 0.5714285714285714,
+        "colours": 43
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "HAPPY",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8927680798004988,
+        "colourError": 33.900066491269946,
+        "inkIoU": 0.52,
+        "colours": 31
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "HAPPY",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7915742793791575,
+        "colourError": 63.60067425448879,
+        "inkIoU": 0.15789473684210525,
+        "colours": 25
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "SIDE",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.911849710982659,
+        "colourError": 28.267675310128546,
+        "inkIoU": 0.5714285714285714,
+        "colours": 33
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "SIDE",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.911849710982659,
+        "colourError": 26.85980548803473,
+        "inkIoU": 0.5714285714285714,
+        "colours": 35
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "SIDE",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9604430379746836,
+        "colourError": 25.799163471667782,
+        "inkIoU": 0.5714285714285714,
+        "colours": 32
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "SIDE",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8963068181818182,
+        "colourError": 25.839778219907032,
+        "inkIoU": 0.6428571428571429,
+        "colours": 23
+      }
+    },
+    {
+      "seed": "blobbi-19",
+      "pose": "SIDE",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.8002544529262087,
+        "colourError": 45.41149150833908,
+        "inkIoU": 0.16666666666666666,
+        "colours": 19
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "FRONT",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8988173455978975,
+        "colourError": 31.933246439852713,
+        "inkIoU": 0.5,
+        "colours": 45
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "FRONT",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8988173455978975,
+        "colourError": 29.844940765058162,
+        "inkIoU": 0.5,
+        "colours": 54
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "FRONT",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.948051948051948,
+        "colourError": 30.335913820632324,
+        "inkIoU": 0.5,
+        "colours": 44
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "FRONT",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.890625,
+        "colourError": 29.960216129619457,
+        "inkIoU": 0.5217391304347826,
+        "colours": 34
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "FRONT",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.794392523364486,
+        "colourError": 65.9773063598619,
+        "inkIoU": 0.06666666666666667,
+        "colours": 28
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "HAPPY",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8988173455978975,
+        "colourError": 32.53742224763845,
+        "inkIoU": 0.5,
+        "colours": 47
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "HAPPY",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8988173455978975,
+        "colourError": 30.4750740581436,
+        "inkIoU": 0.5,
+        "colours": 57
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "HAPPY",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.948051948051948,
+        "colourError": 30.964918771203777,
+        "inkIoU": 0.5,
+        "colours": 46
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "HAPPY",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.890625,
+        "colourError": 29.950890813827208,
+        "inkIoU": 0.5714285714285714,
+        "colours": 33
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "HAPPY",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.794392523364486,
+        "colourError": 66.46305463737917,
+        "inkIoU": 0.06666666666666667,
+        "colours": 30
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "SIDE",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.9042553191489362,
+        "colourError": 23.392620488229504,
+        "inkIoU": 0.5,
+        "colours": 37
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "SIDE",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.9042553191489362,
+        "colourError": 20.446047722797136,
+        "inkIoU": 0.5,
+        "colours": 40
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "SIDE",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.959866220735786,
+        "colourError": 21.66437762724303,
+        "inkIoU": 0.5,
+        "colours": 36
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "SIDE",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.886736214605067,
+        "colourError": 20.470771684054128,
+        "inkIoU": 0.5384615384615384,
+        "colours": 25
+      }
+    },
+    {
+      "seed": "horns-1",
+      "pose": "SIDE",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.8123287671232877,
+        "colourError": 41.783536757974105,
+        "inkIoU": 0.25,
+        "colours": 26
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "FRONT",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8826466916354557,
+        "colourError": 26.45685742716995,
+        "inkIoU": 0.4,
+        "colours": 38
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "FRONT",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8826466916354557,
+        "colourError": 24.067070245431083,
+        "inkIoU": 0.47619047619047616,
+        "colours": 44
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "FRONT",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9513212795549374,
+        "colourError": 24.419395162048527,
+        "inkIoU": 0.4,
+        "colours": 37
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "FRONT",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8760842627013631,
+        "colourError": 25.146380156995885,
+        "inkIoU": 0.3333333333333333,
+        "colours": 31
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "FRONT",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7841163310961968,
+        "colourError": 50.16952026199533,
+        "inkIoU": 0.14754098360655737,
+        "colours": 25
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "HAPPY",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8826466916354557,
+        "colourError": 26.989407849023706,
+        "inkIoU": 0.37037037037037035,
+        "colours": 39
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "HAPPY",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8826466916354557,
+        "colourError": 24.61440080415456,
+        "inkIoU": 0.43478260869565216,
+        "colours": 47
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "HAPPY",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9513212795549374,
+        "colourError": 24.96985298112839,
+        "inkIoU": 0.37037037037037035,
+        "colours": 38
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "HAPPY",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8760842627013631,
+        "colourError": 25.02478620679099,
+        "inkIoU": 0.36666666666666664,
+        "colours": 28
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "HAPPY",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.7841163310961968,
+        "colourError": 50.97493591403088,
+        "inkIoU": 0.14285714285714285,
+        "colours": 25
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "SIDE",
+      "strategy": "direct",
+      "score": {
+        "silhouetteIoU": 0.8994334277620396,
+        "colourError": 19.81411500455447,
+        "inkIoU": 0.5384615384615384,
+        "colours": 38
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "SIDE",
+      "strategy": "bands6",
+      "score": {
+        "silhouetteIoU": 0.8994334277620396,
+        "colourError": 17.355830045537108,
+        "inkIoU": 0.5384615384615384,
+        "colours": 41
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "SIDE",
+      "strategy": "no-outline",
+      "score": {
+        "silhouetteIoU": 0.9624413145539906,
+        "colourError": 17.482244504530428,
+        "inkIoU": 0.5384615384615384,
+        "colours": 37
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "SIDE",
+      "strategy": "supersample",
+      "score": {
+        "silhouetteIoU": 0.8881118881118881,
+        "colourError": 19.140194853229367,
+        "inkIoU": 0.6153846153846154,
+        "colours": 27
+      }
+    },
+    {
+      "seed": "pattern-0",
+      "pose": "SIDE",
+      "strategy": "nearest16x2",
+      "score": {
+        "silhouetteIoU": 0.8012658227848102,
+        "colourError": 40.76888727420683,
+        "inkIoU": 0.1,
+        "colours": 25
+      }
+    }
+  ]
+}

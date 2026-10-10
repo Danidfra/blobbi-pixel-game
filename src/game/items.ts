@@ -5,9 +5,9 @@
  */
 
 export type ItemCategory = 'resource' | 'material' | 'tool';
-export type ToolType = 'axe';
+export type ToolType = 'axe' | 'pickaxe';
 /** Interactions a tool can perform on the world. */
-export type ToolInteraction = 'chop';
+export type ToolInteraction = 'chop' | 'mine';
 
 export interface ItemDefinition {
   id: string;
@@ -26,6 +26,7 @@ export const ITEMS = {
   seed: { id: 'blobbi-pixel:resource:seed', label: 'seed', plural: 'seeds', category: 'resource', stack: 20 },
   wood: { id: 'blobbi-pixel:material:wood', label: 'wood', plural: 'wood', category: 'material', stack: 40 },
   axe: { id: 'blobbi-pixel:tool:simple-axe', label: 'simple axe', plural: 'simple axes', category: 'tool', stack: 1, tool: { type: 'axe', interactions: ['chop'] } },
+  pickaxe: { id: 'blobbi-pixel:tool:simple-pickaxe', label: 'simple pickaxe', plural: 'simple pickaxes', category: 'tool', stack: 1, tool: { type: 'pickaxe', interactions: ['mine'] } },
 } as const satisfies Record<string, ItemDefinition>;
 
 export type ItemKey = keyof typeof ITEMS;

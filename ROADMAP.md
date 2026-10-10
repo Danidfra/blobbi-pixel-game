@@ -207,7 +207,27 @@ Report: `REPORT-M3.1.md`. Images: `examples/building/`.
 - [x] Tests: 139 passing (9 new); typecheck and build pass.
 - [x] Manual gameplay test by the user (2026-10-10): passed.
 
-### M3.2 and beyond (not started)
+### M3.2: Pickaxe, mining, renewable resources, 32 px scale lab (complete)
+
+Report: `REPORT-M3.2.md`. Images: `examples/mining/`, `examples/fidelity32/`.
+- [x] Procedural pickaxe (2 wood + 2 sticks + 3 stones), same equipment
+      and left-hand rules as the axe; Q cycles owned tools.
+- [x] Large rocks (14 px and up) mined in four swings: 3-5 stones, rubble
+      that keeps the footprint, whole again after 300 s of world time.
+- [x] Renewable sticks, stones and seeds (120 / 180 / 150 s), never under
+      a building or the Blobbi.
+- [x] Save schema 4 (collection times, rock states) with migration from
+      1-3; no coordinate changed.
+- [x] Isolated 32 px rendering-scale comparison against the kit's render,
+      with scores and a recommendation (6 bands), gameplay unchanged.
+- [x] Tests: 151 passing (12 new); typecheck and build pass.
+- [x] Manual gameplay test by the user (2026-10-10): passed except one bug,
+      fixed: E on a small rock gave no feedback because presses on display
+      frames with no simulation step (common at 120 Hz) were dropped; the
+      press is now kept until a step consumes it, and the small rock
+      answers "too small to mine" with dust and a hop. 157 tests.
+
+### M3.3 and beyond (not started)
 
 More building kinds, removal, interiors, paths to doors, farming, world
-growth. None is touched by M3.1.
+growth.
