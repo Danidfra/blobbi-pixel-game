@@ -18,6 +18,7 @@ import { turtleUnderlay, turtleBodyForWorld } from './compose';
 import { resourceSprite, RESOURCE_KINDS } from '../game/resources';
 import { ITEMS } from '../game/items';
 import { attachTool, toolIcon, EQUIPMENT } from '../game/equipment';
+import { BUILDINGS, buildingSprite, PROBLEM_TEXT } from '../game/buildings';
 import { PICKUP_SECONDS } from '../sim/live-world';
 import { windAt } from '../sim/live-world';
 import { T, type Layer, type Placement } from '../world/types';
@@ -248,6 +249,13 @@ export class LiveRenderer {
       if (n.x < ox - 8 || n.x > ox + viewW + 8 || n.y < oy - 8 || n.y > oy + viewH + 8) continue;
       drawables.push({ y: n.y, x: n.x, sprite: resourceSprite(n.kind, n.variant, palette), sway: 0, dy: 0 });
     }
+    // Buildings, placed and under construction, with their shadows.
+    for (const building of live.buildings) {
+      if (building.x < ox - 48 || building.x > ox + viewW + 48 || building.y < oy - 48 || building.y > oy + viewH + 48) continue;
+      const sprite = buildingSprite(building, palette, live.buildingAt(building), world.options.scale);
+      if (o.shadows) this.paintShadow(frame, building.x, building.y, sprite.footRx, sprite.footRy, ox, oy);
+      drawables.push({ y: building.y, x: building.x, sprite, sway: 0, dy: 0 });
+    }
     // The Blobbi.
     const b = live.blobbi;
     const pose = b.animator.pose(time);
@@ -267,6 +275,28 @@ export class LiveRenderer {
     this.timings.drawn = drawables.length;
     const t3 = performance.now();
 
+    // ── Build mode: the placement preview, a ghost of the shelter with its footprint, green or red ──
+    if (live.buildMode) {
+      const spot = live.placementSpot();
+      const check = live.placementCheck();
+      const def = BUILDINGS[live.buildMode];
+      const ghost = buildingSprite({ id: 'preview', kind: live.buildMode, x: spot.x, y: spot.y, placedAt: 0, seed: `${world.seed}/${live.buildMode}/${live.buildings.filter((x) => x.kind === live.buildMode).length}` }, palette, 1, world.options.scale);
+      const gx = spot.x - ghost.anchorX - ox;
+      const gy = spot.y - ghost.anchorY - oy;
+      for (let y = 0; y < ghost.buffer.height; y++)
+        for (let x = 0; x < ghost.buffer.width; x++) {
+          const c = ghost.buffer.get(x, y);
+          if (!(c >>> 24) || ((x + y) & 1)) continue; // a checker ghost
+          frame.set(gx + x, gy + y, c);
+        }
+      const colour = check.ok ? hex('#4dffb0') : hex('#ff3b5c');
+      frame.strokeRect(check.x0 - ox, check.y0 - oy, check.x1 - check.x0 + 1, check.y1 - check.y0 + 1, colour);
+      const text = check.ok ? (live.canAfford(live.buildMode) ? 'E TO BUILD' : 'NOT ENOUGH MATERIALS') : PROBLEM_TEXT[check.problem!].toUpperCase();
+      const w = text.length * 4 + 3;
+      frame.fillRect(Math.round(spot.x - w / 2) - ox, check.y0 - 12 - oy, w, 9, hex('#1b1f2a'));
+      drawTinyText(frame, text, Math.round(spot.x - w / 2) + 2 - ox, check.y0 - 10 - oy, colour);
+      void def;
+    }
     // ── Pickups floating up, the reach marker, the resource counter ──────
     for (const p of live.pickups) {
       const t = Math.min(1, (time - p.start) / PICKUP_SECONDS);

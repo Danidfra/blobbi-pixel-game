@@ -76,3 +76,18 @@ export function craft(inventory: Inventory, recipe: Recipe): boolean {
   }
   return true;
 }
+
+/** Remove a set of ingredients atomically: all of them or none. Returns whether they were consumed. */
+export function consumeIngredients(inventory: Inventory, ingredients: readonly Ingredient[]): boolean {
+  for (const ing of ingredients) if (inventory.count(ing.item) < ing.quantity) return false;
+  const removed: Ingredient[] = [];
+  for (const ing of ingredients) {
+    const n = inventory.remove(ing.item, ing.quantity);
+    removed.push({ item: ing.item, quantity: n });
+    if (n !== ing.quantity) {
+      for (const r of removed) inventory.add(r.item, r.quantity);
+      return false;
+    }
+  }
+  return true;
+}

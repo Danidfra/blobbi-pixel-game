@@ -302,13 +302,13 @@ describe('persistence and reloads', () => {
     const identity = worldIdentity(world);
     store.set(saveKey(identity), JSON.stringify({ version: 1, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] } }));
     const v1 = loadSave(store, identity)!;
-    expect(v1).toEqual({ version: 2, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0 });
+    expect(v1).toEqual({ version: SAVE_VERSION, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [] });
     const live = new LiveWorld(world, 'blobbi-9', 16, { store });
     expect(live.collected.has('stick:0')).toBe(true);
     expect(live.inventory.count(ITEMS.stick.id)).toBe(2);
-    store.set(saveKey(identity), JSON.stringify({ ...v1, version: 3 }));
+    store.set(saveKey(identity), JSON.stringify({ ...v1, version: SAVE_VERSION + 1 }));
     expect(loadSave(store, identity)).toBeNull();
-    store.set(saveKey(identity), JSON.stringify({ ...v1, equipped: ITEMS.axe.id, trees: { '5': { hits: 1, harvestedAt: null }, x: { hits: 1 }, '7': { hits: -2, harvestedAt: 'soon' }, '9': { hits: 0, harvestedAt: 12.5 } }, worldTime: -4 }));
+    store.set(saveKey(identity), JSON.stringify({ ...v1, version: 2, equipped: ITEMS.axe.id, trees: { '5': { hits: 1, harvestedAt: null }, x: { hits: 1 }, '7': { hits: -2, harvestedAt: 'soon' }, '9': { hits: 0, harvestedAt: 12.5 } }, worldTime: -4 }));
     const loaded = loadSave(store, identity)!;
     expect(loaded.trees).toEqual({ '5': { hits: 1, harvestedAt: null }, '9': { hits: 0, harvestedAt: 12.5 } });
     expect(loaded.worldTime).toBe(0);

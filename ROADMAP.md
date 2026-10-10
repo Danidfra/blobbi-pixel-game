@@ -182,7 +182,32 @@ Report: `REPORT-M2.3.md`. Images: `examples/equipment/`.
 
 ### M2.4 and beyond (not started)
 
-Further tools, building construction, farming, survival needs, cozy and
-survival modes, Nostr events (inventory as kind:31633 through
-`@nostr-games/inventory`), multiplayer, payments, world growth (see the
-requirements above), combat. None is touched by M2.2 or M2.3.
+Further tools, farming, survival needs, cozy and survival modes, Nostr
+events (inventory as kind:31633 through `@nostr-games/inventory`),
+multiplayer, payments, world growth (see the requirements above), combat.
+
+## M3: Construction (in progress; not complete)
+
+### M3.1: First building (complete)
+
+Report: `REPORT-M3.1.md`. Images: `examples/building/`.
+- [x] One building kind, the wooden shelter: registry entry with id, cost
+      (6 wood + 3 stone), footprint and build time (`src/game/buildings.ts`).
+- [x] Placement preview in front of the Blobbi (B), green or red with the
+      reason; E places; collision with objects, water, cliffs, resources,
+      the Blobbi and other buildings.
+- [x] Atomic payment from the inventory; footprint blocked; nav rebuilt.
+- [x] Procedural pixel-art shelter with construction stages (posts and a
+      log pile, walls rising, roof closing) over 24 s of world time;
+      sawdust while building, a bubble when done; E at the door.
+- [x] Persistent in the save (schema 3) in island-frame coordinates, so
+      future growth never resizes or relocates a building; migration from
+      schema 2; reset.
+- [x] Autonomy never builds; turtle, Blobbi, equipment, terrain unchanged.
+- [x] Tests: 139 passing (9 new); typecheck and build pass.
+- [x] Manual gameplay test by the user (2026-10-10): passed.
+
+### M3.2 and beyond (not started)
+
+More building kinds, removal, interiors, paths to doors, farming, world
+growth. None is touched by M3.1.

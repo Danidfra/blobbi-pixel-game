@@ -14,14 +14,24 @@ export interface KeyValueStore {
   remove(key: string): void;
 }
 
-/** The record schema. 1: collected nodes and inventory (M2.1). 2: adds the equipped tool, tree states and world time (M2.2). */
-export const SAVE_VERSION = 2;
+/** The record schema. 1: collected nodes and inventory (M2.1). 2: adds the equipped tool, tree states and world time (M2.2). 3: adds buildings (M3.1). */
+export const SAVE_VERSION = 3;
 /** The key namespace: records of every schema this code can migrate share it. */
 const NAMESPACE = 'blobbi-pixel-lab:save:v1';
 
 export interface TreeSaveState {
   hits: number;
   harvestedAt: number | null;
+}
+
+/** A placed building. `x`, `y` are in the ISLAND FRAME (canvas minus the carrier's origin): stable across canvases. */
+export interface BuildingSave {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  placedAt: number;
+  seed: string;
 }
 
 export interface WorldSave {
@@ -37,6 +47,8 @@ export interface WorldSave {
   trees: Record<string, TreeSaveState>;
   /** Simulated seconds this world has lived, so regrowth continues across reloads. */
   worldTime: number;
+  /** Buildings the player placed, in island-frame coordinates. */
+  buildings: BuildingSave[];
 }
 
 /** Everything that decides which world this is: seed, kind, turtle, shell variant, canvas and scale. */
@@ -55,25 +67,34 @@ export function loadSave(store: KeyValueStore, identity: string): WorldSave | nu
   const raw = store.get(saveKey(identity));
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<Omit<WorldSave, 'version' | 'trees'>> & { version?: number; trees?: Record<string, Partial<TreeSaveState>> };
-    if ((parsed.version !== 1 && parsed.version !== 2) || parsed.world !== identity) return null;
+    const parsed = JSON.parse(raw) as Partial<Omit<WorldSave, 'version' | 'trees' | 'buildings'>> & { version?: number; trees?: Record<string, Partial<TreeSaveState>>; buildings?: Partial<BuildingSave>[] };
+    if ((parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) || parsed.world !== identity) return null;
     if (!Array.isArray(parsed.collected) || !parsed.inventory || parsed.inventory.version !== 1) return null;
     const trees: Record<string, TreeSaveState> = {};
-    if (parsed.version === 2 && parsed.trees && typeof parsed.trees === 'object')
+    if (parsed.version >= 2 && parsed.trees && typeof parsed.trees === 'object')
       for (const [k, v] of Object.entries(parsed.trees)) {
         if (!/^\d+$/.test(k) || !v || typeof v !== 'object') continue;
         const hits = typeof v.hits === 'number' && Number.isInteger(v.hits) && v.hits >= 0 ? v.hits : 0;
         const harvestedAt = typeof v.harvestedAt === 'number' && Number.isFinite(v.harvestedAt) ? v.harvestedAt : null;
         if (hits > 0 || harvestedAt !== null) trees[k] = { hits, harvestedAt };
       }
+    const buildings: BuildingSave[] = [];
+    if (parsed.version === 3 && Array.isArray(parsed.buildings))
+      for (const b of parsed.buildings) {
+        if (!b || typeof b !== 'object') continue;
+        if (typeof b.id !== 'string' || typeof b.kind !== 'string' || typeof b.seed !== 'string') continue;
+        if (!Number.isInteger(b.x) || !Number.isInteger(b.y) || typeof b.placedAt !== 'number' || !Number.isFinite(b.placedAt)) continue;
+        buildings.push({ id: b.id, kind: b.kind, x: b.x!, y: b.y!, placedAt: b.placedAt!, seed: b.seed });
+      }
     return {
       version: SAVE_VERSION,
       world: identity,
       collected: parsed.collected.filter((id) => typeof id === 'string'),
       inventory: parsed.inventory,
-      equipped: parsed.version === 2 && typeof parsed.equipped === 'string' ? parsed.equipped : null,
+      equipped: parsed.version >= 2 && typeof parsed.equipped === 'string' ? parsed.equipped : null,
       trees,
-      worldTime: parsed.version === 2 && typeof parsed.worldTime === 'number' && Number.isFinite(parsed.worldTime) && parsed.worldTime >= 0 ? parsed.worldTime : 0,
+      worldTime: parsed.version >= 2 && typeof parsed.worldTime === 'number' && Number.isFinite(parsed.worldTime) && parsed.worldTime >= 0 ? parsed.worldTime : 0,
+      buildings,
     };
   } catch {
     return null;

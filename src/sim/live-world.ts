@@ -28,6 +28,8 @@ import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } f
 import { canCraft, craft, type Recipe } from '../game/crafting';
 import { HITS_TO_FELL, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
 import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
+import { BUILDINGS, buildingProgress, buildingSprite, checkPlacement, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck } from '../game/buildings';
+import { consumeIngredients } from '../game/crafting';
 
 export interface LiveInput {
   up: boolean;
@@ -79,6 +81,8 @@ export interface LiveStats {
   chops: number;
   felled: number;
   crafted: number;
+  /** Buildings placed by the player in this session. */
+  built: number;
 }
 
 /** A resource being picked up: its sprite floats up from the node for a moment. */
@@ -132,7 +136,14 @@ export class LiveWorld {
   readonly impulses = new Map<number, { until: number; strength: number }>();
   bubble: Bubble | null = null;
   growDuration = 45;
-  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0, collected: 0, chops: 0, felled: 0, crafted: 0 };
+  readonly stats: LiveStats = { steps: 0, interactions: 0, particles: 0, planted: 0, collected: 0, chops: 0, felled: 0, crafted: 0, built: 0 };
+  /** Buildings the player placed, in canvas coordinates (saved in the island frame). */
+  readonly buildings: Building[] = [];
+  /** Build mode: a placement preview in front of the Blobbi; E places, B leaves. */
+  buildMode: BuildingKind | null = null;
+  /** Buildings whose completion has been announced. */
+  private readonly completed = new Set<string>();
+  private siteTimer = 0;
   /** The equipped tool's item id, or null. Only the player equips. */
   equipped: string | null = null;
   /** Harvest state per world tree (placement index); absent means an untouched, grown tree. */
@@ -203,6 +214,15 @@ export class LiveWorld {
         if (index >= 0 && index < world.objects.length && world.objects[index].kind === 'tree') this.trees.set(index, { hits: v.hits, harvestedAt: v.harvestedAt });
       }
       if (save.equipped && isTool(save.equipped) && this.inventory.count(save.equipped) > 0) this.equipped = save.equipped;
+      const origin = world.carrier?.origin ?? { x: 0, y: 0 };
+      for (const b of save.buildings) {
+        if (!(b.kind in BUILDINGS)) continue;
+        const building: Building = { id: b.id, kind: b.kind as BuildingKind, x: b.x + origin.x, y: b.y + origin.y, placedAt: b.placedAt, seed: b.seed };
+        this.buildings.push(building);
+        this.blockBuilding(building);
+        if (buildingProgress(building, this.worldTime) >= 1) this.completed.add(building.id);
+      }
+      if (this.buildings.length) this.nav.rebuild();
     }
     this.resources = this.allResources.filter((n) => !this.collected.has(n.id));
   }
@@ -400,6 +420,133 @@ export class LiveWorld {
     return t < SWING.end ? 'recover' : 'idle';
   }
 
+  // ─── Building: the player's action only ─────────────────────────────────
+
+  /** Enter or leave build mode for a kind (null leaves). */
+  setBuildMode(kind: BuildingKind | null): void {
+    this.buildMode = kind;
+    this.brain.manual(this.clock.time);
+  }
+
+  /** Where a building would go: in front of the Blobbi, snapped to two pixels, in canvas coordinates. */
+  placementSpot(kind: BuildingKind = this.buildMode ?? 'shelter'): { x: number; y: number } {
+    const b = this.blobbi;
+    const def = BUILDINGS[kind];
+    const dir = b.animator.state.direction;
+    const dx = dir === 'left' ? -(def.footRx + b.footRx + 4) : dir === 'right' ? def.footRx + b.footRx + 4 : 0;
+    const dy = dir === 'up' ? -(def.footRy + b.footRy + 6) : dir === 'down' ? def.footRy + b.footRy + 6 : 0;
+    return { x: Math.round((b.x + dx) / 2) * 2, y: Math.round((b.y + dy) / 2) * 2 };
+  }
+
+  /** The placement check for the current spot (or a given one). */
+  placementCheck(kind: BuildingKind = this.buildMode ?? 'shelter', spot = this.placementSpot(kind)): PlacementCheck {
+    return checkPlacement(kind, spot.x, spot.y, {
+      world: this.world,
+      isBlocked: (x, y) => this.collision.isBlocked(x + 0.5, y + 0.5),
+      buildings: this.buildings,
+      resources: this.resources,
+      blobbi: this.blobbi,
+    });
+  }
+
+  /** Can the bag pay for a building? */
+  canAfford(kind: BuildingKind): boolean {
+    return BUILDINGS[kind].cost.every((c) => this.inventory.count(c.item) >= c.quantity);
+  }
+
+  /**
+   * Place the building of the current build mode at the preview spot: the cost leaves the bag atomically, the
+   * footprint blocks, construction starts. False (with a bubble) when the spot is invalid or the bag is short.
+   */
+  placeBuilding(): Building | null {
+    const kind = this.buildMode;
+    if (!kind) return null;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const def = BUILDINGS[kind];
+    const spot = this.placementSpot(kind);
+    const check = this.placementCheck(kind, spot);
+    if (!check.ok) {
+      this.bubble = { text: PROBLEM_TEXT[check.problem!], until: time + 1.6, x: b.x, y: b.y - b.size - 2 };
+      b.animator.react('sad', time, 0.6, 0);
+      return null;
+    }
+    if (!consumeIngredients(this.inventory, def.cost)) {
+      const missing = def.cost.filter((c) => this.inventory.count(c.item) < c.quantity).map((c) => `need ${c.quantity - this.inventory.count(c.item)} ${itemLabel(c.item)}`);
+      this.bubble = { text: missing.join(', '), until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+      b.animator.react('sad', time, 0.6, 0);
+      return null;
+    }
+    const n = this.buildings.filter((x) => x.kind === kind).length;
+    const building: Building = { id: `${kind}:${n}`, kind, x: spot.x, y: spot.y, placedAt: this.worldTime, seed: `${this.world.seed}/${kind}/${n}` };
+    this.buildings.push(building);
+    this.blockBuilding(building);
+    this.nav.rebuild(building.x - def.footRx - 20, building.y - def.footRy - 16, building.x + def.footRx + 20, building.y + def.footRy + 16);
+    this.stats.built++;
+    for (let i = 0; i < 6; i++) this.particles.dust(spot.x + this.particles.rng.range(-def.footRx, def.footRx), spot.y + this.particles.rng.range(-2, 2), i % 2 ? paletteFor(this.world.options.palette).wood.light : paletteFor(this.world.options.palette).path.dark);
+    this.bubble = { text: `building a ${def.label}`, until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+    b.animator.react('excited', time, 1, 2);
+    this.buildMode = null;
+    this.save();
+    return building;
+  }
+
+  private blockBuilding(b: Building): void {
+    const def = BUILDINGS[b.kind];
+    this.collision.blockEllipse(b.x, b.y, def.footRx, def.footRy, true);
+  }
+
+  /** Construction progress of a building now. */
+  buildingAt(b: Building): number {
+    return buildingProgress(b, this.worldTime);
+  }
+
+  /** The building in front of and close to the Blobbi, if any. */
+  facingBuilding(radius = 10): Building | null {
+    const b = this.blobbi;
+    const dir = b.animator.state.direction;
+    const fx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+    const fy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
+    let best: { building: Building; d: number } | null = null;
+    for (const building of this.buildings) {
+      const def = BUILDINGS[building.kind];
+      const dx = Math.max(0, Math.abs(building.x - b.x) - def.footRx);
+      const dy = Math.max(0, Math.abs(building.y - b.y) - def.footRy);
+      const d = Math.hypot(dx, dy);
+      if (d > radius) continue;
+      const dot = (building.x - b.x) * fx + (building.y - b.y) * fy;
+      if (dot < -2 && d > 4) continue;
+      if (!best || d < best.d) best = { building, d };
+    }
+    return best?.building ?? null;
+  }
+
+  /** Sawdust and the odd sparkle at a site while it is being built; a bubble when it is done. */
+  private stepConstruction(dt: number): void {
+    if (!this.buildings.length) return;
+    this.siteTimer -= dt;
+    const palette = paletteFor(this.world.options.palette);
+    for (const building of this.buildings) {
+      const p = this.buildingAt(building);
+      const def = BUILDINGS[building.kind];
+      if (p >= 1) {
+        if (!this.completed.has(building.id)) {
+          this.completed.add(building.id);
+          for (let i = 0; i < 5; i++) this.particles.sparkle(building.x + this.particles.rng.range(-def.footRx, def.footRx), building.y - this.particles.rng.range(4, 18), hex('#fff2b0'));
+          this.particles.heart(building.x, building.y - 20);
+          this.bubble = { text: `${def.label} finished!`, until: this.clock.time + 2.2, x: building.x, y: building.y - 24 };
+        }
+        continue;
+      }
+      if (this.siteTimer <= 0) {
+        const sprite = buildingSprite(building, palette, p, this.world.options.scale);
+        const top = building.y - sprite.anchorY;
+        this.particles.dust(building.x + this.particles.rng.range(-def.footRx, def.footRx), building.y - this.particles.rng.range(0, Math.max(2, (building.y - top) * p)), this.particles.rng.chance(0.5) ? palette.wood.light : palette.wood.mid);
+      }
+    }
+    if (this.siteTimer <= 0) this.siteTimer = 0.45;
+  }
+
   /** Counts per resource kind, for the HUD. */
   counts(): Record<ResourceKind, number> {
     return { stick: this.inventory.count(RESOURCE_ITEM.stick), stone: this.inventory.count(RESOURCE_ITEM.stone), seed: this.inventory.count(RESOURCE_ITEM.seed) };
@@ -410,7 +557,9 @@ export class LiveWorld {
     if (!this.store) return;
     const trees: Record<string, TreeSaveState> = {};
     for (const [index, t] of [...this.trees.entries()].sort((a, b) => a[0] - b[0])) if (t.hits > 0 || t.harvestedAt !== null) trees[String(index)] = { hits: t.hits, harvestedAt: t.harvestedAt };
-    storeSave(this.store, { version: 2, world: this.identity, collected: [...this.collected].sort(), inventory: this.inventory.snapshot(), equipped: this.equipped, trees, worldTime: this.worldTime });
+    const origin = this.world.carrier?.origin ?? { x: 0, y: 0 };
+    const buildings = this.buildings.map((b) => ({ id: b.id, kind: b.kind, x: b.x - origin.x, y: b.y - origin.y, placedAt: b.placedAt, seed: b.seed }));
+    storeSave(this.store, { version: 3, world: this.identity, collected: [...this.collected].sort(), inventory: this.inventory.snapshot(), equipped: this.equipped, trees, worldTime: this.worldTime, buildings });
     this.lastAutosave = this.clock.time;
   }
 
@@ -424,6 +573,15 @@ export class LiveWorld {
     this.trees.clear();
     this.equipped = null;
     this.timeOffset = -this.clock.time;
+    this.buildings.length = 0;
+    this.completed.clear();
+    this.buildMode = null;
+    this.collision = CollisionMap.fromWorld(this.world, (p) => this.spriteOf(p));
+    for (const t of this.planted) if (t.solid) {
+      const s = this.spriteOf(t.placement, this.growthOf(t));
+      this.collision.blockEllipse(t.placement.x, t.placement.y, s.footRx, Math.max(1, s.footRy));
+    }
+    this.rebuildBrain();
   }
 
   /** The nav grid and brain depend on the Blobbi's foot size and the world; rebuilt when either changes. */
@@ -534,7 +692,11 @@ export class LiveWorld {
     b.animator.state.sleeping = this.brain.state === 'rest';
     // The brain's interactions never touch resources; the player's try to collect first.
     if (brainInteract) this.interact();
-    if (input.interact && !this.collect() && !this.chop()) this.interact();
+    if (input.interact) {
+      if (this.buildMode) this.placeBuilding();
+      else if (!this.collect() && !this.chop()) this.interact();
+    }
+    this.stepConstruction(dt);
     // The swing: the hit lands part-way through, the axe is back at rest at the end.
     if (this.swing) {
       if (!this.swing.landed && time >= this.swing.start + SWING.hit) {
@@ -639,8 +801,21 @@ export class LiveWorld {
   interact(): void {
     const time = this.clock.time;
     const b = this.blobbi;
-    const target = this.facingObject();
     this.stats.interactions++;
+    const building = this.facingBuilding();
+    if (building) {
+      const p = this.buildingAt(building);
+      if (p >= 1) {
+        for (let i = 0; i < 3; i++) this.particles.heart(building.x + this.particles.rng.range(-4, 4), building.y - 14 - i * 2);
+        this.bubble = { text: 'home sweet home', until: time + 2, x: b.x, y: b.y - b.size - 2 };
+        b.animator.react('excited', time, 1.2, 3);
+      } else {
+        this.bubble = { text: `under construction, ${Math.ceil((1 - p) * BUILDINGS[building.kind].buildSeconds)} s`, until: time + 1.6, x: b.x, y: b.y - b.size - 2 };
+        b.animator.react('neutral', time, 0.5, 0);
+      }
+      return;
+    }
+    const target = this.facingObject();
     if (!target) {
       // Nothing there: a small hop and a shrug.
       b.animator.react('surprised', time, 0.6, 2);

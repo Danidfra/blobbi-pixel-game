@@ -24,6 +24,7 @@ import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources
 import { ITEMS, itemLabel } from '../game/items';
 import { RECIPES, canCraft } from '../game/crafting';
 import { toolIcon } from '../game/equipment';
+import { BUILDINGS } from '../game/buildings';
 import { paletteFor } from '../world/generate';
 import { Camera, LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { blobbiIdentity } from '../blobbi/identity';
@@ -161,7 +162,7 @@ app.innerHTML = `
       <label class="check"><input id="live-debug" type="checkbox" /> debug collision</label>
       <label class="check"><input id="live-autonomy" type="checkbox" /> autonomy (WASD takes over, resumes after 5 s)</label>
       <label class="check"><input id="live-path" type="checkbox" /> debug path and nav grid</label>
-      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, chop a tree with the axe, else interact · C craft · Q equip · P plant a tree · click the view first</div>
+      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, chop a tree with the axe, else interact · C craft · Q equip · B build · P plant a tree · click the view first</div>
       <h2>Inventory</h2>
       <div id="inventory" class="stats"></div>
       <div class="row" id="axe-icon-row" style="align-items:center;gap:8px"><canvas id="axe-icon" width="36" height="36"></canvas><span class="hint" id="axe-icon-label">simple axe</span></div>
@@ -169,6 +170,10 @@ app.innerHTML = `
       <div id="crafting" class="stats"></div>
       <div class="row"><button id="craft-axe" class="primary">Craft simple axe (C)</button><button id="equip-axe">Equip axe (Q)</button></div>
       <div class="hint">Simple axe: 3 sticks + 2 stones. With the axe equipped, face a tree and press E three times to fell it: wood goes in the bag, a stump stays, and the same tree regrows over four minutes of world time (continuing across reloads).</div>
+      <h2>Building</h2>
+      <div id="building" class="stats"></div>
+      <div class="row"><button id="build-shelter" class="primary">Build shelter (B)</button></div>
+      <div class="hint">Wooden shelter: 6 wood + 3 stone. B shows a preview in front of the Blobbi (green = fits, red = why not); E places it and the materials leave the bag; it is built over 24 s of world time and stays. Buildings keep their place on the island across reloads.</div>
       <div class="row"><button id="progress-reset">Reset resources &amp; inventory</button></div>
       <div class="hint">Sticks lie under trees, stones by rocks and on the forest floor, seeds by bushes and flowers. Collected resources and the inventory persist per world in this browser (versioned, keyed by seed, turtle, variant and size). Autonomy never collects.</div>
     </section>
@@ -459,6 +464,26 @@ function drawAxeIcon(): void {
   c.getContext('2d')!.drawImage(toCanvas(icon.buffer), 0, 0);
 }
 
+function showBuilding(): void {
+  if (!live) return;
+  const def = BUILDINGS.shelter;
+  const cost = def.cost.map((c) => `${c.quantity} ${itemLabel(c.item)} (${live!.inventory.count(c.item)})`).join(' + ');
+  const lines = [`shelter   ${cost} → ${live.canAfford('shelter') ? '<b>affordable</b>' : 'missing materials'}`, `built     ${live.buildings.length} building${live.buildings.length === 1 ? '' : 's'}` + live.buildings.map((b) => ` · ${b.kind} at ${b.x},${b.y} ${(live!.buildingAt(b) * 100).toFixed(0)}%`).join('')];
+  if (live.buildMode) {
+    const check = live.placementCheck();
+    const spot = live.placementSpot();
+    lines.push(`preview   <b>${check.ok ? 'fits' : check.problem}</b> at ${spot.x},${spot.y}   E to place, B to cancel`);
+  }
+  $('building').innerHTML = lines.join('\n');
+  $('build-shelter').textContent = live.buildMode ? 'Cancel build (B)' : 'Build shelter (B)';
+}
+
+function toggleBuild(): void {
+  if (!live) return;
+  live.setBuildMode(live.buildMode ? null : 'shelter');
+  showBuilding();
+}
+
 function craftAxe(): void {
   if (!live) return;
   live.craftRecipe(RECIPES[0]);
@@ -475,6 +500,7 @@ function toggleAxe(): void {
 function showPlayStats(): void {
   if (!live || !liveRenderer) return;
   showInventory();
+  showBuilding();
   const b = live.blobbi;
   const t = liveRenderer.timings;
   $('stats').innerHTML =
@@ -500,6 +526,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyP') plantPressed = true;
   if (e.code === 'KeyC') craftAxe();
   if (e.code === 'KeyQ') toggleAxe();
+  if (e.code === 'KeyB') toggleBuild();
 });
 window.addEventListener('beforeunload', () => live?.save());
 document.addEventListener('visibilitychange', () => {
@@ -524,6 +551,10 @@ $('craft-axe').addEventListener('click', () => {
 });
 $('equip-axe').addEventListener('click', () => {
   toggleAxe();
+  view.focus();
+});
+$('build-shelter').addEventListener('click', () => {
+  toggleBuild();
   view.focus();
 });
 $('progress-reset').addEventListener('click', () => {
