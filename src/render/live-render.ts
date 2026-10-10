@@ -14,7 +14,7 @@ import { hash32 } from '../core/rng';
 import { type Color, hex } from '../core/color';
 import { paletteFor } from '../world/generate';
 import { paintTerrain } from './paint-terrain';
-import { turtleUnderlay, turtleBodyFor } from './compose';
+import { turtleUnderlay, turtleBodyForWorld } from './compose';
 import { windAt } from '../sim/live-world';
 import { T, type Layer, type Placement } from '../world/types';
 import type { LiveWorld } from '../sim/live-world';
@@ -300,8 +300,7 @@ export class LiveRenderer {
   /** The animated turtle parts over the static layer (which holds water under them). */
   private drawTurtle(frame: PixelBuffer, ox: number, oy: number, time: number, animate: boolean): void {
     const world = this.live.world;
-    const a = world.turtle!;
-    const body = turtleBodyFor(a, world.options.width, world.options.height);
+    const body = turtleBodyForWorld(world);
     const ta = this.live.turtleAnim;
     // Flippers: a slow paddle along each flipper's axis, phased per flipper, one pixel of travel.
     body.flippers.forEach((f, i) => {
@@ -355,6 +354,23 @@ export class LiveRenderer {
 
 /** A 3×5 pixel font for the few words a sign says. */
 const GLYPHS: Record<string, string[]> = {
+  '0': ['###', '#.#', '#.#', '#.#', '###'],
+  '1': ['.#.', '##.', '.#.', '.#.', '###'],
+  '2': ['###', '..#', '###', '#..', '###'],
+  '3': ['###', '..#', '.##', '..#', '###'],
+  '4': ['#.#', '#.#', '###', '..#', '..#'],
+  '5': ['###', '#..', '###', '..#', '###'],
+  '6': ['###', '#..', '###', '#.#', '###'],
+  '7': ['###', '..#', '.#.', '.#.', '.#.'],
+  '8': ['###', '#.#', '###', '#.#', '###'],
+  '9': ['###', '#.#', '###', '..#', '###'],
+  '%': ['#.#', '..#', '.#.', '#..', '#.#'],
+  ',': ['...', '...', '...', '.#.', '#..'],
+  '-': ['...', '...', '###', '...', '...'],
+  X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
+  J: ['..#', '..#', '..#', '#.#', '.#.'],
+  Q: ['.#.', '#.#', '#.#', '.##', '..#'],
+  Z: ['###', '..#', '.#.', '#..', '###'],
   A: ['.#.', '#.#', '###', '#.#', '#.#'],
   B: ['##.', '#.#', '##.', '#.#', '##.'],
   C: ['.##', '#..', '#..', '#..', '.##'],

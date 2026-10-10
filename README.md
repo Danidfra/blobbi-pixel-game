@@ -14,7 +14,7 @@ Farm). It is **not a game** and **not a package**. Findings are in
 [REPORT-2.md](./REPORT-2.md) (phase 2: the living world) and
 [REPORT-3.md](./REPORT-3.md) (phase 3: Blobbi fidelity, world scale, the
 comparison lab), [REPORT-4.md](./REPORT-4.md) (phase 4: faces, mouths and
-horns) and [REPORT-M1.md](./REPORT-M1.md) (M1: the living turtle). The
+horns) and [REPORT-M1.md](./REPORT-M1.md) (M1: the living turtle) and [REPORT-SHELL.md](./REPORT-SHELL.md) (shell variants and the World Carrier). The
 milestones are in [ROADMAP.md](./ROADMAP.md).
 
 **M1: the turtle is the island.** `src/turtle/turtle.ts` generates a

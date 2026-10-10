@@ -53,6 +53,16 @@ time in. Report: `REPORT-M1.md`.
 - [ ] Visual review and approval by the user. M1 is not marked complete
       until then.
 
+M1 shell refinement (2026-10-09, report `REPORT-SHELL.md`): the visible
+shell under the island, as four comparison variants (0 = M1 unchanged,
+A/B/C = island covering ≈60/70/80% of a larger shell with procedural
+plates, soil and moss), and a minimal World / World Carrier separation
+(`src/carrier/`). Head, face, neck, flippers, expressions, animations,
+terrain, collision, navigation and the Blobbi are identical in all four
+(tested). Baseline commit `ccc2021`. Images in `examples/turtle/variants/`.
+- [ ] The user selects a preferred variant (or keeps 0). Not complete until
+      then.
+
 Known gaps to review: expression range of the turtle (one head design),
 flipper animation is a 1 px paddle, the Blobbi has no sit/sleep pose for
 resting beyond closed eyes, the plateau is one level.

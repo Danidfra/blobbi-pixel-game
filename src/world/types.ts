@@ -27,6 +27,8 @@ export interface WorldOptions {
   kind: 'island' | 'turtle';
   /** The turtle's own seed; the world seed when absent. */
   turtleSeed?: string;
+  /** The World Carrier's shell variant (turtle worlds): 0 = the M1 shell, 1-3 = the enlarged shells. Default: Variant B (2). */
+  shellVariant?: import('../carrier/types').ShellVariant;
 }
 
 export const DEFAULT_WORLD_OPTIONS: WorldOptions = { width: 704, height: 448, palette: 'cozy', islands: 0, density: 1, scale: 1.6, kind: 'island' };
@@ -187,6 +189,8 @@ export interface WorldDescription {
   hubs: { island: number; x: number; y: number }[];
   /** Present when the island is a turtle's shell: the animal's anatomy, for the painter and the live renderer. */
   turtle?: import('../turtle/turtle').TurtleAnatomy;
+  /** The World Carrier (turtle worlds): species, variant, canvas, and the island frame's origin in it. */
+  carrier?: import('../carrier/types').WorldCarrier;
   terrain: TerrainMap;
   objects: Placement[];
   stats: WorldStats;

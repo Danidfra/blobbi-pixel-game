@@ -8,6 +8,7 @@ import { paletteFor } from '../world/generate';
 import { OBJECT_GENERATORS } from '../objects';
 import { paintTerrain } from './paint-terrain';
 import { renderTurtleBody, type TurtleAnatomy, type TurtleBody } from '../turtle/turtle';
+import { paintShellSurface } from '../carrier/shell-surface';
 import { T, type Layer, type Placement, type WorldDescription } from '../world/types';
 
 export interface RenderOptions {
@@ -32,7 +33,7 @@ export function spriteFor(p: Placement, paletteName: string, cache?: Map<string,
 
 const bodyCache = new Map<string, TurtleBody>();
 
-/** The turtle's body, drawn once per anatomy (keyed by turtle seed and world size). */
+/** The turtle's body, drawn once per anatomy (keyed by turtle seed and world size). The M1 shell. */
 export function turtleBodyFor(a: TurtleAnatomy, width: number, height: number): TurtleBody {
   const key = `${a.genome.seed}|${width}x${height}|${a.rx.toFixed(1)}`;
   const hit = bodyCache.get(key);
@@ -42,10 +43,24 @@ export function turtleBodyFor(a: TurtleAnatomy, width: number, height: number): 
   return body;
 }
 
+/** The carrier's body for a world: the M1 shell for Variant 0, the carrier's shell surface for the enlarged variants. */
+export function turtleBodyForWorld(world: WorldDescription): TurtleBody {
+  const a = world.turtle!;
+  const carrier = world.carrier;
+  if (!carrier || carrier.variant === 0) return turtleBodyFor(a, world.options.width, world.options.height);
+  const key = `${a.genome.seed}|${world.options.width}x${world.options.height}|${a.rx.toFixed(1)}|v${carrier.variant}|${world.options.palette}|${world.islands[0].cx},${world.islands[0].cy}`;
+  const hit = bodyCache.get(key);
+  if (hit) return hit;
+  const ctx = { island: world.islands[0], palette: paletteFor(world.options.palette), seed: carrier.seed, scale: world.options.scale };
+  const body = renderTurtleBody(a, (buf, anatomy) => paintShellSurface(buf, anatomy, ctx).dome);
+  bodyCache.set(key, body);
+  return body;
+}
+
 /** The static underlay for a turtle world: shell dome and rim, neck, tail, with the head and flippers at rest. */
 export function turtleUnderlay(world: WorldDescription, parts: { head: boolean; flippers: boolean } = { head: true, flippers: true }): PixelBuffer | undefined {
   if (!world.turtle) return undefined;
-  const body = turtleBodyFor(world.turtle, world.options.width, world.options.height);
+  const body = turtleBodyForWorld(world);
   const buf = new PixelBuffer(world.options.width, world.options.height);
   buf.blit(body.buffer, 0, 0);
   if (parts.flippers) for (const f of body.flippers) buf.blit(f.buffer, f.x, f.y);

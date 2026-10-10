@@ -122,35 +122,72 @@ export function shellRadius(a: TurtleAnatomy, angle: number): number {
   return ellipse * facet;
 }
 
-export function turtleAnatomy(genome: TurtleGenome, width: number, height: number, scale: number): TurtleAnatomy {
-  const rx = width * genome.shellRx;
-  const ry = height * genome.shellRy;
-  const headR = rx * genome.headSize;
-  const cx = Math.round(width / 2);
+/**
+ * A SHELL FIT: the shell enlarged around the same island (the World Carrier's shell variants). Part sizes
+ * (head, neck, flippers, tail) come from the reference anatomy, so their sprites stay pixel-identical; only
+ * their positions follow the enlarged shell's edge, by whole pixels.
+ */
+export interface ShellFit {
+  /** Shell centre in the canvas. */
+  cx: number;
+  cy: number;
+  /** Half-axes of the enlarged shell, in pixels. */
+  rx: number;
+  ry: number;
+  /** The reference anatomy (the unchanged shell) the part sizes and sub-pixel phases come from. */
+  ref: TurtleAnatomy;
+}
+
+export function turtleAnatomy(genome: TurtleGenome, width: number, height: number, scale: number, fit?: ShellFit): TurtleAnatomy {
+  const refRx = fit ? fit.ref.rx : width * genome.shellRx;
+  const rx = fit ? fit.rx : refRx;
+  const ry = fit ? fit.ry : height * genome.shellRy;
+  const headR = refRx * genome.headSize;
+  const cx = fit ? fit.cx : Math.round(width / 2);
   // The shell sits a little above centre: the head and front flippers need room below.
-  const cy = Math.round(height * 0.415);
+  const cy = fit ? fit.cy : Math.round(height * 0.415);
   const rimWidth = Math.round(5 * scale);
   const neckLen = headR * genome.neck;
-  const head = { cx, cy: Math.round(cy + ry + rimWidth + neckLen + headR * 0.8), rx: headR, ry: headR * 0.92 * genome.headLength };
-  const neck = { x0: cx - headR * 0.62, x1: cx + headR * 0.62, y0: cy + ry * 0.9, y1: head.cy };
+  // With a fit, the parts below and above the shell move by the whole-pixel growth of the shell's edge at
+  // their angle, so the visible neck, the tail and every sprite keep their exact pixels.
+  const growth = (angle: number): number => (fit ? shellRadius({ genome, rx, ry } as TurtleAnatomy, angle) - shellRadius(fit.ref, angle) : 0);
+  const southShift = fit ? Math.round(cy - fit.ref.cy + growth(Math.PI / 2)) : 0;
+  const northShift = fit ? Math.round(cy - fit.ref.cy - growth(-Math.PI / 2)) : 0;
+  const head = fit
+    ? { cx, cy: fit.ref.head.cy + southShift, rx: headR, ry: headR * 0.92 * genome.headLength }
+    : { cx, cy: Math.round(cy + ry + rimWidth + neckLen + headR * 0.8), rx: headR, ry: headR * 0.92 * genome.headLength };
+  const neck = { x0: cx - headR * 0.62, x1: cx + headR * 0.62, y0: fit ? fit.ref.neck.y0 + southShift : cy + ry * 0.9, y1: head.cy };
   const flippers: Flipper[] = [];
-  const fl = rx * genome.flipperLength;
-  const fw = rx * genome.flipperWidth;
+  const fl = refRx * genome.flipperLength;
+  const fw = refRx * genome.flipperWidth;
   const sides: [Flipper['side'], number, number][] = [
     ['fl', Math.PI - genome.flipperAngle * 0 - (Math.PI / 2 - genome.flipperAngle), 1],
     ['fr', Math.PI / 2 - genome.flipperAngle, 1],
     ['rl', Math.PI + (Math.PI / 2 - genome.flipperAngle * 0.8), genome.rearScale],
     ['rr', -(Math.PI / 2 - genome.flipperAngle * 0.8), genome.rearScale],
   ];
-  for (const [side, angle, k] of sides) {
+  sides.forEach(([side, angle, k], index) => {
     // The base sits on the shell edge at `angle`; the paddle reaches outward along it, slightly downward.
     const r = shellRadius({ genome, rx, ry } as TurtleAnatomy, angle) + rimWidth * 0.5;
-    const base = { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
+    let base = { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
     const len = fl * k;
     const dir = angle + (side.startsWith('f') ? 0.08 : -0.1) * (side.endsWith('l') ? -1 : 1);
-    flippers.push({ side, base, cx: base.x + Math.cos(dir) * len * 0.5, cy: base.y + Math.sin(dir) * len * 0.5, rx: len * 0.55, ry: fw * k * 0.5, angle: dir });
-  }
-  const tail = { cx, cy: cy - ry - rimWidth * 0.3, length: rx * genome.tailSize, width: rx * genome.tailSize * 0.9 };
+    let fcx = base.x + Math.cos(dir) * len * 0.5;
+    let fcy = base.y + Math.sin(dir) * len * 0.5;
+    if (fit) {
+      // Whole-pixel move from the reference flipper: the same sub-pixel phase, so the same sprite.
+      const ref = fit.ref.flippers[index];
+      const dx = Math.round(fcx - ref.cx);
+      const dy = Math.round(fcy - ref.cy);
+      fcx = ref.cx + dx;
+      fcy = ref.cy + dy;
+      base = { x: ref.base.x + dx, y: ref.base.y + dy };
+    }
+    flippers.push({ side, base, cx: fcx, cy: fcy, rx: len * 0.55, ry: fw * k * 0.5, angle: dir });
+  });
+  const tail = fit
+    ? { cx, cy: fit.ref.tail.cy + northShift, length: refRx * genome.tailSize, width: refRx * genome.tailSize * 0.9 }
+    : { cx, cy: cy - ry - rimWidth * 0.3, length: rx * genome.tailSize, width: rx * genome.tailSize * 0.9 };
   const a: TurtleAnatomy = { genome, cx, cy, rx, ry, rimWidth, head, neck, flippers, tail, meanRadius: (rx + ry) / 2 };
   return a;
 }
@@ -248,8 +285,11 @@ export function shadedRotatedEllipse(buf: PixelBuffer, cx: number, cy: number, r
   return mask;
 }
 
-/** Draw the turtle. The shell dome is drawn in full (the terrain will cover its top). */
-export function renderTurtleBody(a: TurtleAnatomy): TurtleBody {
+/**
+ * Draw the turtle. The shell dome is drawn in full (the terrain will cover its top). With `shell`, the dome
+ * is painted by the World Carrier's shell surface (the enlarged shell variants) instead of the M1 rim.
+ */
+export function renderTurtleBody(a: TurtleAnatomy, shell?: (buf: PixelBuffer, a: TurtleAnatomy) => Mask): TurtleBody {
   const g = a.genome;
   const W = a.cx * 2;
   const H = Math.ceil(a.head.cy + a.head.ry + 4);
@@ -277,37 +317,8 @@ export function renderTurtleBody(a: TurtleAnatomy): TurtleBody {
   buf.paintMask(tailMask.edge(), g.skin.outline);
 
   // ── Shell dome ─────────────────────────────────────────────────────────────
-  const shellMask = new Mask(W, H);
-  for (let y = Math.floor(a.cy - a.ry * 1.1); y <= Math.ceil(a.cy + a.ry * 1.1); y++)
-    for (let x = Math.floor(a.cx - a.rx * 1.1); x <= Math.ceil(a.cx + a.rx * 1.1); x++) {
-      const dx = x + 0.5 - a.cx;
-      const dy = y + 0.5 - a.cy;
-      const r = shellRadius(a, Math.atan2(dy, dx)) + a.rimWidth;
-      if (Math.hypot(dx, dy) <= r) shellMask.set(x, y);
-    }
-  buf.paintMaskWith(shellMask, (x, y) => {
-    const dx = (x + 0.5 - a.cx) / (a.rx + a.rimWidth);
-    const dy = (y + 0.5 - a.cy) / (a.ry + a.rimWidth);
-    return shadeOf(blobScore(dx, dy, 0.9), g.rim, { highlight: 0.8, light: 0.45, dark: 0.05 });
-  });
-  // Rim seams: scute edges every few pixels along the rim, radial, one pixel dark.
-  const seams = Math.round(26 * g.markingDensity);
-  for (let i = 0; i < seams; i++) {
-    const ang = (i / seams) * TAU + g.facetPhase * 0.3;
-    const r0 = shellRadius(a, ang) - 1;
-    const r1 = r0 + a.rimWidth + 1;
-    buf.line(Math.round(a.cx + Math.cos(ang) * r0), Math.round(a.cy + Math.sin(ang) * r0), Math.round(a.cx + Math.cos(ang) * r1), Math.round(a.cy + Math.sin(ang) * r1), g.rim.dark);
-  }
-  // A lighter inner lip (where the rim meets the terrain) and the outline.
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++) {
-      if (!shellMask.get(x, y)) continue;
-      const dx = x + 0.5 - a.cx;
-      const dy = y + 0.5 - a.cy;
-      const d = Math.hypot(dx, dy) - shellRadius(a, Math.atan2(dy, dx));
-      if (d >= 0 && d < 1.5) buf.set(x, y, g.rim.light);
-    }
-  buf.paintMask(shellMask.edge(), g.shell.outline);
+  if (shell) shell(buf, a);
+  else paintM1Shell(buf, a);
 
   // ── Flippers: separate sprites, drawn into their own buffers ───────────────
   const flippers: TurtleBody['flippers'] = [];
@@ -383,6 +394,45 @@ export function renderTurtleBody(a: TurtleAnatomy): TurtleBody {
   const hy = Math.round(h.cy) - Math.ceil(h.ry) - 3;
   buf.validate();
   return { buffer: buf, head: { buffer: headBuf, x: hx, y: hy, blink: headOf(0, true), left: headOf(-1, false), right: headOf(1, false) }, flippers };
+}
+
+
+/** The M1 shell: the dome in the rim ramp, scute seams on the rim, a lit inner lip and the outline. Unchanged since M1. */
+function paintM1Shell(buf: PixelBuffer, a: TurtleAnatomy): void {
+  const g = a.genome;
+  const W = buf.width;
+  const H = buf.height;
+  const shellMask = new Mask(W, H);
+  for (let y = Math.floor(a.cy - a.ry * 1.1); y <= Math.ceil(a.cy + a.ry * 1.1); y++)
+    for (let x = Math.floor(a.cx - a.rx * 1.1); x <= Math.ceil(a.cx + a.rx * 1.1); x++) {
+      const dx = x + 0.5 - a.cx;
+      const dy = y + 0.5 - a.cy;
+      const r = shellRadius(a, Math.atan2(dy, dx)) + a.rimWidth;
+      if (Math.hypot(dx, dy) <= r) shellMask.set(x, y);
+    }
+  buf.paintMaskWith(shellMask, (x, y) => {
+    const dx = (x + 0.5 - a.cx) / (a.rx + a.rimWidth);
+    const dy = (y + 0.5 - a.cy) / (a.ry + a.rimWidth);
+    return shadeOf(blobScore(dx, dy, 0.9), g.rim, { highlight: 0.8, light: 0.45, dark: 0.05 });
+  });
+  // Rim seams: scute edges every few pixels along the rim, radial, one pixel dark.
+  const seams = Math.round(26 * g.markingDensity);
+  for (let i = 0; i < seams; i++) {
+    const ang = (i / seams) * TAU + g.facetPhase * 0.3;
+    const r0 = shellRadius(a, ang) - 1;
+    const r1 = r0 + a.rimWidth + 1;
+    buf.line(Math.round(a.cx + Math.cos(ang) * r0), Math.round(a.cy + Math.sin(ang) * r0), Math.round(a.cx + Math.cos(ang) * r1), Math.round(a.cy + Math.sin(ang) * r1), g.rim.dark);
+  }
+  // A lighter inner lip (where the rim meets the terrain) and the outline.
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      if (!shellMask.get(x, y)) continue;
+      const dx = x + 0.5 - a.cx;
+      const dy = y + 0.5 - a.cy;
+      const d = Math.hypot(dx, dy) - shellRadius(a, Math.atan2(dy, dx));
+      if (d >= 0 && d < 1.5) buf.set(x, y, g.rim.light);
+    }
+  buf.paintMask(shellMask.edge(), g.shell.outline);
 }
 
 /** Clamp helper for callers. */

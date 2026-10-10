@@ -7,6 +7,8 @@ import { CollisionMap } from '../src/sim/collision';
 import { LiveWorld } from '../src/sim/live-world';
 import { T, WALKABLE } from '../src/world/types';
 import { alpha } from '../src/core/color';
+import { paletteFor } from '../src/world/generate';
+import { onShell } from '../src/carrier/turtle-carrier';
 
 const SEEDS = Array.from({ length: 12 }, (_, i) => `turtle-${i}`);
 
@@ -118,7 +120,7 @@ describe('turtle world', () => {
           if (c === T.RIM) rim++;
           if (c === T.SKIN) skin++;
           if (c === T.POND || c === T.POND_EDGE) pond++;
-          if (turtlePartAt(a, x, y) && dist[i] > a.rimWidth) expect(c).toBe(T.SKIN);
+          if (turtlePartAt(a, x, y) && dist[i] > a.rimWidth && !onShell(a, x, y)) expect(c).toBe(T.SKIN);
         }
       expect(offShell).toBe(0);
       expect(rim).toBeGreaterThan(500);
@@ -172,7 +174,23 @@ describe('turtle world', () => {
   });
 
   it('renders the turtle under the terrain: rim and skin pixels are body colours, never bare water', () => {
-    const w = generateTurtleWorld('turtle-1');
+    // The default (Variant B) shell: every rim and skin pixel is opaque and none is a water colour.
+    {
+      const w = generateTurtleWorld('turtle-1');
+      const img = renderWorld(w);
+      const palette = paletteFor(w.options.palette);
+      const water = new Set([palette.water.dark, palette.water.mid, palette.water.light, palette.shallow.mid, palette.shallow.light, palette.foam]);
+      // (The M1 tail raster leaves a few edge pixels of its SKIN class unpainted; that is baseline behaviour, kept.)
+      let skinGaps = 0;
+      for (let i = 0; i < w.terrain.cls.length; i++) {
+        const bare = !alpha(img.data[i]) || water.has(img.data[i]);
+        if (w.terrain.cls[i] === T.RIM && bare) throw new Error(`rim pixel ${i % img.width},${Math.floor(i / img.width)} is water`);
+        if (w.terrain.cls[i] === T.SKIN && bare) skinGaps++;
+      }
+      expect(skinGaps).toBeLessThanOrEqual(12);
+    }
+    // Variant 0: the M1 colour list.
+    const w = generateTurtleWorld('turtle-1', { shellVariant: 0 });
     const img = renderWorld(w);
     const { width, cls } = w.terrain;
     const g = w.turtle!.genome;

@@ -23,8 +23,10 @@ import { DEFAULT_WORLD_OPTIONS, T, type Island, type Path, type Placement, type 
 import { OBJECT_GENERATORS } from '../objects';
 import { generateTurtleGenome, turtleAnatomy, turtleBodyDistance, turtlePartAt, type TurtleAnatomy } from '../turtle/turtle';
 import { TAU } from '../core/math';
+import { buildTurtleCarrier, embedInCarrier } from '../carrier/turtle-carrier';
+import { DEFAULT_SHELL_VARIANT } from '../carrier/types';
 
-export const DEFAULT_TURTLE_OPTIONS: WorldOptions = { ...DEFAULT_WORLD_OPTIONS, kind: 'turtle', width: 704, height: 480, islands: 1 };
+export const DEFAULT_TURTLE_OPTIONS: WorldOptions = { ...DEFAULT_WORLD_OPTIONS, kind: 'turtle', width: 704, height: 480, islands: 1, shellVariant: DEFAULT_SHELL_VARIANT };
 
 /** The Island record a turtle's shell is: an oval with faceted edges, the same radius function the body uses. */
 export function shellIsland(a: TurtleAnatomy): Island {
@@ -150,7 +152,16 @@ function paintMeadows(seed: string, terrain: TerrainMap, island: Island, hub: { 
 
 export function generateTurtleWorld(seed: string, partial: Partial<WorldOptions> = {}): WorldDescription {
   const t0 = performance.now();
-  const options: WorldOptions = { ...DEFAULT_TURTLE_OPTIONS, ...partial, kind: 'turtle', islands: 1 };
+  const variant = partial.shellVariant ?? DEFAULT_SHELL_VARIANT;
+  if (variant !== 0) {
+    // The enlarged shells: the island is generated in its own frame (exactly as Variant 0), then embedded.
+    const base = generateTurtleWorld(seed, { ...partial, shellVariant: 0 });
+    const carrier = buildTurtleCarrier(base.turtle!.genome.seed, variant, { width: base.options.width, height: base.options.height }, base.options.scale, base.islands[0]);
+    const world = embedInCarrier(base, carrier);
+    world.stats = { ...world.stats, generationMs: performance.now() - t0 };
+    return world;
+  }
+  const options: WorldOptions = { ...DEFAULT_TURTLE_OPTIONS, ...partial, kind: 'turtle', islands: 1, shellVariant: 0 };
   const palette = PALETTES[options.palette] ?? PALETTES.cozy;
   const scale = options.scale;
   const genome = generateTurtleGenome(options.turtleSeed ?? seed);
@@ -208,6 +219,7 @@ export function generateTurtleWorld(seed: string, partial: Partial<WorldOptions>
     terrain,
     objects,
     turtle: anatomy,
+    carrier: buildTurtleCarrier(genome.seed, 0, { width: options.width, height: options.height }, scale, island),
     stats: { islands: 1, bridges: 0, piers: 0, landPixels, objects: counts, generationMs: performance.now() - t0 },
   };
 }

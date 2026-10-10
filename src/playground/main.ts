@@ -10,6 +10,7 @@
  */
 import { generateWorld } from '../world/generate';
 import { generateTurtleWorld, DEFAULT_TURTLE_OPTIONS } from '../world/turtle-world';
+import { SHELL_VARIANTS, DEFAULT_SHELL_VARIANT, isShellVariant, type ShellVariant } from '../carrier/types';
 import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/compose';
 import { auditWorld } from '../render/audit';
 import type { WorldDescription, WorldOptions } from '../world/types';
@@ -45,6 +46,7 @@ interface State {
   blobbiSeed: string;
   blobbiSize: number;
   turtleSeed: string;
+  shellVariant: ShellVariant;
   playZoom: number;
   speed: number;
   treeSeed: string;
@@ -71,6 +73,7 @@ const state: State = {
   blobbiSeed: params.get('blobbi') ?? 'blobbi-9',
   blobbiSize: 16,
   turtleSeed: params.get('turtle') ?? 'turtle-0',
+  shellVariant: params.has('variant') && isShellVariant(Number(params.get('variant'))) ? (Number(params.get('variant')) as ShellVariant) : DEFAULT_SHELL_VARIANT,
   playZoom: 3,
   speed: 1,
   treeSeed: 'oak-1',
@@ -112,6 +115,8 @@ app.innerHTML = `
       <label>World <select id="world-kind"><option value="turtle">turtle (M1)</option><option value="island">islands (phases 1-3)</option></select></label>
       <label>Turtle seed <input id="turtle-seed" type="text" spellcheck="false" /></label>
       <div class="row"><button id="turtle-random">Random turtle</button></div>
+      <label>Shell variant <select id="shell-variant"></select></label>
+      <div class="hint">World Carrier shell variants: B (70%) is the default; 0 is the M1 turtle unchanged; A and C enlarge the visible shell to ≈60/80% island coverage. Island, collision, navigation and the Blobbi are identical in all four.</div>
       <label>Islands <select id="islands"><option value="0">auto (2–4)</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
       <label>Palette <select id="palette"></select></label>
       <label>Density <input id="density" type="range" min="0.4" max="1.8" step="0.1" /><span id="density-value"></span></label>
@@ -248,14 +253,14 @@ function toCanvas(buf: PixelBuffer, reuse?: HTMLCanvasElement): HTMLCanvasElemen
 }
 
 function saveHash(): void {
-  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&blobbi=${encodeURIComponent(state.blobbiSeed)}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}`;
+  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&blobbi=${encodeURIComponent(state.blobbiSeed)}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}`;
 }
 
 // ─── World mode ──────────────────────────────────────────────────────────────
 
 /** The world for the current options: a turtle carrying the land, or the phase 1-3 archipelago. */
 function makeWorld(seed: string): WorldDescription {
-  if (state.options.kind === 'turtle') return generateTurtleWorld(seed, { ...state.options, turtleSeed: state.turtleSeed, width: state.options.width, height: Math.max(state.options.height, DEFAULT_TURTLE_OPTIONS.height) });
+  if (state.options.kind === 'turtle') return generateTurtleWorld(seed, { ...state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant, width: state.options.width, height: Math.max(state.options.height, DEFAULT_TURTLE_OPTIONS.height) });
   return generateWorld(seed, state.options);
 }
 
@@ -308,6 +313,7 @@ function showWorldStats(): void {
     `seed      <b>${escapeHtml(world.seed)}</b>\n` +
     `size      ${world.options.width}×${world.options.height} px\n` +
     `islands   <b>${s.islands}</b>   bridges <b>${s.bridges}</b>${world.turtle ? `   turtle <b>${escapeHtml(world.turtle.genome.seed)}</b>` : ''}\n` +
+    (world.carrier ? `carrier   <b>${world.carrier.species}</b> shell variant <b>${world.carrier.variant}</b>, island covers <b>${(world.carrier.coverage.measured * 100).toFixed(0)}%</b> of the shell, origin ${world.carrier.origin.x},${world.carrier.origin.y}\n` : '') +
     `land      ${land}%\n` +
     `objects   <b>${world.objects.length}</b>\n${kinds}\n` +
     `generate  ${s.generationMs.toFixed(1)} ms\n` +
@@ -905,6 +911,7 @@ function syncControls(): void {
   $<HTMLSelectElement>('world-scale').value = String(state.options.scale);
   $<HTMLSelectElement>('world-kind').value = state.options.kind;
   $<HTMLInputElement>('turtle-seed').value = state.turtleSeed;
+  $<HTMLSelectElement>('shell-variant').value = String(state.shellVariant);
   $<HTMLInputElement>('live-autonomy').checked = live ? live.brain.enabled : true;
   $<HTMLInputElement>('live-path').checked = state.live.debugPath;
   $<HTMLInputElement>('layer-terrain').checked = state.render.terrain;
@@ -991,6 +998,21 @@ $('turtle-seed').addEventListener('change', (e) => {
   stopLive();
   regenerate();
 });
+{
+  const sel = $<HTMLSelectElement>('shell-variant');
+  for (const v of SHELL_VARIANTS) {
+    const o = document.createElement('option');
+    o.value = String(v.id);
+    o.textContent = v.label;
+    sel.append(o);
+  }
+  sel.addEventListener('change', (e) => {
+    const v = Number((e.target as HTMLSelectElement).value);
+    state.shellVariant = isShellVariant(v) ? v : 0;
+    regenerate();
+    fitZoom();
+  });
+}
 $('turtle-random').addEventListener('click', () => {
   state.turtleSeed = randomSeed('turtle');
   syncControls();
