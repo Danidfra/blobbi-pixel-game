@@ -1,0 +1,74 @@
+{
+  "turtle-0": {
+    "head": "e7562da6",
+    "blink": "ee1f0e92",
+    "left": "ad91c52e",
+    "right": "53aa12da",
+    "neck": "ed6976b8",
+    "tail": "51924ce7",
+    "flipper0": "9a104713",
+    "flipper1": "b9e2e5e2",
+    "flipper2": "d6836b16",
+    "flipper3": "0e5557f4"
+  },
+  "turtle-1": {
+    "head": "a602f9fb",
+    "blink": "b099dfff",
+    "left": "7fd8de1f",
+    "right": "84aab027",
+    "neck": "85ca5f49",
+    "tail": "ab6b5f3f",
+    "flipper0": "8185a729",
+    "flipper1": "02d714e6",
+    "flipper2": "9d36743d",
+    "flipper3": "9d6ce194"
+  },
+  "turtle-2": {
+    "head": "b0fa0610",
+    "blink": "4bb6eb4f",
+    "left": "eaf555b0",
+    "right": "f843c4d0",
+    "neck": "68c6bab0",
+    "tail": "4c3a4fb0",
+    "flipper0": "08c3fb0b",
+    "flipper1": "0832e425",
+    "flipper2": "b10e132e",
+    "flipper3": "166908bf"
+  },
+  "turtle-3": {
+    "head": "1ee7d8d7",
+    "blink": "a146b6e6",
+    "left": "861594eb",
+    "right": "ef324dab",
+    "neck": "549a6e84",
+    "tail": "959650b7",
+    "flipper0": "c7db983d",
+    "flipper1": "f8a741f4",
+    "flipper2": "570c8724",
+    "flipper3": "52ced418"
+  },
+  "turtle-4": {
+    "head": "f4a3863e",
+    "blink": "2d461861",
+    "left": "95c194de",
+    "right": "8a928f16",
+    "neck": "3a84bcba",
+    "tail": "d54a1a4d",
+    "flipper0": "9eedf55e",
+    "flipper1": "6eeeaf2e",
+    "flipper2": "25b11d7e",
+    "flipper3": "27d26f77"
+  },
+  "turtle-5": {
+    "head": "4b934901",
+    "blink": "b9162627",
+    "left": "f751db21",
+    "right": "0525b71d",
+    "neck": "87188504",
+    "tail": "d7a0e5c6",
+    "flipper0": "f4f32e9d",
+    "flipper1": "c7237425",
+    "flipper2": "e9cd5749",
+    "flipper3": "01616fdd"
+  }
+}

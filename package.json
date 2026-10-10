@@ -1,0 +1,33 @@
+{
+  "name": "blobbi-pixel-lab",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Experimental laboratory for fully procedural, living top-down pixel art: islands, vegetation, structures, a procedural pixel Blobbi, procedural animation and growth. Research prototype for a possible @blobbi-kit/pixel; not a game and not a package.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "seeds": "tsx scripts/render-seeds.ts",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "perf": "tsx scripts/perf.ts",
+    "blobbi": "tsx scripts/blobbi-sheet.ts"
+  },
+  "devDependencies": {
+    "@blobbi-kit/renderer": "^0.6.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^22.20.1",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
