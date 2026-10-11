@@ -14,8 +14,19 @@ export interface KeyValueStore {
   remove(key: string): void;
 }
 
-/** The record schema. 1: collected nodes and inventory (M2.1). 2: adds the equipped tool, tree states and world time (M2.2). 3: adds buildings (M3.1). 4: adds when each node was collected (renewable resources) and rock states (M3.2). */
-export const SAVE_VERSION = 4;
+/**
+ * The record schema. 1: collected nodes and inventory (M2.1). 2: adds the equipped tool, tree states and world time
+ * (M2.2). 3: adds buildings (M3.1). 4: adds when each node was collected (renewable resources) and rock states (M3.2).
+ * 5: states the owner, `local-world` (M3.4); records 1-4 had the same owner without saying so and migrate to it.
+ */
+export const SAVE_VERSION = 5;
+
+/**
+ * Who a world record belongs to. Everything in it (inventory, equipment, buildings, resources, world time) is the
+ * LOCAL WORLD's, keyed by the world identity: never by a Blobbi, so changing the selected Blobbi (see
+ * `blobbi-selection.ts`) never changes or reassigns it. A record naming any other owner is not read.
+ */
+export const WORLD_OWNER = 'local-world';
 /** The key namespace: records of every schema this code can migrate share it. */
 const NAMESPACE = 'blobbi-pixel-lab:save:v1';
 
@@ -41,6 +52,8 @@ export interface RockSaveState {
 
 export interface WorldSave {
   version: typeof SAVE_VERSION;
+  /** The owner of everything in the record: the local world, never a Blobbi. */
+  owner: typeof WORLD_OWNER;
   /** The world identity the record belongs to (also part of the key, repeated here as a guard). */
   world: string;
   /** Ids of the resource nodes the player collected. */
@@ -71,14 +84,16 @@ export function saveKey(identity: string): string {
   return `${NAMESPACE}:${identity}`;
 }
 
-/** Read a record; a version 1 record is migrated, anything else unknown or malformed is ignored whole. */
+/** Read a record; versions 1-4 are migrated, anything else unknown or malformed is ignored whole. */
 export function loadSave(store: KeyValueStore, identity: string): WorldSave | null {
   const raw = store.get(saveKey(identity));
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<Omit<WorldSave, 'version' | 'trees' | 'buildings' | 'rocks' | 'collectedAt'>> & { version?: number; trees?: Record<string, Partial<TreeSaveState>>; buildings?: Partial<BuildingSave>[]; rocks?: Record<string, Partial<RockSaveState>>; collectedAt?: Record<string, unknown> };
+    const parsed = JSON.parse(raw) as Partial<Omit<WorldSave, 'version' | 'owner' | 'trees' | 'buildings' | 'rocks' | 'collectedAt'>> & { version?: number; owner?: unknown; trees?: Record<string, Partial<TreeSaveState>>; buildings?: Partial<BuildingSave>[]; rocks?: Record<string, Partial<RockSaveState>>; collectedAt?: Record<string, unknown> };
     if (typeof parsed.version !== 'number' || parsed.version < 1 || parsed.version > SAVE_VERSION || !Number.isInteger(parsed.version) || parsed.world !== identity) return null;
     if (!Array.isArray(parsed.collected) || !parsed.inventory || parsed.inventory.version !== 1) return null;
+    // From schema 5 the owner is stated and must be the local world; before, it was implied.
+    if (parsed.version >= 5 && parsed.owner !== WORLD_OWNER) return null;
     const trees: Record<string, TreeSaveState> = {};
     if (parsed.version >= 2 && parsed.trees && typeof parsed.trees === 'object')
       for (const [k, v] of Object.entries(parsed.trees)) {
@@ -113,6 +128,7 @@ export function loadSave(store: KeyValueStore, identity: string): WorldSave | nu
       }
     return {
       version: SAVE_VERSION,
+      owner: WORLD_OWNER,
       world: identity,
       collected,
       inventory: parsed.inventory,

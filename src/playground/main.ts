@@ -20,6 +20,8 @@ import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex } from '../core/color';
 import { LiveWorld, type LiveInput } from '../sim/live-world';
 import { localStore } from '../game/persistence';
+import { loadSelection, storeSelection } from '../game/blobbi-selection';
+import { resolveBlobbi, describeSource, sourceFromSeed, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, itemLabel } from '../game/items';
 import { RECIPES, canCraft } from '../game/crafting';
@@ -53,7 +55,10 @@ interface State {
   mode: Mode;
   galleryPrefix: string;
   galleryCount: number;
+  /** The genome seed of the selected Blobbi (`blobbi.seed`). */
   blobbiSeed: string;
+  /** The selected Blobbi: a V3 address, a V3 seed or a demo seed. Persisted per browser; owns nothing. */
+  blobbi: BlobbiSource;
   blobbiSize: number;
   turtleSeed: string;
   shellVariant: ShellVariant;
@@ -69,6 +74,24 @@ interface State {
 }
 
 const params = new URLSearchParams(location.hash.slice(1));
+
+/**
+ * The Blobbi at start-up: one named by the link (`#pubkey=…&d=…` or `#blobbi=…`), else the one selected in this
+ * browser before (survives reloads), else the demo Blobbi. A link that names an invalid Blobbi is reported, not
+ * repaired, and the next choice is used.
+ */
+const startupBlobbi: { source: BlobbiSource; message: string; error: boolean } = (() => {
+  let message = '';
+  if (params.has('pubkey') || params.has('d') || params.has('blobbi')) {
+    const r = params.has('pubkey') || params.has('d') ? resolveBlobbi({ pubkey: params.get('pubkey') ?? '', d: params.get('d') ?? '' }) : resolveBlobbi({ seed: params.get('blobbi') ?? '' });
+    if (r.ok) return { source: r.source, message: r.notes.join(' '), error: false };
+    message = `The link's Blobbi was not used: ${r.error}`;
+  }
+  const store = localStore();
+  const saved = store ? loadSelection(store) : null;
+  return { source: saved ?? sourceFromSeed(DEMO_BLOBBI_SEED), message, error: message !== '' };
+})();
+
 const state: State = {
   seed: params.get('seed') ?? 'blobbi',
   options: { ...DEFAULT_WORLD_OPTIONS, kind: (params.get('kind') as 'island' | 'turtle') ?? 'turtle' },
@@ -80,7 +103,8 @@ const state: State = {
   mode: (params.get('mode') as Mode) ?? 'world',
   galleryPrefix: 'gallery',
   galleryCount: 12,
-  blobbiSeed: params.get('blobbi') ?? 'blobbi-9',
+  blobbiSeed: startupBlobbi.source.seed,
+  blobbi: startupBlobbi.source,
   blobbiSize: 16,
   turtleSeed: params.get('turtle') ?? 'turtle-0',
   shellVariant: params.has('variant') && isShellVariant(Number(params.get('variant'))) ? (Number(params.get('variant')) as ShellVariant) : DEFAULT_SHELL_VARIANT,
@@ -156,8 +180,13 @@ app.innerHTML = `
       </div>
       <label>Speed <select id="play-speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
       <label>Camera <select id="play-camera"><option value="overview">Overview (1×, whole turtle)</option><option value="exploration">Exploration (2×, follows)</option><option value="closeup">Close-up (4×, follows)</option></select></label>
-      <label>Blobbi seed <input id="blobbi-seed" type="text" spellcheck="false" /></label>
-      <div class="row"><button id="blobbi-random">Random Blobbi</button></div>
+      <label>Blobbi seed <input id="blobbi-seed" type="text" spellcheck="false" placeholder="64-hex V3 seed or a demo seed" /></label>
+      <div class="row"><button id="blobbi-random">Random demo</button><button id="blobbi-random-v3">Random V3 seed</button></div>
+      <label>Owner pubkey <input id="blobbi-pubkey" type="text" spellcheck="false" placeholder="64 hex digits" /></label>
+      <label>Blobbi d tag <input id="blobbi-d" type="text" spellcheck="false" placeholder="blobbi-&lt;12 hex&gt;-&lt;10 hex&gt;" /></label>
+      <div class="row"><button id="blobbi-address">Use V3 address</button></div>
+      <div class="hint" id="blobbi-status"></div>
+      <div class="hint">A V3 address (owner pubkey + d tag) or a 64-hex V3 seed is the same Blobbi as in the Standalone; other strings are lab-only demo Blobbis. The choice is remembered in this browser. The island, inventory and buildings belong to the world, not to the Blobbi: switching Blobbis keeps them.</div>
       <label>Blobbi size <select id="blobbi-size"><option>12</option><option>14</option><option>16</option><option>18</option><option>20</option><option>24</option><option>32</option></select></label>
       <label class="check"><input id="live-water" type="checkbox" /> animate water</label>
       <label class="check"><input id="live-wind" type="checkbox" /> animate wind</label>
@@ -185,7 +214,8 @@ app.innerHTML = `
     </section>
     <section id="panel-blobbi" class="hidden">
       <h2>Blobbi</h2>
-      <label>Seed <input id="blobbi-seed-2" type="text" spellcheck="false" /></label>
+      <label>Seed <input id="blobbi-seed-2" type="text" spellcheck="false" placeholder="64-hex V3 seed or a demo seed" /></label>
+      <div class="hint" id="blobbi-status-2"></div>
       <div class="row"><button id="blobbi-random-2">Random</button><button id="blobbi-use" class="primary">Use in Play</button></div>
       <label>Size <select id="blobbi-size-2"><option>14</option><option>18</option><option>24</option><option>32</option><option>48</option></select></label>
       <label>Expression <select id="preview-expression"></select></label>
@@ -279,7 +309,9 @@ function toCanvas(buf: PixelBuffer, reuse?: HTMLCanvasElement): HTMLCanvasElemen
 }
 
 function saveHash(): void {
-  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&blobbi=${encodeURIComponent(state.blobbiSeed)}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}`;
+  const b = state.blobbi;
+  const blobbi = b.kind === 'v3-address' ? `pubkey=${b.pubkey}&d=${encodeURIComponent(b.d)}` : `blobbi=${encodeURIComponent(b.seed)}`;
+  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}`;
 }
 
 // ─── World mode ──────────────────────────────────────────────────────────────
@@ -390,7 +422,7 @@ let rafId = 0;
 
 function startLive(): void {
   if (!world) return;
-  live = new LiveWorld(world, state.blobbiSeed, state.blobbiSize, { store: localStore() });
+  live = new LiveWorld(world, state.blobbi, state.blobbiSize, { store: localStore() });
   liveRenderer = new LiveRenderer(live);
   viewRenderer = new ViewRenderer(live, liveRenderer);
   bounds = worldBounds(world);
@@ -633,11 +665,17 @@ $('play-speed').addEventListener('change', (e) => {
   if (live) live.clock.speed = state.speed;
 });
 $('play-camera').addEventListener('change', (e) => setCameraMode((e.target as HTMLSelectElement).value as CameraModeId));
-$('blobbi-seed').addEventListener('change', (e) => setBlobbiSeed((e.target as HTMLInputElement).value.trim() || 'abc123'));
+$('blobbi-seed').addEventListener('change', (e) => chooseBlobbi(resolveBlobbi({ seed: (e.target as HTMLInputElement).value })));
 $('blobbi-random').addEventListener('click', () => setBlobbiSeed(randomSeed('blobbi')));
+$('blobbi-random-v3').addEventListener('click', () => {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  chooseBlobbi(resolveBlobbi({ seed: Array.from(bytes, (v) => v.toString(16).padStart(2, '0')).join('') }));
+});
+$('blobbi-address').addEventListener('click', () => chooseBlobbi(resolveBlobbi({ pubkey: $<HTMLInputElement>('blobbi-pubkey').value, d: $<HTMLInputElement>('blobbi-d').value })));
 $('blobbi-size').addEventListener('change', (e) => {
   state.blobbiSize = Number((e.target as HTMLSelectElement).value);
-  live?.setBlobbi(state.blobbiSeed, state.blobbiSize);
+  live?.setBlobbi(state.blobbi, state.blobbiSize);
 });
 for (const [id, key] of [
   ['live-water', 'animateWater'],
@@ -652,12 +690,41 @@ for (const [id, key] of [
   });
 }
 
+/** A demo seed from the lab's own buttons and gallery (always valid). */
 function setBlobbiSeed(seed: string): void {
-  state.blobbiSeed = seed;
+  chooseBlobbi(resolveBlobbi({ seed }));
+}
+
+/** The player chose a Blobbi: use it if valid (and remember it in this browser), else say why and keep the current one. */
+function chooseBlobbi(r: ResolvedBlobbi): void {
+  if (!r.ok) {
+    // The fields keep what was typed, so it can be corrected; the current Blobbi stays.
+    showBlobbiStatus(r.error, true);
+    return;
+  }
+  selectBlobbi(r.source);
+  showBlobbiStatus(r.notes.join(' '), false);
+}
+
+function selectBlobbi(source: BlobbiSource): void {
+  state.blobbi = source;
+  state.blobbiSeed = source.seed;
+  const store = localStore();
+  if (store) storeSelection(store, source);
   syncControls();
-  live?.setBlobbi(seed, state.blobbiSize);
+  // Only the Blobbi changes: the world's inventory, equipment and buildings stay (they are the world's).
+  live?.setBlobbi(source, state.blobbiSize);
   saveHash();
   renderBlobbiView();
+}
+
+function showBlobbiStatus(note: string, error: boolean): void {
+  const text = `${describeSource(state.blobbi)}${note ? ` · ${note}` : ''}`;
+  for (const id of ['blobbi-status', 'blobbi-status-2']) {
+    const el = $(id);
+    el.textContent = error ? `${note}` : text;
+    el.style.color = error ? '#ff8a80' : '';
+  }
 }
 
 // ─── Blobbi mode ─────────────────────────────────────────────────────────────
@@ -694,7 +761,7 @@ function renderBlobbiView(): void {
     previewAnimators.push({ dir, animator, canvas, buf });
   }
   const title = document.createElement('h3');
-  title.textContent = `${state.blobbiSeed} · ${previewSize} px · antenna ${id.antenna.count}, horns ${id.horns.kind}, ears ${id.ears.kind}, tail ${id.tail.kind}, ${id.pattern.kind}, mark ${id.mark.kind}${id.belly ? ', belly' : ''}`;
+  title.textContent = `${describeSource(state.blobbi)} · ${previewSize} px · antenna ${id.antenna.count}, horns ${id.horns.kind}, ears ${id.ears.kind}, tail ${id.tail.kind}, ${id.pattern.kind}, mark ${id.mark.kind}${id.belly ? ', belly' : ''}${id.freckles ? ', freckles' : ''}`;
   host.append(title, preview);
   // Expression strip.
   const strip = document.createElement('div');
@@ -718,17 +785,11 @@ function renderBlobbiView(): void {
     const seed = `${prefix}-${i}`;
     const sprite = buildBlobbiSprite(blobbiIdentity(seed), REST_POSE, 24);
     const fig = spriteFigure(sprite, seed, 3);
-    fig.addEventListener('click', () => {
-      state.blobbiSeed = seed;
-      syncControls();
-      saveHash();
-      renderBlobbiView();
-      live?.setBlobbi(seed, state.blobbiSize);
-    });
+    fig.addEventListener('click', () => setBlobbiSeed(seed));
     grid.append(fig);
   }
   host.append(grid);
-  $('stats').innerHTML = `blobbi    <b>${escapeHtml(state.blobbiSeed)}</b>\nsize      ${previewSize} px\nsprite    ${buildBlobbiSprite(id, REST_POSE, previewSize).buffer.width}×${buildBlobbiSprite(id, REST_POSE, previewSize).buffer.height} px\ngenes     ${Object.entries(id.genes)
+  $('stats').innerHTML = `blobbi    <b>${escapeHtml(describeSource(state.blobbi))}</b>\nseed      ${escapeHtml(state.blobbiSeed)}\nsize      ${previewSize} px\nsprite    ${buildBlobbiSprite(id, REST_POSE, previewSize).buffer.width}×${buildBlobbiSprite(id, REST_POSE, previewSize).buffer.height} px\ngenes     ${Object.entries(id.genes)
     .map(([k, v]) => `${k} ${v.toFixed(2)}`)
     .join(', ')}`;
 }
@@ -775,10 +836,10 @@ function previewFrame(now: number): void {
   }
 }
 
-$('blobbi-seed-2').addEventListener('change', (e) => setBlobbiSeed((e.target as HTMLInputElement).value.trim() || 'abc123'));
+$('blobbi-seed-2').addEventListener('change', (e) => chooseBlobbi(resolveBlobbi({ seed: (e.target as HTMLInputElement).value })));
 $('blobbi-random-2').addEventListener('click', () => setBlobbiSeed(randomSeed('blobbi')));
 $('blobbi-use').addEventListener('click', () => {
-  live?.setBlobbi(state.blobbiSeed, state.blobbiSize);
+  live?.setBlobbi(state.blobbi, state.blobbiSize);
   setMode('play');
 });
 $('blobbi-size-2').addEventListener('change', renderBlobbiView);
@@ -1110,6 +1171,8 @@ function syncControls(): void {
   $<HTMLSelectElement>('play-camera').value = viewCamera.mode;
   $<HTMLInputElement>('blobbi-seed').value = state.blobbiSeed;
   $<HTMLInputElement>('blobbi-seed-2').value = state.blobbiSeed;
+  $<HTMLInputElement>('blobbi-pubkey').value = state.blobbi.kind === 'v3-address' ? state.blobbi.pubkey : '';
+  $<HTMLInputElement>('blobbi-d').value = state.blobbi.kind === 'v3-address' ? state.blobbi.d : '';
   $<HTMLSelectElement>('blobbi-size').value = String(state.blobbiSize);
   $<HTMLInputElement>('live-water').checked = state.live.animateWater;
   $<HTMLInputElement>('live-wind').checked = state.live.animateWind;
@@ -1358,6 +1421,7 @@ function renderGallery(): void {
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
 syncControls();
+showBlobbiStatus(startupBlobbi.message, startupBlobbi.error);
 resize();
 world = makeWorld(state.seed);
 rerender();

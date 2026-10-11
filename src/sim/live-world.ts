@@ -18,12 +18,13 @@ import type { HouseResult } from '../objects/structures';
 import { paletteFor } from '../world/generate';
 import { T, type Placement, type WorldDescription } from '../world/types';
 import { blobbiIdentity, type PixelBlobbiIdentity } from '../blobbi/identity';
+import { sourceFromSeed, type BlobbiSource } from '../blobbi/source';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
 import { Brain, NavGrid } from './brain';
 import { generateResources, REACH, RESOURCE_ITEM, RESOURCE_LABEL, type ResourceKind, type ResourceNode } from '../game/resources';
 import { Inventory } from '../game/inventory';
-import { loadSave, storeSave, clearSave, worldIdentity, type KeyValueStore, type TreeSaveState } from '../game/persistence';
+import { loadSave, storeSave, clearSave, worldIdentity, SAVE_VERSION, WORLD_OWNER, type KeyValueStore, type TreeSaveState } from '../game/persistence';
 import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } from '../game/items';
 import { canCraft, craft, type Recipe } from '../game/crafting';
 import { HITS_TO_FELL, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
@@ -47,7 +48,10 @@ export interface LiveInput {
 export const IDLE_INPUT: LiveInput = { up: false, down: false, left: false, right: false, interact: false, plant: false };
 
 export interface BlobbiEntity {
+  /** The genome seed: what the kit generates this Blobbi from (`source.seed`). */
   seed: string;
+  /** Where the seed came from: a V3 address, a V3 seed or a demo seed. Identity only; it owns nothing. */
+  source: BlobbiSource;
   identity: PixelBlobbiIdentity;
   animator: BlobbiAnimator;
   x: number;
@@ -194,7 +198,7 @@ export class LiveWorld {
 
   constructor(
     readonly world: WorldDescription,
-    blobbiSeed: string,
+    blobbi: string | BlobbiSource,
     blobbiSize = 16,
     options: LiveOptions = {},
   ) {
@@ -216,7 +220,7 @@ export class LiveWorld {
       if (s.chimney) this.chimneys.push({ x: o.x - s.anchorX + s.chimney.x, y: o.y - s.anchorY + s.chimney.y });
     }
     this.collision = CollisionMap.fromWorld(world, (p) => this.spriteOf(p));
-    this.blobbi = this.makeBlobbi(blobbiSeed, blobbiSize);
+    this.blobbi = this.makeBlobbi(blobbi, blobbiSize);
     this.rig = new EquipmentRig(this.blobbi.identity, this.blobbi.size);
     this.placeBlobbiAtStart();
     this.rebuildBrain();
@@ -699,7 +703,7 @@ export class LiveWorld {
     const collected = [...this.collected].sort();
     const collectedAt: Record<string, number> = {};
     for (const id of collected) collectedAt[id] = this.collectedAt.get(id) ?? this.worldTime;
-    storeSave(this.store, { version: 4, world: this.identity, collected, inventory: this.inventory.snapshot(), equipped: this.equipped, trees, worldTime: this.worldTime, buildings, collectedAt, rocks });
+    storeSave(this.store, { version: SAVE_VERSION, owner: WORLD_OWNER, world: this.identity, collected, inventory: this.inventory.snapshot(), equipped: this.equipped, trees, worldTime: this.worldTime, buildings, collectedAt, rocks });
     this.lastAutosave = this.clock.time;
   }
 
@@ -734,10 +738,12 @@ export class LiveWorld {
     this.brain.enabled = wasEnabled;
   }
 
-  private makeBlobbi(seed: string, size: number): BlobbiEntity {
+  private makeBlobbi(blobbi: string | BlobbiSource, size: number): BlobbiEntity {
+    const source = typeof blobbi === 'string' ? sourceFromSeed(blobbi) : blobbi;
+    const seed = source.seed;
     const identity = blobbiIdentity(seed);
     const sprite = buildBlobbiSprite(identity, { view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 }, size);
-    return { seed, identity, animator: new BlobbiAnimator(seed), x: 0, y: 0, size, footRx: Math.max(2, sprite.footRx - 1), footRy: 2, speed: 42 };
+    return { seed, source, identity, animator: new BlobbiAnimator(seed), x: 0, y: 0, size, footRx: Math.max(2, sprite.footRx - 1), footRy: 2, speed: 42 };
   }
 
   /** Start on the first island's hub, or the nearest free ground to it. */
@@ -748,9 +754,13 @@ export class LiveWorld {
     this.blobbi.y = spot.y;
   }
 
-  setBlobbi(seed: string, size = this.blobbi.size): void {
+  /**
+   * Another Blobbi walks this island. Only the Blobbi changes: the inventory, equipment, buildings and resources
+   * are the world's and stay exactly as they are (and are saved under the world, never under a Blobbi).
+   */
+  setBlobbi(blobbi: string | BlobbiSource, size = this.blobbi.size): void {
     const { x, y } = this.blobbi;
-    this.blobbi = this.makeBlobbi(seed, size);
+    this.blobbi = this.makeBlobbi(blobbi, size);
     this.blobbi.x = x;
     this.blobbi.y = y;
     this.blobbiCache.clear();

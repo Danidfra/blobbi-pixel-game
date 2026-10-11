@@ -258,7 +258,28 @@ Report: `REPORT-M3.3.md`. Images: `examples/camera/`.
       24 / 48 px (¾ of its world size at 1× / 2× / 4×, presentation only);
       speech bubbles rest on the drawn head. 181 tests.
 
-### M3.4 and beyond (not started)
+### M3.4: Procedural fidelity and identity (approved)
+
+Report: `REPORT-M3.4.md`. Images: `examples/fidelity/`. Follows the audit
+`REPORT-BLOBBI-PROCEDURAL-AUDIT.md`.
+- [x] Gradient pattern drawn: `rect` support, `stop-opacity` composited as
+      translucent bands (the belly patch now fades like the kit's, too).
+- [x] Freckles drawn: paint inherited from parent groups; tiny dot clusters
+      drawn one pixel per freckle once a cluster spans a pixel (24 and
+      48 px; under a pixel at 12 px, not drawn).
+- [x] Unsupported SVG markup is reported (`svgSupportIssues`) and refused,
+      never dropped silently; the kit's output for 150 seeds is clean.
+- [x] Canonical V3 identities: a 64-hex V3 seed, or owner pubkey + d tag
+      through `@blobbi-kit/core` `deriveBlobbiV3Seed` (pinned 0.9.0); demo
+      seeds still work; invalid input refused with a reason.
+- [x] Selected Blobbi persisted per browser (survives reloads; camera
+      modes never touch it). World saves are schema 5 and state their owner,
+      `local-world`; schema 1-4 migrate; inventory never keyed by a Blobbi.
+- [x] Tests: 211 passing (30 new); typecheck and build pass.
+- [x] Manual review and approval.
+
+### M3.5 and beyond (not started)
 
 More building kinds, removal, interiors, paths to doors, farming, world
-growth.
+growth; expressions shared with the Standalone (`upset`), baby and egg
+stages, read-only Nostr loading, multiple Blobbis (audit section 8).

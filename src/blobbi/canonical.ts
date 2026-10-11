@@ -102,6 +102,9 @@ export function buildCanonicalSprite(genome: BlobbiGenome, pose: BlobbiPose, siz
     // The kit paints markings at half opacity over a gradient; at pixel scale that contrast is lost, so markings
     // are given a floor. The colour and the shape are still the kit's.
     minOpacity: { pattern: 0.8, 'special-mark': 1, freckle: 1 },
+    // The kit's freckles are three dots under each eye, under a fifth of a pixel each until 48 px: each trio is read
+    // as one freckle mark when its dots cannot be drawn one by one.
+    clusters: ['freckles'],
     gazeShift: gazeShiftFor(pose, size),
     snapRig: options.snapRig ?? pose.walk >= 0,
   });

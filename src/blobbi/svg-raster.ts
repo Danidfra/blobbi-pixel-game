@@ -1,20 +1,26 @@
 /**
  * CONTROLLED RASTERIZATION of the kit's own SVG. The canonical V3 renderer
- * writes a small, regular SVG (groups with transforms, paths of M/L/C/Q/Z,
- * ellipses, gradients, one blur filter, one clip path). This module reads
- * exactly that and paints it into a PixelBuffer with pixel-art rules:
+ * writes a small, regular SVG (groups with transforms and inherited fills,
+ * paths of M/L/C/Q/A/Z, ellipses, circles, rects, gradients with stop
+ * opacity, one blur filter, clip paths). This module reads exactly that and
+ * paints it into a PixelBuffer with pixel-art rules:
  *
  *  - no anti-aliasing: a pixel is painted when at least half of its
  *    sub-samples fall inside the shape (coverage is measured, then thresholded);
- *  - gradients become BANDS: the gradient's own stop colours, quantized;
+ *  - gradients become BANDS: the gradient's own stop colours and stop
+ *    opacities, quantized; a translucent band is composited over what is
+ *    under it, a transparent one paints nothing;
  *  - strokes thinner than a pixel become one-pixel lines, never fade out;
- *  - a shape too small to win a pixel still gets its centre pixel, so a
- *    glint or a freckle survives at 16 px;
+ *  - a shape too small to win a pixel still gets its best pixel when it
+ *    covers enough of one (a glint at 16 px, a freckle from 24 px);
  *  - blurred shapes (soft shadows) are skipped: the world draws shadows;
  *  - an optional one-pixel outline is added OUTSIDE the silhouette.
  *
  * Nothing here knows what a Blobbi is. It is a renderer of this SVG dialect,
- * deterministic in Node and in the browser alike.
+ * deterministic in Node and in the browser alike. Markup outside the dialect
+ * is never dropped silently: `svgSupportIssues` lists every element,
+ * attribute, colour or reference this module would not draw as written, and
+ * `rasterizeSvg` refuses an SVG that has any.
  */
 import { PixelBuffer, Mask, forEachEllipsePixel } from '../core/pixel';
 import { type Color, alpha, blue, green, hex, red, rgba } from '../core/color';
@@ -94,6 +100,95 @@ export function parseSvg(svg: string): Node {
     if (!selfClosing) stack.push(node);
   }
   return root;
+}
+
+// ─── The dialect, and what falls outside it ─────────────────────────────────
+
+/** The elements that are painted as shapes. */
+const SHAPES = new Set(['path', 'ellipse', 'circle', 'rect']);
+/** Paint properties a shape takes from its groups when it states none (SVG inheritance); opacity multiplies instead. */
+const INHERITED = ['fill', 'stroke', 'stroke-width'] as const;
+
+const PAINT = ['fill', 'stroke', 'stroke-width', 'opacity', 'transform', 'filter', 'clip-path'];
+/** Shape attributes that are known and deliberately not drawn: a pixel line has no caps or joins. */
+const PIXEL_ART_IGNORED = ['stroke-linecap', 'stroke-linejoin'];
+
+/**
+ * Every element of the kit's dialect, with the attributes this module reads (or knowingly ignores). `data-*`
+ * attributes are metadata and always allowed. Anything else is an issue: it would be drawn wrongly or not at all.
+ */
+const DIALECT: Record<string, readonly string[]> = {
+  svg: ['viewBox', 'width', 'height', 'xmlns'],
+  defs: [],
+  linearGradient: ['id', 'x1', 'y1', 'x2', 'y2', 'gradientUnits', 'gradientTransform'],
+  radialGradient: ['id', 'cx', 'cy', 'r', 'gradientUnits', 'gradientTransform'],
+  stop: ['offset', 'stop-color', 'stop-opacity'],
+  // A filter is never drawn: the shapes that use one (soft shadows) are skipped, and the world draws shadows.
+  filter: ['id', 'x', 'y', 'width', 'height'],
+  feGaussianBlur: ['stdDeviation'],
+  clipPath: ['id'],
+  g: ['transform', 'opacity', 'clip-path', ...INHERITED],
+  path: ['d', ...PAINT, ...PIXEL_ART_IGNORED],
+  ellipse: ['cx', 'cy', 'rx', 'ry', ...PAINT, ...PIXEL_ART_IGNORED],
+  circle: ['cx', 'cy', 'r', ...PAINT, ...PIXEL_ART_IGNORED],
+  rect: ['x', 'y', 'width', 'height', ...PAINT],
+};
+
+const COLOR = /^(?:none|#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\))$/;
+const TRANSFORM_FUNCTIONS = new Set(['matrix', 'translate', 'scale', 'rotate']);
+
+/** Every piece of markup under `root` this module would not draw as written, as readable messages. Empty: all of it is understood. */
+function supportIssues(root: Node): string[] {
+  const issues = new Set<string>();
+  const ids = new Map<string, string>();
+  const collect = (n: Node) => {
+    if (n.attrs.id) ids.set(n.attrs.id, n.tag);
+    n.children.forEach(collect);
+  };
+  collect(root);
+  const ref = (value: string, kinds: readonly string[], where: string) => {
+    const m = /^url\(#([^)]+)\)$/.exec(value);
+    if (!m) return false;
+    const kind = ids.get(m[1]);
+    if (!kind || !kinds.includes(kind)) issues.add(`${where} refers to ${kind ? `a <${kind}>` : 'nothing'} (${value})`);
+    return true;
+  };
+  const check = (n: Node, inherited: Record<string, string>, inClip: boolean) => {
+    const known = DIALECT[n.tag];
+    if (!known) {
+      issues.add(`element <${n.tag}>`);
+      return;
+    }
+    const where = `<${n.tag}${n.attrs['data-part'] ? ` data-part="${n.attrs['data-part']}"` : ''}>`;
+    for (const [k, v] of Object.entries(n.attrs)) {
+      if (k.startsWith('data-')) continue;
+      if (!known.includes(k)) {
+        issues.add(`attribute ${k} on <${n.tag}>`);
+        continue;
+      }
+      if (k === 'fill' && !ref(v, ['linearGradient', 'radialGradient'], `${where} fill`) && !COLOR.test(v)) issues.add(`${where} fill "${v}"`);
+      if ((k === 'stroke' || k === 'stop-color') && !COLOR.test(v)) issues.add(`${where} ${k} "${v}"`);
+      if (k === 'clip-path' && !ref(v, ['clipPath'], `${where} clip-path`)) issues.add(`${where} clip-path "${v}"`);
+      if (k === 'filter' && !ref(v, ['filter'], `${where} filter`)) issues.add(`${where} filter "${v}"`);
+      if (k === 'transform' || k === 'gradientTransform')
+        for (const f of v.matchAll(/([a-zA-Z]+)\s*\(/g)) if (!TRANSFORM_FUNCTIONS.has(f[1])) issues.add(`${where} transform ${f[1]}()`);
+      if (k === 'gradientUnits' && v !== 'userSpaceOnUse' && v !== 'objectBoundingBox') issues.add(`${where} gradientUnits "${v}"`);
+      if (k === 'd' && UNSUPPORTED_PATH.test(v)) issues.add(`${where} path command S/T`);
+      if (k === 'viewBox' && !/^0[ ,]+0[ ,]/.test(v.trim())) issues.add(`viewBox "${v}" does not start at 0 0`);
+    }
+    const inh = { ...inherited };
+    for (const k of INHERITED) if (n.attrs[k] !== undefined) inh[k] = n.attrs[k];
+    // A shape with no fill of its own or inherited is painted black by SVG; here it would vanish. Clip shapes have no paint.
+    if (SHAPES.has(n.tag) && !inClip && inh.fill === undefined && (inh.stroke === undefined || inh.stroke === 'none')) issues.add(`${where} has no fill`);
+    for (const c of n.children) check(c, inh, inClip || n.tag === 'clipPath');
+  };
+  for (const c of root.children) check(c, {}, false);
+  return [...issues];
+}
+
+/** The markup of an SVG that `rasterizeSvg` would not draw as written (and therefore refuses). Empty when it is all understood. */
+export function svgSupportIssues(svg: string): string[] {
+  return supportIssues(parseSvg(svg));
 }
 
 // ─── Geometry flattening ─────────────────────────────────────────────────────
@@ -301,6 +396,8 @@ function coverage(polys: Pt[][], width: number, height: number): { data: Float32
 interface Stop {
   offset: number;
   color: Color;
+  /** `stop-opacity`, 0..1. */
+  opacity: number;
 }
 interface Gradient {
   kind: 'linear' | 'radial';
@@ -332,16 +429,21 @@ function lerpColor(a: Color, b: Color, t: number): Color {
 }
 
 function stopColor(stops: Stop[], t: number): Color {
-  if (t <= stops[0].offset) return stops[0].color;
+  return stopAt(stops, t).color;
+}
+
+/** The colour and opacity of a gradient at `t`, interpolated between its stops. */
+function stopAt(stops: Stop[], t: number): { color: Color; opacity: number } {
+  if (t <= stops[0].offset) return stops[0];
   for (let i = 1; i < stops.length; i++) {
     if (t <= stops[i].offset) {
       const a = stops[i - 1];
       const b = stops[i];
       const u = b.offset === a.offset ? 0 : (t - a.offset) / (b.offset - a.offset);
-      return lerpColor(a.color, b.color, u);
+      return { color: lerpColor(a.color, b.color, u), opacity: a.opacity + (b.opacity - a.opacity) * u };
     }
   }
-  return stops[stops.length - 1].color;
+  return stops[stops.length - 1];
 }
 
 /** Composite `c` at `opacity` over `under` (which may be transparent). */
@@ -386,6 +488,15 @@ export interface RasterOptions {
    * displacement, so the part moves rigidly or not at all. Transforms that move a part by a pixel or more are kept.
    */
   snapRig?: boolean;
+  /**
+   * DOT CLUSTERS: groups (by `data-part` prefix) of dots that are read together. A dot that wins pixels of its own
+   * is painted as usual. The dots too small for that are pooled with their neighbours (dots whose pixel boxes
+   * touch); a pool that spans at least one pixel is a mark the size of a pixel or more, and each of its dots is
+   * drawn as the one solid pixel under its centre (dots that land on the same pixel merge). A pool narrower than a
+   * pixel is not drawn: it would be one pixel standing for less than one. The kit's three freckles under an eye
+   * span 1.2-1.5 px at 24 px (one to three freckle pixels), 2.3-2.9 px at 48 px (two or three) and 0.6-0.7 px at 12 px.
+   */
+  clusters?: readonly string[];
 }
 
 /**
@@ -396,6 +507,8 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
   const root = parseSvg(svg);
   const svgNode = root.children.find((c) => c.tag === 'svg');
   if (!svgNode) throw new Error('svg-raster: no <svg>');
+  const issues = supportIssues(root);
+  if (issues.length) throw new Error(`svg-raster: unsupported markup: ${issues.slice(0, 5).join('; ')}${issues.length > 5 ? ` (+${issues.length - 5} more)` : ''}`);
   const buf = new PixelBuffer(o.width, o.height);
   const gradients = new Map<string, Gradient>();
   const clips = new Map<string, Node>();
@@ -408,7 +521,9 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
   const collectDefs = (n: Node) => {
     for (const c of n.children) {
       if (c.tag === 'linearGradient' || c.tag === 'radialGradient') {
-        const stops: Stop[] = c.children.filter((s) => s.tag === 'stop').map((s) => ({ offset: Number(s.attrs.offset ?? 0), color: parseColor(s.attrs['stop-color']) ?? hex('#000000') }));
+        const stops: Stop[] = c.children
+          .filter((s) => s.tag === 'stop')
+          .map((s) => ({ offset: Number(s.attrs.offset ?? 0), color: parseColor(s.attrs['stop-color']) ?? hex('#000000'), opacity: Math.max(0, Math.min(1, Number(s.attrs['stop-opacity'] ?? 1))) }));
         if (!stops.length) continue;
         gradients.set(c.attrs.id, {
           kind: c.tag === 'linearGradient' ? 'linear' : 'radial',
@@ -461,8 +576,20 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
       const ry = Number(node.attrs.ry ?? node.attrs.r ?? 0);
       return [ellipsePoints(cx, cy, rx, ry).map(([x, y]) => apply(ctm, x, y))];
     }
+    if (node.tag === 'rect') {
+      // Square corners only: the kit's one rect (the gradient pattern's band, clipped to the body) has no rx/ry.
+      const x = Number(node.attrs.x ?? 0);
+      const y = Number(node.attrs.y ?? 0);
+      const w = Number(node.attrs.width ?? 0);
+      const h = Number(node.attrs.height ?? 0);
+      if (!(w > 0 && h > 0)) return [];
+      return [[apply(ctm, x, y), apply(ctm, x + w, y), apply(ctm, x + w, y + h), apply(ctm, x, y + h)]];
+    }
     return [];
   };
+
+  /** The dots of the cluster group being walked that were too small to paint alone (see `RasterOptions.clusters`). */
+  let pool: { cov: NonNullable<ReturnType<typeof coverage>>; box: [number, number, number, number]; color: (px: number, py: number) => Color; opacity: number; clip: Mask | null; sparesEyes: boolean }[] | null = null;
 
   const paintFill = (node: Node, ctm: Matrix, opacity: number, clip: Mask | null) => {
     const fill = node.attrs.fill;
@@ -478,8 +605,9 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
     if (!grad && solid === null) return;
     // Bounding box in pixel space, for objectBoundingBox gradients.
     const inv = invert(ctm);
-    const colorAt = (px: number, py: number): Color => {
-      if (!grad) return solid!;
+    const colorAt = (px: number, py: number): Color => paintAt(px, py).color;
+    const paintAt = (px: number, py: number): { color: Color; opacity: number } => {
+      if (!grad) return { color: solid!, opacity: 1 };
       let t: number;
       if (grad.userSpace) {
         // Pixel → shape user space → gradient space.
@@ -494,7 +622,7 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
       t = Math.max(0, Math.min(1, t));
       // Quantize into bands: each band takes the colour at its centre.
       const q = (Math.min(bands - 1, Math.floor(t * bands)) + 0.5) / bands;
-      return stopColor(grad.stops, q);
+      return stopAt(grad.stops, q);
     };
     let painted = 0;
     let best = -1;
@@ -511,14 +639,32 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
         const py = cov.y0 + y;
         if (clip && !clip.get(px, py)) continue;
         if (sparesEyes && eyeMask.get(px, py)) continue;
-        buf.set(px, py, over(buf.get(px, py), colorAt(px, py), opacity));
+        // The shape won this pixel. A band's stop opacity composites like the shape's own; a band under 1/64
+        // (a transparent stop) paints nothing.
         painted++;
+        const paint = paintAt(px, py);
+        const op = opacity * paint.opacity;
+        if (op < 1 / 64) continue;
+        buf.set(px, py, over(buf.get(px, py), paint.color, op));
       }
+    if (painted === 0 && pool) {
+      const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const poly of polys)
+        for (const [x, y] of poly) {
+          box[0] = Math.min(box[0], x);
+          box[1] = Math.min(box[1], y);
+          box[2] = Math.max(box[2], x);
+          box[3] = Math.max(box[3], y);
+        }
+      pool.push({ cov, box, color: colorAt, opacity, clip, sparesEyes });
+      return;
+    }
     // Too small to win a pixel: give it its best pixel anyway, if it has real presence.
-    if (painted === 0 && best >= 0.2 && opacity >= 0.5) {
+    if (painted === 0 && best >= 0.2) {
       const px = cov.x0 + (bestI % cov.w);
       const py = cov.y0 + Math.floor(bestI / cov.w);
-      if (!clip || clip.get(px, py)) buf.set(px, py, over(buf.get(px, py), colorAt(px, py), opacity * best));
+      const paint = paintAt(px, py);
+      if (opacity * paint.opacity >= 0.5 && (!clip || clip.get(px, py))) buf.set(px, py, over(buf.get(px, py), paint.color, opacity * best * paint.opacity));
     }
   };
 
@@ -792,7 +938,38 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
     return multiply([1, 0, 0, 1, dx, dy], ctm);
   };
 
-  const walk = (node: Node, ctm: Matrix, opacity: number, clip: Mask | null) => {
+  /** Paint the pooled dots of a cluster group (see `RasterOptions.clusters`): neighbours pool; a pool spanning a pixel draws each dot as a pixel. */
+  const paintPool = (dots: NonNullable<typeof pool>) => {
+    const group = dots.map((_, i) => i);
+    const find = (i: number): number => (group[i] === i ? i : (group[i] = find(group[i])));
+    const touch = (a: (typeof dots)[number]['cov'], b: (typeof dots)[number]['cov']) =>
+      a.x0 <= b.x0 + b.w && b.x0 <= a.x0 + a.w && a.y0 <= b.y0 + b.h && b.y0 <= a.y0 + a.h;
+    for (let i = 0; i < dots.length; i++) for (let j = 0; j < i; j++) if (touch(dots[i].cov, dots[j].cov)) group[find(i)] = find(j);
+    const pools = new Map<number, number[]>();
+    for (let i = 0; i < dots.length; i++) pools.set(find(i), [...(pools.get(find(i)) ?? []), i]);
+    for (const members of pools.values()) {
+      const span = Math.max(
+        Math.max(...members.map((i) => dots[i].box[2])) - Math.min(...members.map((i) => dots[i].box[0])),
+        Math.max(...members.map((i) => dots[i].box[3])) - Math.min(...members.map((i) => dots[i].box[1])),
+      );
+      if (span < 1) continue;
+      const done = new Set<number>();
+      for (const i of members) {
+        const { box, color, opacity, clip, sparesEyes } = dots[i];
+        if (opacity < 0.5) continue;
+        // The pixel under the dot's centre (a dot this small can fall between every coverage sample).
+        const px = Math.floor((box[0] + box[2]) / 2);
+        const py = Math.floor((box[1] + box[3]) / 2);
+        const at = py * o.width + px;
+        if (px < 0 || py < 0 || px >= o.width || py >= o.height || done.has(at)) continue;
+        if ((clip && !clip.get(px, py)) || (sparesEyes && eyeMask.get(px, py))) continue;
+        done.add(at);
+        buf.set(px, py, over(buf.get(px, py), color(px, py), opacity));
+      }
+    }
+  };
+
+  const walk = (node: Node, ctm: Matrix, opacity: number, clip: Mask | null, inherited: Readonly<Record<string, string>>) => {
     for (const c of node.children) {
       if (c.tag === 'defs' || c.tag === 'clipPath' || c.tag === 'filter' || c.tag === 'linearGradient' || c.tag === 'radialGradient' || c.tag === 'stop') continue;
       const part = c.attrs['data-part'] ?? '';
@@ -813,21 +990,33 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
         } else cl = mask;
       }
       if (c.tag === 'g' || c.tag === 'svg') {
-        walk(c, m, op, cl);
+        // Paint properties are inherited (a group's `fill` paints the shapes that state none: the kit's freckles);
+        // opacity is not, it multiplies.
+        const inh = { ...inherited };
+        for (const k of INHERITED) if (c.attrs[k] !== undefined) inh[k] = c.attrs[k];
+        const clustered = !pool && (o.clusters ?? []).some((p) => part.startsWith(p));
+        if (clustered) pool = [];
+        walk(c, m, op, cl, inh);
+        if (clustered) {
+          paintPool(pool!);
+          pool = null;
+        }
         if (part.endsWith('eye')) {
           currentWhite = null;
           irisBox = null;
         }
         continue;
       }
-      if (c.tag === 'path' || c.tag === 'ellipse' || c.tag === 'circle') {
-        if (features && paintFeature(c, part, m, op, cl)) continue;
-        paintFill(c, m, op, cl);
-        paintStroke(c, m, op, cl);
+      if (SHAPES.has(c.tag)) {
+        // The shape as it is painted: its own paint properties over the inherited ones.
+        const shape: Node = { ...c, attrs: { ...inherited, ...c.attrs } };
+        if (features && paintFeature(shape, part, m, op, cl)) continue;
+        paintFill(shape, m, op, cl);
+        paintStroke(shape, m, op, cl);
       }
     }
   };
-  walk(svgNode, base, 1, null);
+  walk(svgNode, base, 1, null, {});
 
   if (o.outline) {
     const mask = buf.opaqueMask();
