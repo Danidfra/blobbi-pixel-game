@@ -15,13 +15,18 @@ import { type Color, hex } from '../core/color';
 import { paletteFor } from '../world/generate';
 import { paintTerrain } from './paint-terrain';
 import { turtleUnderlay, turtleBodyForWorld } from './compose';
-import { resourceSprite, RESOURCE_KINDS } from '../game/resources';
+import { resourceSprite, BASIC_KINDS } from '../game/resources';
 import { ITEMS } from '../game/items';
 import { attachTool, toolIcon, EQUIPMENT } from '../game/equipment';
-import { BUILDINGS, buildingSprite, PROBLEM_TEXT } from '../game/buildings';
-import { PICKUP_SECONDS } from '../sim/live-world';
+import { BUILDINGS, buildingSprite } from '../game/buildings';
+import { drawPlacementOverlay } from './placement-overlay';
+import { itemIcon } from '../ui/icons';
+import { PICKUP_SECONDS, HARVEST_POP_SECONDS } from '../sim/live-world';
+import { cropSprite, plotSprite, waterDropSprite, isWet, needsWater, isMature, PLOT_GRID, type CropStage } from '../game/farming';
 import { windAt } from '../sim/live-world';
-import { T, type Layer, type Placement } from '../world/types';
+import { T, type Layer, type Placement, type WorldDescription } from '../world/types';
+import { growWorld } from '../world/growth';
+import { drawCreatureParts } from '../carriers/creature-render';
 import type { LiveWorld } from '../sim/live-world';
 
 export interface LiveRenderOptions {
@@ -117,36 +122,18 @@ export class LiveRenderer {
   /** What fills the frame beyond the world's edge. */
   background = hex('#0d1016');
 
+  /** During a growth reveal: the layer before and after this stage's new land (see LiveWorld.startReveal). */
+  private revealFrom: PixelBuffer | null = null;
+  private revealTo: PixelBuffer | null = null;
+
   constructor(readonly live: LiveWorld) {
     const world = live.world;
-    const palette = paletteFor(world.options.palette);
     const { width, height, cls } = world.terrain;
-    this.staticLayer = new PixelBuffer(width, height);
-    paintTerrain(this.staticLayer, world.terrain, palette, world.seed, { animatedWater: true, underlay: turtleUnderlay(world, { head: false, flippers: false }) });
-    // Static shadows of placed objects.
-    for (const p of world.objects) {
-      const s = live.spriteOf(p);
-      if (s.footRx > 0) this.paintShadow(this.staticLayer, p.x, p.y, s.footRx, s.footRy, 0, 0);
-    }
-    for (const b of world.bridges) {
-      const half = Math.floor(b.width / 2);
-      if (b.axis === 'h') for (let x = b.x0; x <= b.x1; x++) for (let y = b.y0 + half + 1; y <= b.y0 + half + 2; y++) if (cls[y * width + x] < T.GRASS_EDGE) this.staticLayer.set(x, y, palette.shadowOnWater);
-      else for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0 + half + 1; x <= b.x0 + half + 2; x++) if (cls[y * width + x] < T.GRASS_EDGE) this.staticLayer.set(x, y, palette.shadowOnWater);
-    }
-    // Bridges are flat on the ground: bake them into the static layer too.
-    for (const b of world.bridges) {
-      const half = Math.floor(b.width / 2);
-      const length = b.axis === 'h' ? b.x1 - b.x0 + 1 : b.y1 - b.y0 + 1;
-      const sprite = live.spriteOf({ kind: 'bridge', layer: 'structures', seed: `${world.seed}/bridge/${b.id}`, size: length, x: 0, y: 0, island: -1, variation: { axis: b.axis, length, width: b.width } });
-      if (b.axis === 'h') this.staticLayer.blit(sprite.buffer, b.x0, b.y0 - half - sprite.anchorY);
-      else this.staticLayer.blit(sprite.buffer, b.x0 - half - 1, b.y0);
-    }
-    for (const p of world.piers) {
-      const half = Math.floor(p.width / 2);
-      const length = Math.abs(p.axis === 'h' ? p.x1 - p.x0 : p.y1 - p.y0) + 1;
-      const sprite = live.spriteOf({ kind: 'bridge', layer: 'structures', seed: `${world.seed}/pier`, size: length, x: 0, y: 0, island: -1, variation: { axis: p.axis, length, width: p.width, pier: true } });
-      if (p.axis === 'h') this.staticLayer.blit(sprite.buffer, Math.min(p.x0, p.x1), p.y0 - half - sprite.anchorY);
-      else this.staticLayer.blit(sprite.buffer, p.x0 - half - 1, Math.min(p.y0, p.y1));
+    this.staticLayer = this.paintStatic(world);
+    if (live.reveal && live.world.growth) {
+      // The island as it was a moment ago (the previous stage), to grow the new land in from.
+      this.revealFrom = this.paintStatic(growWorld(live.baseWorld, live.reveal.stage - 1, live.world.growth.version));
+      this.revealTo = this.staticLayer.clone();
     }
     // Foam pixels and wave strokes, precomputed once.
     const foam: number[] = [];
@@ -167,8 +154,43 @@ export class LiveRenderer {
     this.sorted = world.objects.map((p, index) => ({ index, p })).sort((a, b) => a.p.y - b.p.y || a.p.x - b.p.x);
   }
 
-  private paintShadow(buf: PixelBuffer, px: number, py: number, rx: number, ry: number, ox: number, oy: number): void {
-    const world = this.live.world;
+  /** Terrain, the carrier underlay, object shadows, bridges and piers: everything that never moves, for a world. */
+  private paintStatic(world: WorldDescription): PixelBuffer {
+    const live = this.live;
+    const palette = paletteFor(world.options.palette);
+    const { width, height, cls } = world.terrain;
+    const layer = new PixelBuffer(width, height);
+    paintTerrain(layer, world.terrain, palette, world.seed, { animatedWater: true, underlay: turtleUnderlay(world, { head: false, flippers: false }) });
+    // Static shadows of placed objects.
+    for (const p of world.objects) {
+      const s = live.spriteOf(p);
+      if (s.footRx > 0) this.paintShadow(layer, p.x, p.y, s.footRx, s.footRy, 0, 0, world);
+    }
+    for (const b of world.bridges) {
+      const half = Math.floor(b.width / 2);
+      if (b.axis === 'h') for (let x = b.x0; x <= b.x1; x++) for (let y = b.y0 + half + 1; y <= b.y0 + half + 2; y++) if (cls[y * width + x] < T.GRASS_EDGE) layer.set(x, y, palette.shadowOnWater);
+      else for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0 + half + 1; x <= b.x0 + half + 2; x++) if (cls[y * width + x] < T.GRASS_EDGE) layer.set(x, y, palette.shadowOnWater);
+    }
+    // Bridges are flat on the ground: bake them into the static layer too.
+    for (const b of world.bridges) {
+      const half = Math.floor(b.width / 2);
+      const length = b.axis === 'h' ? b.x1 - b.x0 + 1 : b.y1 - b.y0 + 1;
+      const sprite = live.spriteOf({ kind: 'bridge', layer: 'structures', seed: `${world.seed}/bridge/${b.id}`, size: length, x: 0, y: 0, island: -1, variation: { axis: b.axis, length, width: b.width } });
+      if (b.axis === 'h') layer.blit(sprite.buffer, b.x0, b.y0 - half - sprite.anchorY);
+      else layer.blit(sprite.buffer, b.x0 - half - 1, b.y0);
+    }
+    for (const p of world.piers) {
+      const half = Math.floor(p.width / 2);
+      const length = Math.abs(p.axis === 'h' ? p.x1 - p.x0 : p.y1 - p.y0) + 1;
+      const sprite = live.spriteOf({ kind: 'bridge', layer: 'structures', seed: `${world.seed}/pier`, size: length, x: 0, y: 0, island: -1, variation: { axis: p.axis, length, width: p.width, pier: true } });
+      if (p.axis === 'h') layer.blit(sprite.buffer, Math.min(p.x0, p.x1), p.y0 - half - sprite.anchorY);
+      else layer.blit(sprite.buffer, p.x0 - half - 1, Math.min(p.y0, p.y1));
+    }
+    void height;
+    return layer;
+  }
+
+  private paintShadow(buf: PixelBuffer, px: number, py: number, rx: number, ry: number, ox: number, oy: number, world: WorldDescription = this.live.world): void {
     const palette = paletteFor(world.options.palette);
     const { width, cls } = world.terrain;
     const cx = px + 1;
@@ -197,6 +219,21 @@ export class LiveRenderer {
     const frame = this.frame;
     const ox = Math.round(camX);
     const oy = Math.round(camY);
+
+    // ── The growth reveal: the new land spreads out from the old coast ─────
+    if (this.revealFrom && this.revealTo) {
+      const r = this.live.reveal;
+      const p = r ? this.live.revealProgress() : 1;
+      const pixels = r?.pixels;
+      if (r && pixels) for (let k = 0; k < pixels.length; k++) {
+        const i = pixels[k];
+        this.staticLayer.data[i] = r.order[i] <= p ? this.revealTo.data[i] : this.revealFrom.data[i];
+      }
+      if (!r) {
+        this.staticLayer.data.set(this.revealTo.data);
+        this.revealFrom = this.revealTo = null;
+      }
+    }
 
     // ── Static copy, row by row ───────────────────────────────────────────
     frame.fill(this.background);
@@ -242,6 +279,16 @@ export class LiveRenderer {
 
     // ── The turtle's living parts: flippers paddling, the head bobbing, blinking and glancing ──
     if (world.turtle) this.drawTurtle(frame, ox, oy, time, o.animateWind);
+    // A creature carrier (M7: the manta): its wing tips and tail whip, over the sea.
+    else if (world.creature) drawCreatureParts(frame, world, ox, oy, time);
+
+    // ── Farm plots: flat tilled soil on the ground, dark where watered ────
+    const plotTime = this.live.worldTime;
+    for (const plot of this.live.plots) {
+      const r = this.live.plotRect(plot);
+      if (r.x1 < ox || r.x0 >= ox + viewW || r.y1 < oy || r.y0 >= oy + viewH) continue;
+      frame.blit(this.soil(!!plot.crop && isWet(plot.crop, plotTime), (plot.gx + plot.gy) & 1), r.x0 - ox, r.y0 - oy);
+    }
 
     // ── Ground particles (leaves on the ground, sparkles) ─────────────────
     this.live.particles.draw(frame, ox, oy, false);
@@ -251,8 +298,12 @@ export class LiveRenderer {
     const enabled = (layer: Layer) => (layer === 'vegetation' ? o.vegetation : layer === 'structures' ? o.structures : o.details);
     const drawables: Drawable[] = [];
     const margin = 48;
+    const reveal = live.reveal;
+    const revealAt = reveal ? live.revealProgress() : 1;
     for (const { index, p } of this.sorted) {
       if (!enabled(p.layer)) continue;
+      // New plants appear as the growing land reaches them.
+      if (reveal && index >= reveal.from && index < reveal.to && reveal.order[p.y * width + p.x] > revealAt) continue;
       if (p.x < ox - margin || p.x > ox + viewW + margin || p.y < oy - margin || p.y > oy + viewH + margin) continue;
       const sprite = live.objectSprite(index);
       const sway = (o.animateWind && sprite.swayRow !== undefined) || live.impulses.has(index) ? live.swayOf(index, p.x, p.kind, time) : 0;
@@ -266,16 +317,35 @@ export class LiveRenderer {
       const sway = o.animateWind && sprite.swayRow !== undefined ? live.swayOf(world.objects.length + k, p.x, 'tree', time) : 0;
       drawables.push({ y: p.y, x: p.x, sprite, sway, dy: 0 });
     });
+    // Discoveries: a small thing on the ground that glints now and then.
+    for (const d of live.hiddenDiscoveries) {
+      if (d.x < ox - 8 || d.x > ox + viewW + 8 || d.y < oy - 8 || d.y > oy + viewH + 8) continue;
+      const icon = itemIcon(d.content.item.id, palette);
+      drawables.push({ y: d.y, x: d.x, sprite: { buffer: icon, anchorX: Math.floor(icon.width / 2), anchorY: icon.height - 1, footRx: 0, footRy: 0 }, sway: 0, dy: 0 });
+    }
     // Resources on the ground, and the one in reach marked.
-    const reachable = live.nearestResource();
+    const reachable = live.nearestResource() ?? live.nearestDiscovery();
     for (const n of live.resources) {
       if (n.x < ox - 8 || n.x > ox + viewW + 8 || n.y < oy - 8 || n.y > oy + viewH + 8) continue;
       drawables.push({ y: n.y, x: n.x, sprite: resourceSprite(n.kind, n.variant, palette), sway: 0, dy: 0 });
+    }
+    // Crops stand on their plots, in painter's order like everything else.
+    for (const plot of live.plots) {
+      if (!plot.crop) continue;
+      const r = live.plotRect(plot);
+      if (r.x1 < ox - 8 || r.x0 > ox + viewW + 8 || r.y1 < oy - 8 || r.y0 > oy + viewH + 16) continue;
+      const sprite = cropSprite(plot.crop.kind, live.cropStageOf(plot) as CropStage, plot.id);
+      drawables.push({ y: r.y0 + PLOT_GRID - 2, x: r.x0 + PLOT_GRID / 2, sprite, sway: 0, dy: 0 });
     }
     // Buildings, placed and under construction, with their shadows.
     for (const building of live.buildings) {
       if (building.x < ox - 48 || building.x > ox + viewW + 48 || building.y < oy - 48 || building.y > oy + viewH + 48) continue;
       const sprite = buildingSprite(building, palette, live.buildingAt(building), world.options.scale);
+      // Paths and rugs lie flat on the ground, under everything that stands.
+      if (BUILDINGS[building.kind].layer === 'floor') {
+        frame.blit(sprite.buffer, building.x - sprite.anchorX - ox, building.y - sprite.anchorY - oy);
+        continue;
+      }
       if (o.shadows) this.paintShadow(frame, building.x, building.y, sprite.footRx, sprite.footRy, ox, oy);
       drawables.push({ y: building.y, x: building.x, sprite, sway: 0, dy: 0 });
     }
@@ -312,31 +382,21 @@ export class LiveRenderer {
     this.timings.drawn = drawables.length + (split ? 1 : 0);
     const t3 = performance.now();
 
-    // ── Build mode: the placement preview, a ghost of the shelter with its footprint, green or red ──
-    if (live.buildMode) {
-      const spot = live.placementSpot();
-      const check = live.placementCheck();
-      const def = BUILDINGS[live.buildMode];
-      const ghost = buildingSprite({ id: 'preview', kind: live.buildMode, x: spot.x, y: spot.y, placedAt: 0, seed: `${world.seed}/${live.buildMode}/${live.buildings.filter((x) => x.kind === live.buildMode).length}` }, palette, 1, world.options.scale);
-      const gx = spot.x - ghost.anchorX - ox;
-      const gy = spot.y - ghost.anchorY - oy;
-      for (let y = 0; y < ghost.buffer.height; y++)
-        for (let x = 0; x < ghost.buffer.width; x++) {
-          const c = ghost.buffer.get(x, y);
-          if (!(c >>> 24) || ((x + y) & 1)) continue; // a checker ghost
-          out.set(gx + x, gy + y, c);
-        }
-      const colour = check.ok ? hex('#4dffb0') : hex('#ff3b5c');
-      out.strokeRect(check.x0 - ox, check.y0 - oy, check.x1 - check.x0 + 1, check.y1 - check.y0 + 1, colour);
-      const text = check.ok ? (live.canAfford(live.buildMode) ? 'E TO BUILD' : 'NOT ENOUGH MATERIALS') : PROBLEM_TEXT[check.problem!].toUpperCase();
-      const w = text.length * 4 + 3;
-      if (split) split.texts.push({ kind: 'label', text, x: spot.x, y: check.y0 - 12, color: colour, background: hex('#1b1f2a') });
-      else {
-        out.fillRect(Math.round(spot.x - w / 2) - ox, check.y0 - 12 - oy, w, 9, hex('#1b1f2a'));
-        drawTinyText(out, text, Math.round(spot.x - w / 2) + 2 - ox, check.y0 - 10 - oy, colour);
-      }
-      void def;
+    // ── Placement: build mode, placing from the bag, moving; management highlights ──
+    drawPlacementOverlay(live, out, ox, oy, palette, world.options.scale, split);
+    // ── Fishing: the line from the Blobbi's hand to a bobbing float (it dips when a fish bites) ──
+    if (live.fishing) {
+      const f = live.fishing;
+      const bite = time >= f.biteAt;
+      const fy = f.y + (bite ? 1 : Math.round(Math.sin(time * 3)));
+      const hx = Math.round(live.blobbi.x) - ox;
+      const hy = Math.round(live.blobbi.y - live.blobbi.size * 0.7) - oy;
+      out.line(hx, hy, f.x - ox, fy - 2 - oy, hex('#e8ecf4'));
+      out.set(f.x - ox, fy - 2 - oy, hex('#ff3b5c'));
+      out.set(f.x - ox, fy - 1 - oy, hex('#ffffff'));
     }
+    // ── The farm: the target cell, water drops over dry crops, a glint on ripe ones, harvests rising ──
+    this.drawFarmOverlay(out, ox, oy, viewW, viewH, time);
     // ── Pickups floating up, the reach marker, the resource counter ──────
     for (const p of live.pickups) {
       const t = Math.min(1, (time - p.start) / PICKUP_SECONDS);
@@ -344,8 +404,23 @@ export class LiveRenderer {
       const s = resourceSprite(p.node.kind, p.node.variant, palette);
       out.blit(s.buffer, p.node.x - s.anchorX - ox, p.node.y - s.anchorY - Math.round(t * 14) - oy);
     }
+    // A glint over each hidden discovery, a couple of times a few seconds.
+    for (const d of live.hiddenDiscoveries) {
+      const phase = (time * 0.7 + (d.x * 13 + d.y * 7) * 0.01) % 2.5;
+      if (phase > 0.35) continue;
+      const gx = d.x + 2 - ox;
+      const gy = d.y - 7 - oy;
+      const c = hex('#ffffff');
+      out.set(gx, gy, c);
+      if (phase > 0.08 && phase < 0.27) {
+        out.set(gx - 1, gy, c);
+        out.set(gx + 1, gy, c);
+        out.set(gx, gy - 1, c);
+        out.set(gx, gy + 1, c);
+      }
+    }
     if (reachable) {
-      const s = resourceSprite(reachable.kind, reachable.variant, palette);
+      const s = 'kind' in reachable ? resourceSprite(reachable.kind, reachable.variant, palette) : { buffer: itemIcon(reachable.content.item.id, palette) };
       const bob = Math.round(Math.sin(time * 6) * 1);
       const mx = reachable.x - ox;
       const my = reachable.y - s.buffer.height - 3 - oy + bob;
@@ -357,7 +432,7 @@ export class LiveRenderer {
     }
     if (o.hud && !split) {
       const counts = live.counts();
-      const text = RESOURCE_KINDS.map((k) => `${k.toUpperCase()}S ${counts[k]}`).join('  ') + `  WOOD ${live.inventory.count(ITEMS.wood.id)}`;
+      const text = BASIC_KINDS.map((k) => `${k.toUpperCase()}S ${counts[k]}`).join('  ') + `  WOOD ${live.inventory.count(ITEMS.wood.id)}`;
       const w = text.length * 4 + 3;
       out.fillRect(2, 2, w, 9, hex('#1b1f2a'));
       drawTinyText(out, text, 4, 4, hex('#f4efe4'));
@@ -419,6 +494,71 @@ export class LiveRenderer {
     this.timings.particles = t4 - t3;
     this.timings.total = t5 - t0;
     return frame;
+  }
+
+  private readonly soilCache = new Map<string, PixelBuffer>();
+  private soil(wet: boolean, variant: number): PixelBuffer {
+    const key = `${wet}|${variant}`;
+    let hit = this.soilCache.get(key);
+    if (!hit) this.soilCache.set(key, (hit = plotSprite(wet, variant)));
+    return hit;
+  }
+  private readonly drop = waterDropSprite();
+
+  private drawFarmOverlay(out: PixelBuffer, ox: number, oy: number, viewW: number, viewH: number, time: number): void {
+    const live = this.live;
+    const t = live.worldTime;
+    // The cell E acts on: soft white corners on a plot, a dotted green (fits) or red (cannot) frame for the hoe.
+    if (!live.buildMode) {
+      const action = live.farmAction();
+      if (action && !(action.kind === 'cannot-till' && (live.facingObject() || live.facingBuilding()))) {
+        const cell = 'plot' in action ? action.plot : action.cell;
+        const r = live.plotRect(cell);
+        const x0 = r.x0 - ox - 1;
+        const y0 = r.y0 - oy - 1;
+        const x1 = r.x1 - ox + 1;
+        const y1 = r.y1 - oy + 1;
+        if (action.kind === 'till' || action.kind === 'cannot-till') {
+          const c = action.kind === 'till' ? hex('#4dffb0') : hex('#ff3b5c');
+          for (let x = x0; x <= x1; x++) if ((x & 1) === 0) (out.set(x, y0, c), out.set(x, y1, c));
+          for (let y = y0; y <= y1; y++) if ((y & 1) === 0) (out.set(x0, y, c), out.set(x1, y, c));
+        } else {
+          const c = hex('#fffaf0');
+          for (const [cx, cy, sx, sy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]]) {
+            out.set(cx, cy, c);
+            out.set(cx + sx, cy, c);
+            out.set(cx, cy + sy, c);
+          }
+        }
+      }
+    }
+    const bob = Math.round(Math.sin(time * 4) * 1);
+    const glint = (time * 0.8) % 1 < 0.25;
+    for (const plot of live.plots) {
+      if (!plot.crop) continue;
+      const r = live.plotRect(plot);
+      if (r.x1 < ox - 8 || r.x0 > ox + viewW + 8 || r.y1 < oy - 16 || r.y0 > oy + viewH + 8) continue;
+      const sprite = cropSprite(plot.crop.kind, live.cropStageOf(plot) as CropStage, plot.id);
+      const top = r.y0 + PLOT_GRID - 2 - sprite.anchorY;
+      const cx = r.x0 + PLOT_GRID / 2;
+      if (needsWater(plot.crop, t)) out.blit(this.drop, cx - 2 - ox, top - this.drop.height - 1 + bob - oy);
+      else if (isMature(plot.crop, t) && glint) {
+        const c = hex('#fffaf0');
+        const gx = cx + 2 - ox;
+        const gy = top - 1 - oy;
+        out.set(gx, gy, c);
+        out.set(gx - 1, gy, c);
+        out.set(gx + 1, gy, c);
+        out.set(gx, gy - 1, c);
+        out.set(gx, gy + 1, c);
+      }
+    }
+    for (const pop of live.harvestPops) {
+      const k = Math.min(1, (time - pop.start) / HARVEST_POP_SECONDS);
+      if (k >= 1 || ((k * 10) | 0) % 4 === 3) continue;
+      const s = cropSprite(pop.kind, 4, 'pop');
+      out.blit(s.buffer, pop.x - s.anchorX - ox, pop.y + 2 - s.anchorY - Math.round(k * 12) - oy);
+    }
   }
 
   /** The animated turtle parts over the static layer (which holds water under them). */
@@ -518,6 +658,19 @@ const GLYPHS: Record<string, string[]> = {
   W: ['#.#', '#.#', '###', '###', '#.#'],
   Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
   ' ': ['...', '...', '...', '...', '...'],
+  '(': ['.#.', '#..', '#..', '#..', '.#.'],
+  ')': ['.#.', '..#', '..#', '..#', '.#.'],
+  ':': ['...', '.#.', '...', '.#.', '...'],
+  '.': ['...', '...', '...', '...', '.#.'],
+  '!': ['.#.', '.#.', '.#.', '...', '.#.'],
+  '/': ['..#', '..#', '.#.', '#..', '#..'],
+  '+': ['...', '.#.', '###', '.#.', '...'],
+  '?': ['##.', '..#', '.#.', '...', '.#.'],
+  "'": ['.#.', '.#.', '...', '...', '...'],
+  '>': ['#..', '.#.', '..#', '.#.', '#..'],
+  '<': ['..#', '.#.', '#..', '.#.', '..#'],
+  '*': ['...', '#.#', '.#.', '#.#', '...'],
+  '=': ['...', '###', '...', '###', '...'],
 };
 
 export function drawTinyText(buf: PixelBuffer, text: string, x: number, y: number, color: Color): void {

@@ -173,7 +173,7 @@ describe('persisting the selected Blobbi', () => {
     expect(worldIdentity(world)).not.toContain(v3.seed);
   });
 
-  it('migrates schema 1-4 world records to schema 5 with the owner stated; refuses another owner', () => {
+  it('migrates schema 1-4 world records to the current schema with the owner stated; refuses another owner', () => {
     const store = memoryStore();
     const world = generateTurtleWorld('turtle-0');
     const identity = worldIdentity(world);
@@ -184,11 +184,11 @@ describe('persisting the selected Blobbi', () => {
     expect(migrated.owner).toBe('local-world');
     expect(migrated.inventory.items).toEqual(v4.inventory.items);
     expect(migrated.worldTime).toBe(12);
-    // The next save writes schema 5 and keeps everything.
+    // The next save writes the current schema (6 since M4) and keeps everything.
     const live = new LiveWorld(world, 'blobbi-9', 16, { store });
     live.save();
     const written = JSON.parse(store.get(saveKey(identity))!);
-    expect(written).toMatchObject({ version: 5, owner: 'local-world', inventory: { items: v4.inventory.items } });
+    expect(written).toMatchObject({ version: 9, owner: 'local-world', inventory: { items: v4.inventory.items } });
     store.set(saveKey(identity), JSON.stringify({ ...written, owner: 'blobbi:abc' }));
     expect(loadSave(store, identity)).toBeNull();
     store.set(saveKey(identity), JSON.stringify({ ...written, owner: undefined }));

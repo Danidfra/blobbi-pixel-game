@@ -8,7 +8,7 @@ import { stream, type Rng } from '../core/rng';
 import { type Color, hex } from '../core/color';
 import type { PixelBuffer } from '../core/pixel';
 
-export type ParticleKind = 'leaf' | 'sparkle' | 'heart' | 'smoke' | 'petal' | 'note' | 'exclaim' | 'dust' | 'ripple';
+export type ParticleKind = 'leaf' | 'sparkle' | 'heart' | 'smoke' | 'petal' | 'note' | 'exclaim' | 'dust' | 'ripple' | 'drop' | 'zzz' | 'butterfly' | 'firefly' | 'bird' | 'rain';
 
 export interface Particle {
   kind: ParticleKind;
@@ -65,6 +65,30 @@ export class ParticleSystem {
   dust(x: number, y: number, color: Color): void {
     this.spawn({ kind: 'dust', x, y, vx: this.rng.range(-6, 6), vy: this.rng.range(-6, -2), life: 0.35, color, phase: 0, front: false });
   }
+  /** A water drop: falls from a watering, a short arc under gravity. */
+  drop(x: number, y: number, color: Color): void {
+    this.spawn({ kind: 'drop', x, y, vx: this.rng.range(-5, 5), vy: this.rng.range(-14, -6), life: 0.45, color, phase: 0, front: true });
+  }
+  /** A butterfly: wings that flap, a wandering flight. */
+  butterfly(x: number, y: number, color: Color): void {
+    this.spawn({ kind: 'butterfly', x, y, vx: this.rng.range(-6, 6), vy: this.rng.range(-3, 3), life: this.rng.range(4, 7), color, phase: this.rng.range(0, 6.28), front: true });
+  }
+  /** A firefly: a slow drift and a soft pulse. */
+  firefly(x: number, y: number): void {
+    this.spawn({ kind: 'firefly', x, y, vx: this.rng.range(-2, 2), vy: this.rng.range(-2, 1), life: this.rng.range(3, 6), color: hex('#d8ff8a'), phase: this.rng.range(0, 6.28), front: true });
+  }
+  /** A small bird crossing the sky (a two-pixel V that beats its wings). */
+  bird(x: number, y: number, dir: 1 | -1): void {
+    this.spawn({ kind: 'bird', x, y, vx: dir * this.rng.range(28, 40), vy: this.rng.range(-3, 3), life: 9, color: hex('#3b3550'), phase: this.rng.range(0, 6.28), front: true });
+  }
+  /** A raindrop streak. */
+  rain(x: number, y: number): void {
+    this.spawn({ kind: 'rain', x, y, vx: -6, vy: 90, life: this.rng.range(0.5, 0.9), color: hex('#c8dcf8'), phase: 0, front: true });
+  }
+  /** A small "z" rising from a sleeping Blobbi. */
+  zzz(x: number, y: number): void {
+    this.spawn({ kind: 'zzz', x, y, vx: this.rng.range(1, 3), vy: -5, life: 1.6, color: hex('#e8f0ff'), phase: this.rng.range(0, 6.28), front: true });
+  }
 
   step(dt: number): void {
     const ps = this.particles;
@@ -87,6 +111,22 @@ export class ParticleSystem {
         p.y += p.vy * dt;
       } else if (p.kind === 'dust') {
         p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      } else if (p.kind === 'drop') {
+        p.vy += 60 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      } else if (p.kind === 'butterfly') {
+        p.x += (p.vx + Math.sin(p.age * 2.3 + p.phase) * 8) * dt;
+        p.y += (p.vy + Math.sin(p.age * 3.7 + p.phase) * 6) * dt;
+      } else if (p.kind === 'firefly') {
+        p.x += (p.vx + Math.sin(p.age * 1.3 + p.phase) * 3) * dt;
+        p.y += (p.vy + Math.cos(p.age * 1.1 + p.phase) * 2) * dt;
+      } else if (p.kind === 'bird' || p.kind === 'rain') {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      } else if (p.kind === 'zzz') {
+        p.x += (p.vx + Math.sin(p.age * 2 + p.phase) * 2) * dt;
         p.y += p.vy * dt;
       }
     }
@@ -144,7 +184,53 @@ export class ParticleSystem {
           break;
         }
         case 'dust':
+        case 'drop':
           buf.set(x, y, p.color);
+          break;
+        case 'butterfly': {
+          const open = Math.sin(p.age * 18 + p.phase) > 0;
+          buf.set(x, y, hex('#3b3550'));
+          if (open) {
+            buf.set(x - 1, y - 1, p.color);
+            buf.set(x + 1, y - 1, p.color);
+          } else {
+            buf.set(x - 1, y, p.color);
+            buf.set(x + 1, y, p.color);
+          }
+          break;
+        }
+        case 'firefly': {
+          const glow = 0.5 + 0.5 * Math.sin(p.age * 4 + p.phase);
+          if (glow < 0.2 || t > 0.95) break;
+          buf.set(x, y, p.color);
+          if (glow > 0.75) {
+            const halo = hex('#8acc5a');
+            buf.set(x - 1, y, halo);
+            buf.set(x + 1, y, halo);
+            buf.set(x, y - 1, halo);
+            buf.set(x, y + 1, halo);
+          }
+          break;
+        }
+        case 'bird': {
+          const up = Math.sin(p.age * 10 + p.phase) > 0;
+          buf.set(x, y, p.color);
+          buf.set(x - 1, y + (up ? -1 : 0), p.color);
+          buf.set(x + 1, y + (up ? -1 : 0), p.color);
+          break;
+        }
+        case 'rain':
+          buf.set(x, y, p.color);
+          buf.set(x, y - 1, p.color);
+          break;
+        case 'zzz':
+          // A dot that opens into a 3×3 "z".
+          if (t < 0.25) buf.set(x, y, p.color);
+          else {
+            buf.hline(x - 1, x + 1, y - 1, p.color);
+            buf.set(x, y, p.color);
+            buf.hline(x - 1, x + 1, y + 1, p.color);
+          }
           break;
         case 'ripple': {
           // Every other pixel of a growing ellipse, so it reads as a soft ring.

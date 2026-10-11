@@ -65,7 +65,8 @@ describe('placement', () => {
   it('refuses water, blocked footprints, resources, the Blobbi and other buildings, and accepts flat free grass', () => {
     const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
     live.brain.enabled = false;
-    const ctx = () => ({ world: live.world, isBlocked: (x: number, y: number) => live.collision.isBlocked(x + 0.5, y + 0.5), buildings: live.buildings, resources: live.resources, blobbi: live.blobbi });
+    // Sticks, stones and seeds block a building; wild forage (M5) is trampled instead.
+    const ctx = () => ({ world: live.world, isBlocked: (x: number, y: number) => live.collision.isBlocked(x + 0.5, y + 0.5), buildings: live.buildings, resources: live.resources.filter((n) => ['stick', 'stone', 'seed'].includes(n.kind)), blobbi: live.blobbi });
     // Water: the sea corner.
     expect(checkPlacement('shelter', 6, 6, ctx())).toMatchObject({ ok: false, problem: 'edge' });
     expect(checkPlacement('shelter', 40, 40, ctx())).toMatchObject({ ok: false, problem: 'water' });
@@ -85,8 +86,13 @@ describe('placement', () => {
     const check = live.placementCheck('shelter');
     expect(check.ok).toBe(true);
     expect(check.x1 - check.x0).toBe(BUILDINGS.shelter.footRx * 2);
-    // The Blobbi standing there.
-    expect(checkPlacement('shelter', Math.round(live.blobbi.x), Math.round(live.blobbi.y), ctx()).problem).toBe('blobbi');
+    // The Blobbi standing there (on the valid spot itself).
+    const stood = { x: live.blobbi.x, y: live.blobbi.y };
+    live.blobbi.x = spot.x;
+    live.blobbi.y = spot.y;
+    expect(checkPlacement('shelter', spot.x, spot.y, ctx()).problem).toBe('blobbi');
+    live.blobbi.x = stood.x;
+    live.blobbi.y = stood.y;
     // A resource there.
     live.resources.push({ id: 'test', kind: 'stone', x: spot.x, y: spot.y, variant: 0, source: -1 });
     expect(live.placementCheck('shelter').problem).toBe('resource');

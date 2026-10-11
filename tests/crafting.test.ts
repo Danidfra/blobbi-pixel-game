@@ -6,6 +6,8 @@ import { ITEMS, isTool, toolSupports, stackLimit } from '../src/game/items';
 import { RECIPES, canCraft, craft } from '../src/game/crafting';
 import { HITS_TO_FELL, REGROW_SECONDS, STUMP_SECONDS, treeCondition, woodYield } from '../src/game/trees';
 import { memoryStore, loadSave, saveKey, worldIdentity, SAVE_VERSION } from '../src/game/persistence';
+import { newCarrier } from '../src/game/carrier';
+import { newTally } from '../src/game/objectives';
 import { REACH } from '../src/game/resources';
 
 const AXE = RECIPES[0];
@@ -302,7 +304,7 @@ describe('persistence and reloads', () => {
     const identity = worldIdentity(world);
     store.set(saveKey(identity), JSON.stringify({ version: 1, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] } }));
     const v1 = loadSave(store, identity)!;
-    expect(v1).toEqual({ version: SAVE_VERSION, owner: 'local-world', world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [], collectedAt: { 'stick:0': 0 }, rocks: {} });
+    expect(v1).toEqual({ version: SAVE_VERSION, owner: 'local-world', world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [], collectedAt: { 'stick:0': 0 }, rocks: {}, plots: [], care: { hunger: 100, energy: 100, happiness: 70, lastPet: -Infinity }, tally: { ...newTally(), collected: 1 }, objectives: { completed: {}, request: null, requestsDone: 0, nextRequestAt: 0, lore: [] }, interiors: {}, containers: {}, producers: {}, companion: { friendship: 0, tasted: [] }, found: [], carrier: newCarrier(), places: [], growth: { stage: 0, version: 1, history: [], regions: [] }, species: 'turtle', generator: 'm6.0' });
     const live = new LiveWorld(world, 'blobbi-9', 16, { store });
     expect(live.collected.has('stick:0')).toBe(true);
     expect(live.inventory.count(ITEMS.stick.id)).toBe(2);

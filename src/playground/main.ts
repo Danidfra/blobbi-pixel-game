@@ -23,15 +23,37 @@ import { localStore } from '../game/persistence';
 import { loadSelection, storeSelection } from '../game/blobbi-selection';
 import { resolveBlobbi, describeSource, sourceFromSeed, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
-import { ITEMS, itemLabel } from '../game/items';
-import { RECIPES, canCraft } from '../game/crafting';
+import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
+import { RECIPES, canCraft, recipeById } from '../game/crafting';
 import { toolIcon } from '../game/equipment';
-import { BUILDINGS } from '../game/buildings';
+import { BUILDINGS, BUILDING_KINDS, type BuildingKind } from '../game/buildings';
+import { CROPS, CROP_KINDS, STAGE_NAMES, cropProgress, isWet, isMature } from '../game/farming';
+import { OBJECTIVES, currentObjective } from '../game/objectives';
+import { isHungry, isTired } from '../game/care';
 import { isLargeRock } from '../game/rocks';
 import { ViewCamera, CAMERA_CYCLE, CAMERA_MODES, DEFAULT_CAMERA_MODE, isCameraMode, worldBounds, type CameraModeId, type WorldBounds } from '../render/view-camera';
 import { ViewRenderer, DEFAULT_VIEW_UI } from '../render/view-renderer';
 import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
+import { GameUI } from '../ui/game-ui';
+import { InventoryScreen } from '../ui/screens/inventory';
+import { StorageScreen } from '../ui/screens/storage';
+import { CraftingScreen } from '../ui/screens/crafting';
+import { JournalScreen } from '../ui/screens/journal';
+import { CareScreen } from '../ui/screens/care';
+import { SettingsScreen } from '../ui/screens/settings';
+import { CarrierScreen } from '../ui/screens/carrier';
+import { MapScreen } from '../ui/screens/map';
+import { GrowthScreen } from '../ui/screens/growth';
+import { WorldsScreen } from '../ui/screens/worlds';
+import { LocalVisitTransport, VisitSession, localPlayerId, OWNERS_KEY, type WorldRef } from '../game/visiting';
+import { AudioEngine, DEFAULT_AUDIO } from '../audio/engine';
+import { GameAudio } from '../audio/director';
+import { TitleScreen } from '../ui/title';
+import { generateMantaWorld } from '../carriers/manta-world';
+import { TouchControls } from '../ui/touch';
+import { listWorlds, newWorldSeeds, resolveFrame, readIndex, touchIndex, worldName, WORLD_INDEX_KEY, hasSave, type WorldEntry } from '../game/worlds';
+import { worldIdentity } from '../game/persistence';
 import { blobbiIdentity } from '../blobbi/identity';
 import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT } from '../blobbi/canonical';
 import { buildNativeSprite } from '../blobbi/native-sprite';
@@ -94,7 +116,7 @@ const startupBlobbi: { source: BlobbiSource; message: string; error: boolean } =
 
 const state: State = {
   seed: params.get('seed') ?? 'blobbi',
-  options: { ...DEFAULT_WORLD_OPTIONS, kind: (params.get('kind') as 'island' | 'turtle') ?? 'turtle' },
+  options: { ...DEFAULT_WORLD_OPTIONS, kind: (params.get('kind') as 'island' | 'turtle' | 'manta') ?? 'turtle' },
   render: { ...DEFAULT_RENDER_OPTIONS },
   live: { ...DEFAULT_LIVE_OPTIONS },
   zoom: 2,
@@ -146,7 +168,7 @@ app.innerHTML = `
         <button id="randomize">Randomize</button>
         <button id="regenerate" class="primary">Regenerate</button>
       </div>
-      <label>World <select id="world-kind"><option value="turtle">turtle (M1)</option><option value="island">islands (phases 1-3)</option></select></label>
+      <label>World <select id="world-kind"><option value="turtle">turtle (M1)</option><option value="island">islands (phases 1-3)</option><option value="manta">manta (M7)</option></select></label>
       <label>Turtle seed <input id="turtle-seed" type="text" spellcheck="false" /></label>
       <div class="row"><button id="turtle-random">Random turtle</button></div>
       <label>Shell variant <select id="shell-variant"></select></label>
@@ -194,23 +216,34 @@ app.innerHTML = `
       <label class="check"><input id="live-debug" type="checkbox" /> debug collision</label>
       <label class="check"><input id="live-autonomy" type="checkbox" /> autonomy (WASD takes over, resumes after 5 s)</label>
       <label class="check"><input id="live-path" type="checkbox" /> debug path and nav grid</label>
-      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, chop a tree with the axe, else interact · C craft axe · V craft pickaxe · Q switch tool · B build · P plant a tree · Z camera mode (or the wheel) · click the view first</div>
+      <div class="hint">WASD / arrows move · E or Space: pick up, then farm (harvest, water, plant, till with the hoe), then chop / mine, else look · F feed · H pet · R rest (again to wake) · T next seed · C / V / G craft axe / pickaxe / hoe · Q switch tool · B build (cycles what), Esc cancel · O goals on/off · P plant a tree · Z camera mode (or the wheel) · click the view first</div>
+      <h2>Objectives</h2>
+      <div id="objectives" class="stats"></div>
+      <h2>Blobbi care</h2>
+      <div id="care" class="stats"></div>
+      <div class="row"><button id="care-feed" class="primary">Feed (F)</button><button id="care-pet">Pet (H)</button><button id="care-rest">Rest (R)</button></div>
+      <div class="hint">Needs fall slowly while you play (never while the game is closed). Food restores FED; resting restores ENERGY, twice as fast in the shelter's doorway; feeding, resting, exploring, decorations and attention raise JOY. Low needs only slow Blobbi a little and change its face. Autonomy rests on its own when tired but never eats, harvests or uses the bag.</div>
       <h2>Inventory</h2>
       <div id="inventory" class="stats"></div>
       <div class="row" id="axe-icon-row" style="align-items:center;gap:8px"><canvas id="axe-icon" width="36" height="36"></canvas><span class="hint" id="axe-icon-label">simple axe</span></div>
       <div class="row" id="pickaxe-icon-row" style="align-items:center;gap:8px"><canvas id="pickaxe-icon" width="36" height="36"></canvas><span class="hint" id="pickaxe-icon-label">simple pickaxe</span></div>
       <h2>Crafting</h2>
       <div id="crafting" class="stats"></div>
-      <div class="row"><button id="craft-axe" class="primary">Craft simple axe (C)</button><button id="craft-pickaxe" class="primary">Craft pickaxe (V)</button></div>
+      <div class="row"><button id="craft-axe" class="primary">Craft simple axe (C)</button><button id="craft-pickaxe" class="primary">Craft pickaxe (V)</button><button id="craft-hoe" class="primary">Craft hoe (G)</button></div>
       <div class="row"><button id="equip-axe">Switch tool (Q)</button></div>
       <div class="hint">Simple pickaxe: 2 wood + 2 sticks + 3 stones. With the pickaxe equipped, face a large rock and press E four times: stones go in the bag, rubble stays, and the rock is whole again after five minutes of world time. Sticks, stones and seeds grow back two to three minutes after you pick them up. Q cycles through the tools you own (and empty hands).</div>
       <div class="hint">Simple axe: 3 sticks + 2 stones. With the axe equipped, face a tree and press E three times to fell it: wood goes in the bag, a stump stays, and the same tree regrows over four minutes of world time (continuing across reloads).</div>
+      <h2>Farming</h2>
+      <div id="farming" class="stats"></div>
+      <div class="row"><button id="farm-seed">Next seed (T)</button></div>
+      <div class="hint">Simple hoe: 1 wood + 2 sticks + 1 stone. Equip it (Q) and press E on flat grass: the cell in front becomes a farm plot (green frame = fits). Face a plot and press E to plant (turnips from wild seeds; carrots and pumpkins from goal rewards), to water a crop that shows a drop, and to harvest it when ripe. Crops grow only while watered: about 2-3 waterings each. Growth is in world time and continues across reloads.</div>
       <h2>Building</h2>
       <div id="building" class="stats"></div>
-      <div class="row"><button id="build-shelter" class="primary">Build shelter (B)</button></div>
-      <div class="hint">Wooden shelter: 6 wood + 3 stone. B shows a preview in front of the Blobbi (green = fits, red = why not); E places it and the materials leave the bag; it is built over 24 s of world time and stays. Buildings keep their place on the island across reloads.</div>
+      <div class="row" id="build-buttons"></div>
+      <div class="hint">B shows a preview in front of the Blobbi (green = fits, red = why not) and cycles through what you can build; E places it and the materials leave the bag; Esc cancels. Decorations unlock with goals. Everything keeps its place on the island across reloads.</div>
       <div class="row"><button id="progress-reset">Reset resources &amp; inventory</button></div>
       <div class="hint">Sticks lie under trees, stones by rocks and on the forest floor, seeds by bushes and flowers. Collected resources and the inventory persist per world in this browser (versioned, keyed by seed, turtle, variant and size). Autonomy never collects.</div>
+      <div id="dev-tools"></div>
     </section>
     <section id="panel-blobbi" class="hidden">
       <h2>Blobbi</h2>
@@ -318,6 +351,8 @@ function saveHash(): void {
 
 /** The world for the current options: a turtle carrying the land, or the phase 1-3 archipelago. */
 function makeWorld(seed: string): WorldDescription {
+  // A manta world has its own canvas (the manta needs the room): only the look options carry over.
+  if (state.options.kind === 'manta') return generateMantaWorld(seed, { palette: state.options.palette, density: state.options.density, scale: state.options.scale, carrierSeed: state.turtleSeed });
   if (state.options.kind === 'turtle') return generateTurtleWorld(seed, { ...state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant, width: state.options.width, height: Math.max(state.options.height, DEFAULT_TURTLE_OPTIONS.height) });
   return generateWorld(seed, state.options);
 }
@@ -419,6 +454,70 @@ const modeTimes: Record<CameraModeId, number[]> = { overview: [], exploration: [
 let fps = 0;
 let statsTimer = 0;
 let rafId = 0;
+/** The scene the camera framed last frame (a change snaps the camera). */
+let lastScene = 'island';
+/** The last camera view (tap-to-walk maps screen pixels to the world with it). */
+let lastView: import('../render/view-camera').ViewRect | null = null;
+/** The game's menus over the play view (inventory, storage, crafting, journal, care, cooking, settings). */
+const gameUI = new GameUI(() => live, () => paletteFor(state.options.palette));
+gameUI.register(new InventoryScreen());
+gameUI.onUse = () => {
+  interactPressed = true;
+};
+gameUI.register(new StorageScreen());
+gameUI.register(new CraftingScreen());
+gameUI.register(new CraftingScreen('cooking'));
+gameUI.register(new JournalScreen());
+gameUI.register(new CareScreen());
+gameUI.register(new CarrierScreen());
+gameUI.register(new MapScreen());
+const growthScreen = new GrowthScreen();
+gameUI.register(growthScreen);
+growthScreen.onGrow = () => regrow();
+const worldsScreen = new WorldsScreen();
+gameUI.register(worldsScreen);
+const settingsScreen = new SettingsScreen();
+gameUI.register(settingsScreen);
+// Settings are viewer preferences in this browser, never part of a save.
+const SETTINGS_KEY = 'blobbi-pixel-lab:settings';
+// The system's reduced-motion preference is the default until the player chooses.
+gameUI.settings.reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+try {
+  const raw = localStorage.getItem(SETTINGS_KEY);
+  if (raw) Object.assign(gameUI.settings, JSON.parse(raw));
+} catch {
+  /* private mode or bad JSON: defaults */
+}
+// Audio: the engine starts on the first key or tap (browsers require a gesture); its mix is kept like the settings.
+const AUDIO_KEY = 'blobbi-pixel-lab:audio';
+const audioEngine = new AudioEngine();
+try {
+  const raw = localStorage.getItem(AUDIO_KEY);
+  if (raw) audioEngine.settings = { ...DEFAULT_AUDIO, ...JSON.parse(raw) };
+} catch {
+  /* defaults */
+}
+const gameAudio = new GameAudio(audioEngine);
+settingsScreen.audio = audioEngine.settings;
+gameUI.onSound = (name) => {
+  if (gameUI.settings.sound) audioEngine.play(name);
+};
+const unlockAudio = () => {
+  if (gameUI.settings.sound) audioEngine.unlock();
+};
+window.addEventListener('pointerdown', unlockAudio, { capture: true });
+window.addEventListener('keydown', unlockAudio, { capture: true });
+settingsScreen.onChange = () => {
+  audioEngine.applySettings();
+  if (!gameUI.settings.sound) audioEngine.suspend();
+  else unlockAudio();
+  try {
+    localStorage.setItem(AUDIO_KEY, JSON.stringify(audioEngine.settings));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(gameUI.settings));
+  } catch {
+    /* not stored: fine */
+  }
+};
 
 function startLive(): void {
   if (!world) return;
@@ -432,7 +531,267 @@ function startLive(): void {
   viewCamera.update(0, { x: live.blobbi.x, y: live.blobbi.y, size: live.blobbi.size }, view.width, view.height, bounds, true);
 }
 
+// ─── The title screen and world selection ─────────────────────────────────────
+const storeKeys = (): string[] => {
+  try {
+    return Object.keys(localStorage);
+  } catch {
+    return [];
+  }
+};
+const storeGet = (k: string): string | null => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+/** Remember that this world was just played (orders CONTINUE and the islands list). */
+function touchWorld(): void {
+  if (!live) return;
+  if (!live.visitor) claimWorld(live.identity);
+  try {
+    localStorage.setItem(WORLD_INDEX_KEY, JSON.stringify(touchIndex(readIndex(storeGet), live.identity, Date.now())));
+  } catch {
+    /* not stored */
+  }
+}
+/** Leave the title: the Blobbi teleports in, then play begins. */
+function beginPlay(): void {
+  title.active = false;
+  gameUI.close();
+  if (live) {
+    live.teleport.reducedMotion = gameUI.settings.reducedMotion;
+    live.teleport.state = 'absent';
+    live.enterBlobbi();
+    touchWorld();
+  }
+  view.focus();
+}
+/** Point the playground at a saved world and load it; false (and nothing changed) when it cannot be reproduced. */
+function openWorldParams(w: WorldEntry): boolean {
+  const p = w.params;
+  const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant };
+  state.seed = p.seed;
+  state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands };
+  if (p.kind === 'manta') state.turtleSeed = p.carrierSeed ?? p.seed;
+  if (p.kind === 'turtle') {
+    state.turtleSeed = p.turtleSeed ?? p.seed;
+    if (isShellVariant(p.shellVariant ?? 0)) state.shellVariant = p.shellVariant as ShellVariant;
+  }
+  // The frame size that was asked for (an enlarged shell grows it): find the one that reproduces the identity.
+  const frame = resolveFrame(w.identity, [{ width: keep.options.width, height: keep.options.height }, { width: DEFAULT_WORLD_OPTIONS.width, height: DEFAULT_WORLD_OPTIONS.height }, { width: p.width, height: p.height }], (size) => {
+    state.options = { ...state.options, ...size };
+    return worldIdentity(makeWorld(state.seed));
+  });
+  if (!frame) {
+    Object.assign(state, keep);
+    return false;
+  }
+  state.options = { ...state.options, ...frame };
+  syncControls();
+  regenerate();
+  return true;
+}
+const title = new TitleScreen({
+  worlds: () => listWorlds(storeKeys(), storeGet),
+  current: () => {
+    const identity = live?.identity ?? (world ? worldIdentity(world) : '');
+    return { identity, name: identity ? worldName(identity) : 'this island', saved: !!identity && hasSave(identity, storeGet) };
+  },
+  continueGame: () => beginPlay(),
+  openWorld: (w) => {
+    if (openWorldParams(w)) beginPlay();
+  },
+  newWorld: (kind) => {
+    state.options = { ...state.options, kind };
+    const identityOf = (seed: string, turtleSeed: string) => worldIdentity(makeWorldFor(seed, turtleSeed));
+    const { seed, turtleSeed } = newWorldSeeds(() => randomSeed('world'), identityOf, (id) => hasSave(id, storeGet));
+    state.seed = seed;
+    state.turtleSeed = turtleSeed;
+    syncControls();
+    regenerate();
+    beginPlay();
+  },
+  settings: () => gameUI.open('settings'),
+});
+title.onSound = (n) => gameUI.onSound?.(n);
+/** A world for other seeds, without touching the playground's state (identity checks for a new world). */
+function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
+  const keep = state.turtleSeed;
+  state.turtleSeed = turtleSeed;
+  try {
+    return makeWorld(seed);
+  } finally {
+    state.turtleSeed = keep;
+  }
+}
+const titleCamera = new ViewCamera('exploration');
+// Touch: a floating stick on the world and a big USE button (shown once a touch is seen).
+const touch = new TouchControls(() => (gameUI.settings.largeText ? 3 : 2));
+/** The screen's safe-area insets (notches, rounded corners) in canvas pixels, read from CSS. */
+function readSafeArea(): void {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const rect = view.getBoundingClientRect();
+  const k = view.width / Math.max(1, rect.width);
+  touch.insets = { top: parseFloat(cs.paddingTop) * k || 0, right: parseFloat(cs.paddingRight) * k || 0, bottom: parseFloat(cs.paddingBottom) * k || 0, left: parseFloat(cs.paddingLeft) * k || 0 };
+  probe.remove();
+}
+window.addEventListener('resize', readSafeArea);
+queueMicrotask(readSafeArea);
+
+/**
+ * Grow the island (the player chose to, at the growth panel): the stage is saved, the world is rebuilt from the save
+ * exactly as a reload would, the Blobbi stays where it stood, and the new land is revealed while the camera pulls
+ * back to show the whole island (not with reduced motion).
+ */
+function regrow(): void {
+  if (!live || !world) return;
+  if (live.interior) {
+    gameUI.say('step outside first: the island grows around you', false);
+    return;
+  }
+  if (live.growIsland() === null) return;
+  rebuildFromSave(true);
+}
+
+/** Rebuild the live world from its save (after growth, or a dev stage change), keeping the Blobbi where it is. */
+function rebuildFromSave(reveal: boolean): void {
+  if (!live || !world) return;
+  const at = { x: live.blobbi.x, y: live.blobbi.y };
+  const inside = !!live.interior;
+  const sounds = [...live.sounds];
+  live.save();
+  live = new LiveWorld(world, state.blobbi, state.blobbiSize, { store: localStore() });
+  // The Blobbi stays where it stood (land never disappears, so the spot is still ground).
+  if (!inside && live.collision.canStand(at.x, at.y, live.blobbi.footRx, live.blobbi.footRy)) {
+    live.blobbi.x = at.x;
+    live.blobbi.y = at.y;
+  }
+  live.clock.speed = state.speed;
+  live.sounds.push(...sounds);
+  if (reveal) live.startReveal();
+  liveRenderer = new LiveRenderer(live);
+  viewRenderer = new ViewRenderer(live, liveRenderer);
+  if (reveal && !gameUI.settings.reducedMotion && viewCamera.mode !== 'overview') {
+    revealCameraReturn = viewCamera.mode;
+    viewCamera.setMode('overview');
+  }
+}
+// ─── Visiting another world (M7, local prototype) ─────────────────────────────
+// The URL and the playground's world settings never change during a visit: a reload at any moment comes home.
+const visit = new VisitSession();
+let homeWorld: WorldDescription | null = null;
+const player = localPlayerId(storeGet, (k, v) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* not stored */
+  }
+}, () => randomSeed('world'));
+/** Remember that a world is this player's (its owner), when it is first played here. */
+function claimWorld(identity: string): void {
+  try {
+    const owners = JSON.parse(localStorage.getItem(OWNERS_KEY) ?? '{}') ?? {};
+    if (!owners[identity]) {
+      owners[identity] = player;
+      localStorage.setItem(OWNERS_KEY, JSON.stringify(owners));
+    }
+  } catch {
+    /* not stored */
+  }
+}
+const transport = new LocalVisitTransport(storeKeys, storeGet, () => (visit.visiting ? null : live?.identity ?? null));
+/** A world from its parameters, without changing the playground's own settings. */
+function worldFor(ref: WorldRef): WorldDescription {
+  const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant };
+  try {
+    const p = ref.params;
+    state.seed = p.seed;
+    state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands };
+    if (p.kind === 'manta') state.turtleSeed = p.carrierSeed ?? p.seed;
+    if (p.kind === 'turtle') {
+      state.turtleSeed = p.turtleSeed ?? p.seed;
+      if (isShellVariant(p.shellVariant ?? 0)) state.shellVariant = p.shellVariant as ShellVariant;
+    }
+    const frame = resolveFrame(ref.identity, [{ width: keep.options.width, height: keep.options.height }, { width: DEFAULT_WORLD_OPTIONS.width, height: DEFAULT_WORLD_OPTIONS.height }, { width: p.width, height: p.height }], (size) => {
+      state.options = { ...state.options, ...size };
+      return worldIdentity(makeWorld(state.seed));
+    });
+    if (frame) state.options = { ...state.options, ...frame };
+    return makeWorld(state.seed);
+  } finally {
+    Object.assign(state, keep);
+  }
+}
+worldsScreen.hooks = {
+  list: () => transport.list(),
+  stageOf: (ref) => {
+    try {
+      return JSON.parse(storeGet(`blobbi-pixel-lab:save:v1:${ref.identity}`) ?? '{}')?.growth?.stage ?? 0;
+    } catch {
+      return 0;
+    }
+  },
+  generate: (ref) => worldFor(ref),
+  player: () => player,
+  visit: (ref) => startVisit(ref),
+  goHome: () => {
+    if (live && visit.goHome()) live.leaveBlobbi();
+  },
+  visiting: () => (visit.visiting ? (visit.target?.name ?? 'another island') : null),
+};
+function startVisit(ref: WorldRef): void {
+  if (!live || live.interior || live.getPresenceState() !== 'present') return;
+  live.save();
+  if (!visit.go(ref, { x: live.blobbi.x, y: live.blobbi.y })) return;
+  live.leaveBlobbi();
+}
+/** Switch worlds while the Blobbi is away (called each frame; acts only at the handoff points). */
+function stepVisit(): void {
+  if (!live || !world) return;
+  const presence = live.getPresenceState();
+  if (visit.phase === 'departing' && presence === 'present') visit.abort(); // the departure was cancelled
+  if (visit.phase === 'departing' && visit.arrive(presence)) {
+    homeWorld = world;
+    const host = worldFor(visit.target!);
+    world = host;
+    live = new LiveWorld(host, state.blobbi, state.blobbiSize, { store: transport.open(visit.target!), visitor: true });
+    live.visitLabel = visit.target!.name;
+    arriveHere(live.listenSpot ?? null);
+  } else if (visit.phase === 'returning' && visit.arriveHome(presence)) {
+    world = homeWorld ?? makeWorld(state.seed);
+    homeWorld = null;
+    live = new LiveWorld(world, state.blobbi, state.blobbiSize, { store: localStore() });
+    arriveHere(visit.homeSpot);
+  }
+}
+/** The Blobbi arrives in the (new) current world, at a spot, by teleport. */
+function arriveHere(at: { x: number; y: number } | null): void {
+  if (!live || !world) return;
+  if (at && live.collision.canStand(at.x, at.y, live.blobbi.footRx, live.blobbi.footRy)) {
+    live.blobbi.x = at.x;
+    live.blobbi.y = at.y;
+  }
+  live.clock.speed = state.speed;
+  live.teleport.reducedMotion = gameUI.settings.reducedMotion;
+  live.teleport.state = 'absent';
+  live.enterBlobbi();
+  liveRenderer = new LiveRenderer(live);
+  viewRenderer = new ViewRenderer(live, liveRenderer);
+  bounds = worldBounds(world);
+  viewCamera.update(0, live.cameraTarget(), view.width, view.height, bounds, true);
+  showInventory();
+}
+
+/** The camera mode to go back to when a growth reveal ends. */
+let revealCameraReturn: CameraModeId | null = null;
+
 function stopLive(): void {
+  gameAudio.silence();
   live = null;
   liveRenderer = null;
   viewRenderer = null;
@@ -440,11 +799,12 @@ function stopLive(): void {
 }
 
 function readInput(): LiveInput {
+  const stick = touch.directions();
   const input: LiveInput = {
-    up: keys.has('ArrowUp') || keys.has('KeyW'),
-    down: keys.has('ArrowDown') || keys.has('KeyS'),
-    left: keys.has('ArrowLeft') || keys.has('KeyA'),
-    right: keys.has('ArrowRight') || keys.has('KeyD'),
+    up: keys.has('ArrowUp') || keys.has('KeyW') || stick.up,
+    down: keys.has('ArrowDown') || keys.has('KeyS') || stick.down,
+    left: keys.has('ArrowLeft') || keys.has('KeyA') || stick.left,
+    right: keys.has('ArrowRight') || keys.has('KeyD') || stick.right,
     interact: interactPressed,
     plant: plantPressed,
   };
@@ -460,20 +820,69 @@ const push = (a: number[], v: number) => {
   if (a.length > 90) a.shift();
 };
 
+/** The title: the world paused, the camera drifting slowly over the island, the menu on top. */
+function titleFrame(now: number, real: number): void {
+  if (!live || !bounds) return;
+  readInput();
+  const b = bounds;
+  const t = now / 1000;
+  // A slow circle around the island's middle (still, with reduced motion).
+  const drift = gameUI.settings.reducedMotion ? 0 : t * 0.05;
+  const target = { x: b.width / 2 + Math.cos(drift) * b.width * 0.12, y: b.height / 2 + Math.sin(drift) * b.height * 0.1, size: live.blobbi.size };
+  const rest = titleCamera.restScale('exploration', view.width, view.height, b);
+  const v = titleCamera.update(real, target, view.width, view.height, b);
+  const frame = viewRenderer!.render(v, rest, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: false, goals: false, prompt: false, indicator: false, lighting: gameUI.settings.daylight });
+  title.render(frame, t);
+  if (gameUI.capturing) gameUI.render(frame, t);
+  if (gameUI.settings.sound) gameAudio.update(live, Math.min(0.25, real), []);
+  live.sounds.length = 0;
+  liveCanvas = toCanvas(frame, liveCanvas ?? undefined);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(liveCanvas, 0, 0);
+}
+
 function playFrame(now: number): void {
   rafId = requestAnimationFrame(playFrame);
   if (state.mode !== 'play' || !live || !liveRenderer || !world) return;
   const real = lastFrameTime ? (now - lastFrameTime) / 1000 : 1 / 60;
   lastFrameTime = now;
   push(frameTimes, real * 1000);
+  if (title.active) {
+    titleFrame(now, real);
+    return;
+  }
   const t0 = performance.now();
-  const steps = live.update(real, readInput());
+  // An open menu pauses the world: no steps, no input.
+  const steps = gameUI.capturing ? (readInput(), 0) : live.update(real, readInput());
   const t1 = performance.now();
   // The camera is presentation only: it reads the Blobbi's position and never feeds anything back.
-  const cameraView = viewCamera.update(real, { x: live.blobbi.x, y: live.blobbi.y, size: live.blobbi.size }, view.width, view.height, bounds!, false, steps * live.clock.dt);
-  const frame = viewRenderer!.render(cameraView, viewCamera.restScale(viewCamera.mode, view.width, view.height, bounds!), live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud });
+  // The room has its own bounds; changing scene snaps the camera instead of easing across.
+  const sceneBounds = live.sceneBounds() ?? bounds!;
+  const sceneKey = live.interior?.state.shelterId ?? 'island';
+  const snap = sceneKey !== lastScene;
+  lastScene = sceneKey;
+  stepVisit();
+  if (!live) return;
+  if (revealCameraReturn && !live.reveal) {
+    viewCamera.setMode(revealCameraReturn);
+    revealCameraReturn = null;
+  }
+  const restScale = viewCamera.restScale(viewCamera.mode, view.width, view.height, sceneBounds);
+  live.teleport.reducedMotion = gameUI.settings.reducedMotion;
+  viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
+  // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
+  const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
+  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: gameUI.settings.largeText ? 3 : 2 });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
+  gameUI.render(frame, now / 1000);
+  if (!gameUI.capturing) touch.draw(frame, 15 * 2);
+  // Sound: the world's events to the audio director (and to any other listener as events), then cleared.
+  if (gameUI.settings.sound) {
+    for (const name of live.sounds) window.dispatchEvent(new CustomEvent('blobbi-sound', { detail: name }));
+    gameAudio.update(live, Math.min(0.25, real), live.sounds);
+  }
+  live.sounds.length = 0;
   liveCanvas = toCanvas(frame, liveCanvas ?? undefined);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(liveCanvas, 0, 0);
@@ -495,7 +904,9 @@ function showInventory(): void {
   const near = live.nearestResource();
   $('inventory').innerHTML =
     RESOURCE_KINDS.map((k) => `${RESOURCE_LABEL[k].padEnd(9)} <b>${inv.count(RESOURCE_ITEM[k])}</b> / ${inv.limit(RESOURCE_ITEM[k])}`).join('\n') +
-    `\nwood      <b>${inv.count(ITEMS.wood.id)}</b> / ${inv.limit(ITEMS.wood.id)}\naxe       <b>${inv.count(ITEMS.axe.id) ? (live.equipped === ITEMS.axe.id ? 'equipped' : 'in the bag') : 'none'}</b>\npickaxe   <b>${inv.count(ITEMS.pickaxe.id) ? (live.equipped === ITEMS.pickaxe.id ? 'equipped' : 'in the bag') : 'none'}</b>` +
+    `\nwood      <b>${inv.count(ITEMS.wood.id)}</b> / ${inv.limit(ITEMS.wood.id)}` +
+    TOOLS.map((t) => `\n${itemLabel(t).replace('simple ', '').padEnd(9)} <b>${inv.count(t) ? (live!.equipped === t ? 'equipped' : 'in the bag') : 'none'}</b>`).join('') +
+    [ITEMS.carrotSeed.id, ITEMS.pumpkinSeed.id, ...FOODS].filter((i) => inv.count(i) > 0).map((i) => `\n${itemPlural(i).padEnd(9)} <b>${inv.count(i)}</b> / ${inv.limit(i)}`).join('') +
     `\nleft      ${live.resources.length} of ${live.allResources.length} on the ground   collected ${live.stats.collected} this session` +
     `\nin reach  ${near ? `<b>${near.kind}</b> (E to collect)` : '-'}   revision ${inv.revision}`;
   const lines = RECIPES.map((r) => {
@@ -519,8 +930,9 @@ function showInventory(): void {
   $('crafting').innerHTML = lines.join('\n') + `\nchops ${live.stats.chops}   felled ${live.stats.felled}   mined ${live.stats.mined}   regrowing nodes ${live.collectedAt.size}   crafted ${live.stats.crafted}   world time ${live.worldTime.toFixed(0)} s` + (treeLine ? `\n${treeLine}` : '');
   $('craft-axe').toggleAttribute('disabled', !canCraft(inv, RECIPES[0]).ok);
   $('craft-pickaxe').toggleAttribute('disabled', !canCraft(inv, RECIPES[1]).ok);
+  $('craft-hoe').toggleAttribute('disabled', !canCraft(inv, recipeById('blobbi-pixel:recipe:simple-hoe')!).ok);
   $('equip-axe').textContent = `Switch tool (Q): ${live.equipped ? itemLabel(live.equipped) : 'empty hands'}`;
-  $('equip-axe').toggleAttribute('disabled', inv.count(ITEMS.axe.id) + inv.count(ITEMS.pickaxe.id) === 0);
+  $('equip-axe').toggleAttribute('disabled', TOOLS.every((t) => inv.count(t) === 0));
   $('pickaxe-icon-row').classList.toggle('hidden', inv.count(ITEMS.pickaxe.id) === 0);
   $('pickaxe-icon-label').textContent = live.equipped === ITEMS.pickaxe.id ? 'simple pickaxe, equipped (in hand)' : 'simple pickaxe, in the bag';
   $('axe-icon-row').classList.toggle('hidden', inv.count(ITEMS.axe.id) === 0);
@@ -538,24 +950,108 @@ function drawAxeIcon(): void {
   }
 }
 
+const buildButtons = new Map<BuildingKind, HTMLButtonElement>();
+for (const kind of BUILDING_KINDS) {
+  const button = document.createElement('button');
+  button.textContent = BUILDINGS[kind].label.replace('wooden ', '').replace('small ', '').replace('storage ', '');
+  button.addEventListener('click', () => {
+    if (live) live.setBuildMode(live.buildMode === kind ? null : kind);
+    showBuilding();
+    view.focus();
+  });
+  buildButtons.set(kind, button);
+  $('build-buttons').append(button);
+}
+
 function showBuilding(): void {
   if (!live) return;
-  const def = BUILDINGS.shelter;
-  const cost = def.cost.map((c) => `${c.quantity} ${itemLabel(c.item)} (${live!.inventory.count(c.item)})`).join(' + ');
-  const lines = [`shelter   ${cost} → ${live.canAfford('shelter') ? '<b>affordable</b>' : 'missing materials'}`, `built     ${live.buildings.length} building${live.buildings.length === 1 ? '' : 's'}` + live.buildings.map((b) => ` · ${b.kind} at ${b.x},${b.y} ${(live!.buildingAt(b) * 100).toFixed(0)}%`).join('')];
+  const unlocked = live.unlocked();
+  const lines = BUILDING_KINDS.map((kind) => {
+    const def = BUILDINGS[kind];
+    const name = def.label.replace('wooden ', '').replace('small ', '').replace('storage ', '').padEnd(10);
+    if (!unlocked.has(kind)) return `${name}<span class="warn">locked</span> (a goal unlocks it)`;
+    const cost = def.cost.map((c) => `${c.quantity} ${itemLabel(c.item)} (${live!.inventory.count(c.item)})`).join(' + ');
+    return `${name}${cost} → ${live!.canAfford(kind) ? '<b>affordable</b>' : 'missing'}`;
+  });
+  lines.push(`built     ${live.buildings.length}` + live.buildings.map((b) => ` · ${b.kind} ${(live!.buildingAt(b) * 100).toFixed(0)}%`).join(''));
   if (live.buildMode) {
     const check = live.placementCheck();
     const spot = live.placementSpot();
-    lines.push(`preview   <b>${check.ok ? 'fits' : check.problem}</b> at ${spot.x},${spot.y}   E to place, B to cancel`);
+    lines.push(`preview   <b>${BUILDINGS[live.buildMode].label}: ${check.ok ? 'fits' : check.problem}</b> at ${spot.x},${spot.y}   E place, B next, Esc cancel`);
   }
   $('building').innerHTML = lines.join('\n');
-  $('build-shelter').textContent = live.buildMode ? 'Cancel build (B)' : 'Build shelter (B)';
+  for (const [kind, button] of buildButtons) {
+    button.toggleAttribute('disabled', !unlocked.has(kind));
+    button.classList.toggle('primary', live.buildMode === kind);
+  }
 }
 
 function toggleBuild(): void {
   if (!live) return;
-  live.setBuildMode(live.buildMode ? null : 'shelter');
+  live.cycleBuildMode();
   showBuilding();
+}
+
+const bar = (v: number) => {
+  const n = Math.round(v / 10);
+  return `${'█'.repeat(n)}${'░'.repeat(10 - n)} ${v.toFixed(0).padStart(3)}`;
+};
+
+function showCare(): void {
+  if (!live) return;
+  const c = live.care;
+  const brain = live.brain;
+  const food = live.foodToGive();
+  const doing = brain.state === 'rest' ? (brain.restAtShelter ? 'sleeping in the shelter' : 'sleeping') : brain.state === 'to-shelter' ? 'going home to sleep' : brain.manualActive ? 'following you' : brain.state;
+  $('care').innerHTML =
+    `fed       ${bar(c.hunger)}${isHungry(c) ? '  <span class="warn">hungry</span>' : ''}\n` +
+    `energy    ${bar(c.energy)}${isTired(c) ? '  <span class="warn">tired</span>' : ''}\n` +
+    `joy       ${bar(c.happiness)}\n` +
+    `now       ${escapeHtml(doing)}\n` +
+    `food      ${food ? `<b>${FOODS.map((f) => live!.inventory.count(f) && `${live!.inventory.count(f)} ${live!.inventory.count(f) === 1 ? itemLabel(f) : itemPlural(f)}`).filter(Boolean).join(', ')}</b>` : 'none yet (grow some)'}`;
+  $('care-feed').toggleAttribute('disabled', !food);
+  $('care-rest').textContent = brain.state === 'rest' || brain.state === 'to-shelter' ? 'Wake (R)' : 'Rest (R)';
+}
+
+function showFarming(): void {
+  if (!live) return;
+  const t = live.worldTime;
+  const inv = live.inventory;
+  const seeds = CROP_KINDS.map((k) => `${k} ${inv.count(CROPS[k].seed)}`).join('  ');
+  const lines = [`seed      <b>${live.selectedCrop}</b> (T)   ${seeds}`];
+  const ripe = live.plots.filter((p) => p.crop && isMature(p.crop, t)).length;
+  const dry = live.plots.filter((p) => p.crop && !isMature(p.crop, t) && !isWet(p.crop, t)).length;
+  lines.push(`plots     ${live.plots.length}   planted ${live.plots.filter((p) => p.crop).length}   ripe ${ripe}   need water ${dry}   harvests ${live.tally.harvested}`);
+  const action = live.farmAction();
+  if (action && 'plot' in action && action.plot.crop) {
+    const crop = action.plot.crop;
+    lines.push(`facing    ${crop.kind}, ${STAGE_NAMES[live.cropStageOf(action.plot)]}, ${(cropProgress(crop, t) * 100).toFixed(0)}%${isWet(crop, t) ? `, wet ${Math.ceil(crop.wetUntil! - t)} s` : isMature(crop, t) ? '' : ', dry'}`);
+  } else if (action) lines.push(`facing    ${action.kind === 'till' ? 'grass to till' : action.kind === 'cannot-till' ? `cannot till: ${action.check.problem}` : 'an empty plot'}`);
+  $('farming').innerHTML = lines.join('\n');
+}
+
+function showObjectives(): void {
+  if (!live) return;
+  const current = currentObjective(live.objectives);
+  const ctx = { tally: live.tally, inventory: live.inventory, buildings: live.buildings, worldTime: live.worldTime };
+  $('objectives').innerHTML = OBJECTIVES.map((o, i) => {
+    const done = o.id in live!.objectives.completed;
+    const mark = done ? '✓' : o === current ? '▸' : '·';
+    const title = `${mark} ${String(i + 1).padStart(2)} ${escapeHtml(o.title)}${o.progress && !done ? ` ${o.progress(ctx)}` : ''}`;
+    if (o === current) return `<b>${title}</b>\n     ${escapeHtml(o.hint)}\n     reward: ${escapeHtml(o.reward.text)}`;
+    return done ? `<span class="muted">${title}</span>` : title;
+  }).join('\n') + (current ? '' : '\n<b>every goal done: the island is thriving</b>');
+}
+
+function craftHoe(): void {
+  if (!live) return;
+  live.craftRecipe(recipeById('blobbi-pixel:recipe:simple-hoe')!);
+  showInventory();
+}
+
+function feedBlobbi(): void {
+  live?.feed();
+  showCare();
 }
 
 function craftAxe(): void {
@@ -573,7 +1069,7 @@ function craftPickaxe(): void {
 /** Cycle the hand: empty → each owned tool in order → empty. */
 function toggleAxe(): void {
   if (!live) return;
-  const owned = [ITEMS.axe.id, ITEMS.pickaxe.id].filter((t) => live!.inventory.count(t) > 0);
+  const owned = TOOLS.filter((t) => live!.inventory.count(t) > 0);
   const order: (string | null)[] = [null, ...owned];
   const next = order[(order.indexOf(live.equipped) + 1) % order.length];
   if (next === null) live.unequip();
@@ -585,6 +1081,9 @@ function showPlayStats(): void {
   if (!live || !liveRenderer) return;
   showInventory();
   showBuilding();
+  showCare();
+  showFarming();
+  showObjectives();
   const b = live.blobbi;
   const t = liveRenderer.timings;
   const v = viewRenderer?.timings;
@@ -609,22 +1108,80 @@ function showPlayStats(): void {
 
 view.addEventListener('keydown', (e) => {
   if (state.mode !== 'play') return;
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Escape'].includes(e.code)) e.preventDefault();
+  // The title screen owns the keyboard (unless its settings panel is open).
+  if (title.active && !gameUI.capturing) {
+    if (!e.repeat) title.key(e.code);
+    return;
+  }
+  // Menus first: an open screen takes every key (held keys let go, so the Blobbi stops), and I/K/J/U/Esc open them.
+  if ((!e.repeat || gameUI.capturing) && gameUI.handleKey(e.code, e.shiftKey)) {
+    keys.clear();
+    interactPressed = plantPressed = false;
+    return;
+  }
   if (e.repeat) return;
   keys.add(e.code);
   if (e.code === 'KeyE' || e.code === 'Space') interactPressed = true;
   if (e.code === 'KeyP') plantPressed = true;
   if (e.code === 'KeyC') craftAxe();
   if (e.code === 'KeyV') craftPickaxe();
+  if (e.code === 'KeyG') craftHoe();
+  // T: the style of what is being placed or managed, else the next seed.
+  if (e.code === 'KeyT') {
+    if (live?.placing) live.cycleVariant();
+    else if (live?.manage) live.restyleSelected();
+    else live?.cycleCrop();
+  }
+  if (e.code === 'KeyM') live?.toggleManage();
+  if ((e.code === 'KeyX' || e.code === 'Delete' || e.code === 'Backspace') && live?.manage) live.removeSelected();
+  if (e.code === 'KeyF') feedBlobbi();
+  if (e.code === 'KeyH') live?.pet();
+  if (e.code === 'KeyR') live?.rest();
+  if (e.code === 'KeyO') gameUI.settings.goals = !gameUI.settings.goals;
+  // Escape steps back out of a mode: moving (puts it back), placing, management, building.
+  if (e.code === 'Escape' && live) {
+    if (live.moving) live.cancelMove();
+    else if (live.placing) live.stopPlacing();
+    else if (live.manage) live.toggleManage();
+    else if (live.buildMode) live.setBuildMode(null);
+    showBuilding();
+  }
   if (e.code === 'KeyQ') toggleAxe();
   if (e.code === 'KeyB') toggleBuild();
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { live: () => live, camera: () => viewCamera, view: () => viewRenderer };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI };
+// Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
+if (import.meta.env.DEV)
+  void import('../dev/dev-tools').then((m) =>
+    m.installDevTools($('dev-tools'), {
+      getLive: () => live,
+      refresh: () => {
+        showInventory();
+        showBuilding();
+        showCare();
+        showFarming();
+        showObjectives();
+      },
+      rebuildWorld: (reveal: boolean) => rebuildFromSave(reveal),
+      // A separate world seed: experiments never touch the player's own save.
+      openTestWorld: () => {
+        state.seed = 'm5-test-world';
+        seedInput.value = state.seed;
+        regenerate();
+        if (!live) startLive();
+        view.focus();
+      },
+    }),
+  );
 window.addEventListener('beforeunload', () => live?.save());
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) live?.save();
+  // A hidden tab is silent; showing it again resumes (the world itself pauses with the animation frames).
+  if (document.hidden) audioEngine.suspend();
+  else if (gameUI.settings.sound) audioEngine.resume();
 });
 view.addEventListener('keyup', (e) => keys.delete(e.code));
 view.addEventListener('blur', () => keys.clear());
@@ -651,8 +1208,26 @@ $('equip-axe').addEventListener('click', () => {
   toggleAxe();
   view.focus();
 });
-$('build-shelter').addEventListener('click', () => {
-  toggleBuild();
+$('craft-hoe').addEventListener('click', () => {
+  craftHoe();
+  view.focus();
+});
+$('farm-seed').addEventListener('click', () => {
+  live?.cycleCrop();
+  showFarming();
+  view.focus();
+});
+$('care-feed').addEventListener('click', () => {
+  feedBlobbi();
+  view.focus();
+});
+$('care-pet').addEventListener('click', () => {
+  live?.pet();
+  view.focus();
+});
+$('care-rest').addEventListener('click', () => {
+  live?.rest();
+  showCare();
   view.focus();
 });
 $('progress-reset').addEventListener('click', () => {
@@ -1236,7 +1811,7 @@ $('size').addEventListener('change', (e) => {
   fitZoom();
 });
 $('world-kind').addEventListener('change', (e) => {
-  state.options.kind = (e.target as HTMLSelectElement).value as 'island' | 'turtle';
+  state.options.kind = (e.target as HTMLSelectElement).value as 'island' | 'turtle' | 'manta';
   stopLive();
   regenerate();
   fitZoom();
@@ -1308,22 +1883,75 @@ function zoomAt(next: number, sx: number, sy: number): void {
 let drag: { x: number; y: number; panX: number; panY: number } | null = null;
 view.addEventListener('pointerdown', (e) => {
   view.focus();
+  if (state.mode === 'play') {
+    // Menus and the menu bar take clicks and taps (client position → canvas pixels, robust to CSS scaling).
+    const rect = view.getBoundingClientRect();
+    const sx = ((e.clientX - rect.left) * view.width) / Math.max(1, rect.width);
+    const sy = ((e.clientY - rect.top) * view.height) / Math.max(1, rect.height);
+    if (title.active && !gameUI.capturing) {
+      title.pointer(sx, sy);
+      e.preventDefault();
+      return;
+    }
+    if (gameUI.handlePointer(sx, sy)) {
+      e.preventDefault();
+      return;
+    }
+    // Touch: the USE button, or a press that becomes the stick (a tap still walks, on release).
+    const took = touch.down(e.pointerId, sx, sy, e.pointerType === 'touch' || e.pointerType === 'pen');
+    if (took === 'use') {
+      interactPressed = true;
+      e.preventDefault();
+      return;
+    }
+    if (took === 'stick') {
+      view.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    // Click the world: the Blobbi walks there.
+    if (live && lastView) {
+      const wx = lastView.originX + sx / lastView.scale;
+      const wy = lastView.originY + sy / lastView.scale;
+      live.walkTo(wx, wy);
+    }
+    return;
+  }
   if (state.mode !== 'world') return;
   drag = { x: e.clientX, y: e.clientY, panX: state.panX, panY: state.panY };
   view.setPointerCapture(e.pointerId);
   view.classList.add('dragging');
 });
+/** Client position → canvas pixels. */
+const canvasPoint = (e: PointerEvent) => {
+  const rect = view.getBoundingClientRect();
+  return { x: ((e.clientX - rect.left) * view.width) / Math.max(1, rect.width), y: ((e.clientY - rect.top) * view.height) / Math.max(1, rect.height) };
+};
 view.addEventListener('pointermove', (e) => {
+  // Hover highlights and tooltips follow a mouse (a finger has no hover).
+  gameUI.pointerAt = e.pointerType === 'mouse' ? canvasPoint(e) : null;
+  if (touch.stick) {
+    const p = canvasPoint(e);
+    touch.move(e.pointerId, p.x, p.y);
+    return;
+  }
   if (!drag) return;
   state.panX = drag.panX + (e.clientX - drag.x);
   state.panY = drag.panY + (e.clientY - drag.y);
   draw();
 });
-const endDrag = () => {
+const endDrag = (e: PointerEvent) => {
+  const s = touch.stick;
+  if (s && s.id === e.pointerId) {
+    // A tap that never became a stick walks to the tapped spot, as before.
+    if (touch.up(e.pointerId) && live && lastView) live.walkTo(lastView.originX + s.ox / lastView.scale, lastView.originY + s.oy / lastView.scale);
+    return;
+  }
   drag = null;
   view.classList.remove('dragging');
 };
 view.addEventListener('pointerup', endDrag);
+view.addEventListener('pointerleave', () => (gameUI.pointerAt = null));
 view.addEventListener('pointercancel', endDrag);
 view.addEventListener(
   'wheel',
@@ -1373,7 +2001,11 @@ function setMode(mode: Mode): void {
   }
   if (mode === 'play') {
     resize();
-    if (!live) startLive();
+    if (!live) {
+      startLive();
+      // A fresh entry into play starts at the title screen.
+      title.active = true;
+    }
     lastFrameTime = 0;
     view.focus();
   }

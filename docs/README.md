@@ -1,0 +1,72 @@
+# Blobbi Pixel documentation
+
+This is the entry point for the documentation. The **code is the source of truth**: where a document and the code
+disagree, the code wins and the document is the bug ([maintenance rules](#maintenance-rules)).
+
+**Project state (2026-10-11):** M1–M3 are committed. M4–M7 are **IMPLEMENTED — AWAITING MANUAL VALIDATION**: 409/409
+automated tests pass, and no manual test has been run by a person yet.
+
+## Status labels
+
+| Label | Meaning |
+|---|---|
+| **IMPLEMENTED** | In the code and covered by automated tests. |
+| **PROTOTYPE** | In the code but deliberately partial (for example local-only visiting, or the whale preview). |
+| **DESIGNED ONLY** | Written down as a design; no code. |
+| **PLANNED** | On the roadmap; no design yet. |
+| **NOT TESTED** | No person has run the manual test. Automated tests never count as manual approval. |
+
+## Game design
+- [Game design document](game-design/GAME-DESIGN-DOCUMENT.md): vision, pillars, the loop.
+- [Gameplay systems](game-design/GAMEPLAY-SYSTEMS.md): every system and control, with the numbers the code uses.
+- [Progression](game-design/PROGRESSION.md): quests, unlocks, growth stages.
+- [World lore](game-design/WORLD-LORE.md): Keepers, Carriers, the notes.
+- [Content catalogue](game-design/CONTENT-CATALOG.md): generated from the content data (`scripts/content-catalog.ts`).
+- [Audio design](game-design/AUDIO-DESIGN.md).
+
+## Architecture
+- [System overview](architecture/SYSTEM-OVERVIEW.md): modules, data flow, the frame.
+- [Procedural generation](architecture/PROCEDURAL-GENERATION.md): seeds, worlds, growth geometry.
+- [World Carriers](architecture/WORLD-CARRIERS.md): turtle, manta, whale.
+- [Save and persistence](architecture/SAVE-AND-PERSISTENCE.md): schema 1–9 and migrations.
+- [Blobbi identity](architecture/BLOBBI-IDENTITY.md): the canonical V3 Blobbi.
+- [Nostr multiplayer](architecture/NOSTR-MULTIPLAYER.md): DESIGNED ONLY.
+- [Cross-game travel](architecture/CROSS-GAME-TRAVEL.md): DESIGNED ONLY.
+
+## Specifications
+Each one has the same 13 sections, from purpose to extension points, and describes what the code does today.
+
+| Spec | Status |
+|---|---|
+| [Inventory](specifications/INVENTORY.md) | IMPLEMENTED · NOT TESTED |
+| [Farming](specifications/FARMING.md) | IMPLEMENTED · NOT TESTED |
+| [Building](specifications/BUILDING.md) | IMPLEMENTED · NOT TESTED |
+| [Housing](specifications/HOUSING.md) | IMPLEMENTED · NOT TESTED |
+| [Quests](specifications/QUESTS.md) | IMPLEMENTED · NOT TESTED |
+| [Teleportation](specifications/TELEPORTATION.md) | IMPLEMENTED · NOT TESTED |
+| [Audio](specifications/AUDIO.md) | IMPLEMENTED · NOT TESTED |
+| [World growth](specifications/WORLD-GROWTH.md) | IMPLEMENTED · NOT TESTED |
+| [World visiting](specifications/WORLD-VISITING.md) | PROTOTYPE (local only) · NOT TESTED |
+
+## Testing
+- [Manual test plan](testing/MANUAL-TEST-PLAN.md): every test with an ID; all NOT TESTED.
+- [Known issues](testing/KNOWN-ISSUES.md).
+- Automated: `npm run check` (typecheck, vitest, build).
+
+## Milestones
+- [Milestones](milestones/README.md): M0–M7 summaries and approval status.
+- [Archived reports and development logs](milestones/reports/), unchanged.
+- [Roadmap](../ROADMAP.md).
+
+## Maintenance rules
+1. **Code first.** Change the code, then the document in the same change. A document never describes behaviour the
+   code lacks unless it is labelled DESIGNED ONLY or PLANNED.
+2. **Use the labels** above. Only a person running the manual test may change NOT TESTED to PASS or FAIL, in
+   [the test plan](testing/MANUAL-TEST-PLAN.md), with the date and browser.
+3. **Do not hand-edit the content catalogue**: run `npx tsx scripts/content-catalog.ts` after changing content.
+4. **Archived reports are history**: never rewrite them; add a new report or a note in the current documents.
+5. **Run `npx tsx scripts/check-docs.ts`** before committing documentation: it checks that relative links and quoted
+   `src/`, `tests/` and `scripts/` paths exist.
+6. **New systems** get a specification with the 13 sections, test IDs in the plan and a line in this index.
+7. **Discrepancies** found between docs and code go to [known issues](testing/KNOWN-ISSUES.md) until fixed.
+8. Keep the root README short; detail belongs here.

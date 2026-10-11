@@ -356,15 +356,16 @@ describe('the camera never touches the game', () => {
     });
     expect(snapshot(viewed)).toEqual(snapshot(plain));
     expect(viewed.stats.collected + viewed.stats.mines + viewed.stats.built).toBeGreaterThan(0);
-    // The save is byte-identical, schema 5 (M3.4 added only the stated owner), with no camera or Blobbi state in it.
+    // The save is byte-identical, schema 6 (M3.4 stated the owner; M4 added plots, needs, tally and objectives), with
+    // no camera or Blobbi identity in it.
     plain.save();
     viewed.save();
     const key = saveKey(plain.identity);
     expect(viewedStore.get(key)).toBe(plainStore.get(key));
     const record = JSON.parse(viewedStore.get(key)!);
     expect(record.version).toBe(SAVE_VERSION);
-    expect(SAVE_VERSION).toBe(5);
-    expect(Object.keys(record).sort()).toEqual(['buildings', 'collected', 'collectedAt', 'equipped', 'inventory', 'owner', 'rocks', 'trees', 'version', 'world', 'worldTime']);
+    expect(SAVE_VERSION).toBe(9);
+    expect(Object.keys(record).sort()).toEqual(['buildings', 'care', 'carrier', 'collected', 'collectedAt', 'companion', 'containers', 'equipped', 'found', 'generator', 'growth', 'interiors', 'inventory', 'objectives', 'owner', 'places', 'plots', 'producers', 'rocks', 'species', 'tally', 'trees', 'version', 'world', 'worldTime']);
   });
 
   it('a save made in one mode loads to the same world in another', () => {

@@ -14,7 +14,7 @@ from the brief's milestone description and records actual progress.
 Phases 1–4 of the lab: deterministic islands, vegetation and structures
 drawn pixel by pixel; a living world with wind, water, particles, growth;
 the canonical Adult V3 Blobbi rasterized with pixel-art rules; world scale;
-facial fidelity. Reports: `REPORT.md` … `REPORT-4.md`.
+facial fidelity. Reports: `docs/milestones/reports/REPORT.md` … `docs/milestones/reports/REPORT-4.md`.
 
 M0 closing items (done at the start of M1):
 - [x] Cross-eyed gaze: both irises now share one placement rule and one
@@ -29,7 +29,7 @@ M0 closing items (done at the start of M1):
 ## M1: The living turtle (implemented, awaiting visual review and approval)
 
 Goal: a small living world that feels peaceful, charming and worth spending
-time in. Report: `REPORT-M1.md`.
+time in. Report: `docs/milestones/reports/REPORT-M1.md`.
 
 - [x] The turtle is the island: shell top as terrain, rim, head, neck,
       flippers and tail as anatomy, foam around the whole animal.
@@ -53,7 +53,7 @@ time in. Report: `REPORT-M1.md`.
 - [ ] Visual review and approval by the user. M1 is not marked complete
       until then.
 
-M1 shell refinement (2026-10-09, report `REPORT-SHELL.md`): the visible
+M1 shell refinement (2026-10-09, report `docs/milestones/reports/REPORT-SHELL.md`): the visible
 shell under the island, as four comparison variants (0 = M1 unchanged,
 A/B/C = island covering ≈60/70/80% of a larger shell with procedural
 plates, soil and moss), and a minimal World / World Carrier separation
@@ -71,7 +71,7 @@ resting beyond closed eyes, the plateau is one level.
 
 The turtle and its playable island must grow over time. Growth is a later
 milestone; these are the requirements every milestone before it must not
-break. See also the "World growth" section of README.md.
+break. See also [World growth](docs/specifications/WORLD-GROWTH.md) and the "World growth" section of the [archived README](docs/milestones/reports/README-BEFORE-DOCS-PASS.md).
 
 Growth must:
 - expand the playable terrain and the turtle's shell;
@@ -116,7 +116,7 @@ Design constraints:
 
 ### M2.1: Resource gathering (implemented, awaiting gameplay review)
 
-Report: `REPORT-M2.1.md`. Images: `examples/gathering/`.
+Report: `docs/milestones/reports/REPORT-M2.1.md`. Images: `examples/gathering/`.
 - [x] Resources in the procedural world: sticks under trees, stones by rocks
       and on the forest floor, seeds by bushes and flowers; deterministic,
       on walkable ground, stable ids.
@@ -136,7 +136,7 @@ Report: `REPORT-M2.1.md`. Images: `examples/gathering/`.
 
 ### M2.2: Basic crafting and tools (complete)
 
-Report: `REPORT-M2.2.md`. Images: `examples/crafting/`.
+Report: `docs/milestones/reports/REPORT-M2.2.md`. Images: `examples/crafting/`.
 - [x] Item registry with stable ids, categories, stack limits, tool types
       and supported interactions (`src/game/items.ts`).
 - [x] Recipes as data; the simple axe (3 sticks + 2 stones); atomic
@@ -158,7 +158,7 @@ Report: `REPORT-M2.2.md`. Images: `examples/crafting/`.
 
 ### M2.3: Visual equipment and interaction polish (complete)
 
-Report: `REPORT-M2.3.md`. Images: `examples/equipment/`.
+Report: `docs/milestones/reports/REPORT-M2.3.md`. Images: `examples/equipment/`.
 - [x] Procedural pixel-art axe: wooden handle, steel head, outline, hand-set
       templates per orientation, mirrored and integer-scaled; no assets, no
       randomness (`src/game/equipment.ts`).
@@ -190,7 +190,7 @@ multiplayer, payments, world growth (see the requirements above), combat.
 
 ### M3.1: First building (complete)
 
-Report: `REPORT-M3.1.md`. Images: `examples/building/`.
+Report: `docs/milestones/reports/REPORT-M3.1.md`. Images: `examples/building/`.
 - [x] One building kind, the wooden shelter: registry entry with id, cost
       (6 wood + 3 stone), footprint and build time (`src/game/buildings.ts`).
 - [x] Placement preview in front of the Blobbi (B), green or red with the
@@ -209,7 +209,7 @@ Report: `REPORT-M3.1.md`. Images: `examples/building/`.
 
 ### M3.2: Pickaxe, mining, renewable resources, 32 px scale lab (complete)
 
-Report: `REPORT-M3.2.md`. Images: `examples/mining/`, `examples/fidelity32/`.
+Report: `docs/milestones/reports/REPORT-M3.2.md`. Images: `examples/mining/`, `examples/fidelity32/`.
 - [x] Procedural pickaxe (2 wood + 2 sticks + 3 stones), same equipment
       and left-hand rules as the axe; Q cycles owned tools.
 - [x] Large rocks (14 px and up) mined in four swings: 3-5 stones, rubble
@@ -229,7 +229,7 @@ Report: `REPORT-M3.2.md`. Images: `examples/mining/`, `examples/fidelity32/`.
 
 ### M3.3: Camera and visual LOD (complete)
 
-Report: `REPORT-M3.3.md`. Images: `examples/camera/`.
+Report: `docs/milestones/reports/REPORT-M3.3.md`. Images: `examples/camera/`.
 - [x] Three camera modes: Overview (1×, the whole turtle, centred on it;
       0.75× with a 12 px Blobbi on screens smaller than the turtle),
       Exploration (2×, follows), Close-up (4×, follows).
@@ -247,7 +247,7 @@ Report: `REPORT-M3.3.md`. Images: `examples/camera/`.
 - [x] Tests: 168 passing (11 new); typecheck and build pass.
 - [x] Initial manual review (2026-10-10): proportions and feel approved;
       three follow-ups requested before committing.
-- [x] Follow-ups (REPORT-M3.3.md section 9): overview Blobbi drawn at 12 px
+- [x] Follow-ups (docs/milestones/reports/REPORT-M3.3.md section 9): overview Blobbi drawn at 12 px
       (presentation only; proportions now differ by mode); walking jitter
       fixed at both causes (sub-pixel kit walk motion rasterized as is, now
       whole-pixel rig motion for walking poses; camera and Blobbi rounded
@@ -258,10 +258,10 @@ Report: `REPORT-M3.3.md`. Images: `examples/camera/`.
       24 / 48 px (¾ of its world size at 1× / 2× / 4×, presentation only);
       speech bubbles rest on the drawn head. 181 tests.
 
-### M3.4: Procedural fidelity and identity (approved)
+### M3.4: Procedural fidelity and identity (approved, committed)
 
-Report: `REPORT-M3.4.md`. Images: `examples/fidelity/`. Follows the audit
-`REPORT-BLOBBI-PROCEDURAL-AUDIT.md`.
+Report: `docs/milestones/reports/REPORT-M3.4.md`. Images: `examples/fidelity/`. Follows the audit
+`docs/milestones/reports/REPORT-BLOBBI-PROCEDURAL-AUDIT.md`.
 - [x] Gradient pattern drawn: `rect` support, `stop-opacity` composited as
       translucent bands (the belly patch now fades like the kit's, too).
 - [x] Freckles drawn: paint inherited from parent groups; tiny dot clusters
@@ -278,8 +278,105 @@ Report: `REPORT-M3.4.md`. Images: `examples/fidelity/`. Follows the audit
 - [x] Tests: 211 passing (30 new); typecheck and build pass.
 - [x] Manual review and approval.
 
-### M3.5 and beyond (not started)
+### M4: Living Island (implemented, uncommitted, awaiting manual gameplay validation)
 
-More building kinds, removal, interiors, paths to doors, farming, world
-growth; expressions shared with the Standalone (`upset`), baby and egg
-stages, read-only Nostr loading, multiple Blobbis (audit section 8).
+Report: `docs/milestones/reports/REPORT-M4-LIVING-ISLAND.md`. Images: `examples/living-island/`
+(`npx tsx scripts/living-island.ts`).
+- [x] Farming: a simple hoe (1 wood + 2 sticks + 1 stone) tills 8 px grid
+      plots on flat grass (island-frame cells, walkable, never over water,
+      objects, buildings, resources, a doorway or another plot); turnip,
+      carrot and pumpkin with their own seeds, five growth stages, growth
+      only while watered (2-3 waterings), all in persisted world time;
+      harvest is atomic (all of it or none), counted once, and the plot
+      replants.
+- [x] Blobbi care: fed / energy / joy (0-100, 100 good), falling gently
+      in sim time only; F feeds the smallest food, H pets (cooldown),
+      R naps (in the shelter's doorway, twice as fast, when one is built);
+      autonomy rests when tired and visits what the player made, never
+      eats, harvests or touches the bag; low needs slow the walk a little
+      and change the face (kit expressions), nothing harsher.
+- [x] Ten objectives derived from a tally of player actions, completed in
+      order, rewards (seeds, new crops, decoration plans) granted exactly
+      once; a small goal box (O hides it) and a completion notice.
+- [x] Decorations through the building system: fence, flower bed,
+      lantern, bench, storage crate (+10 stack room, up to two); previews,
+      collision, navigation, persistence; B cycles, Esc cancels.
+- [x] Game feel: a prompt for what E does, needs bars, water drops on dry
+      crops, a glint on ripe ones, harvests that rise, crumbs and hearts,
+      sleep Zs, fireflies by lanterns; tiny-font punctuation.
+- [x] Save schema 6 (plots, needs, tally, objectives); schema 1-5
+      migrate (tally seeded from the record); owner stays `local-world`.
+- [x] Dev-only tools (time skip, test kit, needs presets, goal reset,
+      crop/needs inspector); absent from the production build.
+- [x] Tests: 255 passing (44 new); typecheck and build pass.
+- [ ] Manual gameplay validation; then commit.
+
+### M5: The Living World (implemented, uncommitted, awaiting manual gameplay validation with M4)
+
+Report: `docs/milestones/reports/REPORT-M5-LIVING-WORLD.md`. Journal: `docs/milestones/reports/M5-DEVELOPMENT-LOG.md`.
+Images: `examples/living-world/` (`npx tsx scripts/living-world.ts`).
+- [x] Data-driven content layer (`src/content/`): 115 items with descriptions,
+      categories and icons; 11 crops (2 multi-harvest, 3 flowers); 5 forage.
+- [x] In-canvas game UI: bag, crafting, cooking, storage, journal, Blobbi
+      panel, settings; mouse, keyboard, touch; menus pause and capture input.
+- [x] Real storage chests (atomic partial transfers, persistent, independent).
+- [x] Building management: move (same id), pick up, restyle, path protection.
+- [x] House interior scene (enter/exit, starter furniture, persistence).
+- [x] 43 placeables (22 indoors, 26 outdoors) with uses; 66 recipes; 19 meals.
+- [x] 33 quests (16 main over two chapters, 14 side, 3 discovery) + 8
+      repeatable island requests; 14 lore notes; 8 discoveries; listening
+      to the Carrier (its own blink and glance only).
+- [x] Friendship and tastes; deeper autonomy (cosmetic only); day and night;
+      rain; creatures; sound hooks; copper upgrades; fishing; tap-to-walk.
+- [x] Save schema 7 (1-6 migrate); the M3.4 "no save names a Blobbi" kept.
+- [x] Dev tools (test world, time, kits, unlocks, inspector); not in builds.
+- [x] Tests: 300 passing; the whole story played by a script (all 16 main
+      quests from real actions).
+- [ ] Manual gameplay validation (M4 and M5 together); then commit.
+
+### M6: Living Archipelago (implemented, uncommitted, awaiting manual validation with M4 and M5)
+
+Report: `docs/milestones/reports/REPORT-M6-LIVING-ARCHIPELAGO.md`. Journal: `docs/milestones/reports/M6-DEVELOPMENT-LOG.md`.
+Images: `examples/living-archipelago/` (`scripts/teleport.ts`, `scripts/living-archipelago.ts`,
+`scripts/carriers.ts`); audio previews `npx tsx scripts/audio-preview.ts` (to `out/`).
+- [x] IMPLEMENTED: cinematic teleportation (depart top to bottom, arrive from
+      the sky bottom to top; reversal, cancel, reduced motion, every camera mode).
+- [x] IMPLEMENTED: Web Audio engine, 58 synthesized effects, ambience beds and
+      life, six-mood generative music; volumes, mute, softer sound.
+- [x] IMPLEMENTED: title screen and world selection (never overwrites a save),
+      HUD redesign, menu design system, hover, tooltips, toasts, touch stick
+      and USE button, safe areas, reduced motion, large HUD text.
+- [x] IMPLEMENTED: the Carrier as a companion (listen, greet, observe, offer,
+      rest, breathing), non-punitive harmony; save schema 8.
+- [x] IMPLEMENTED: island map (N), named places, journal places and Carrier
+      observations.
+- [x] PROTOTYPE: whale and manta Carriers (deterministic, animated dev preview;
+      not playable).
+- [x] DESIGNED ONLY: Carrier growth and expansions (data model, never
+      applied), archipelago model, Nostr multiplayer, cross-game Blobbi.
+- [ ] Manual validation (M4, M5 and M6 together); then commit.
+
+### M7: Living Worlds (implemented, uncommitted, awaiting manual validation with M4-M6)
+
+Report: `docs/milestones/reports/REPORT-M7-LIVING-WORLDS.md`. Journal: `docs/milestones/reports/M7-DEVELOPMENT-LOG.md`.
+Images: `examples/living-worlds/` (`scripts/growth.ts`, `scripts/manta-world.ts`).
+- [x] IMPLEMENTED: island growth in 3 stages over the carrier's free surface;
+      deterministic, versioned, stable coordinates; the turtle untouched.
+- [x] IMPLEMENTED: five biomes (meadow, woodland, rocky garden, shore turf,
+      mushroom grove) with vegetation, resources, places and discoveries.
+- [x] IMPLEMENTED: earned, non-punitive growth progression; growth panel;
+      reveal with Carrier reaction, particles, camera and audio.
+- [x] IMPLEMENTED: a playable manta world (the second species), with its own
+      growth geometry. The whale stays a PROTOTYPE.
+- [x] IMPLEMENTED (local prototype): visiting another local world by teleport,
+      read-only visitor permissions, return home; WORLDS discovery screen.
+- [x] Save schema 9 (growth, species, generator); migration never grows.
+- [ ] Manual validation (M4-M7 together); then commit.
+
+### M8 and beyond (not started)
+
+Network visiting (world cards and presence, docs/architecture/NOSTR-MULTIPLAYER.md
+step 2 onward, each needing approval); a playable whale; biome quests; a
+migrated turtle shell enlargement if wanted; house upgrades (`level`);
+furniture grid and rotation; seasons; chapter 3; shared expressions with the
+Standalone; baby and egg stages; multiple Blobbis.

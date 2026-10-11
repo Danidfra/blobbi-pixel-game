@@ -23,8 +23,11 @@ import type { Island } from '../world/types';
 import { shellRadius, type TurtleAnatomy } from '../turtle/turtle';
 
 export interface ShellSurfaceContext {
-  /** The island's outline in canvas coordinates: where the land rests on the shell. */
+  /** The island's outline in canvas coordinates: where the land rests on the shell (and the plate layout). */
   island: Island;
+  /** A grown island's coastline (M7): what the land covers now. The plate layout still follows `island`, so the
+   * visible plates keep their exact place; only the covered part and the soil band follow the new coast. */
+  land?: Island;
   palette: WorldPalette;
   /** The turtle seed: plate layout, soil and moss come from it. */
   seed: string;
@@ -152,14 +155,15 @@ export function paintShellSurface(buf: PixelBuffer, a: TurtleAnatomy, ctx: Shell
       // Dome lighting, kept mostly mid and light: the ring should read warm, not as a dark rind.
       shade[k] = shadeIndex(blobScore(dx / (a.rx + rim), dy / (a.ry + rim), 0.9), 0.95, 0.3, -0.28);
       const d = islandDistance(island, px, py, 0);
-      if (d <= 0) {
+      const dLand = ctx.land ? islandDistance(ctx.land, px, py, 0) : d;
+      if (dLand <= 0) {
         region[k] = SHELL_REGION.HIDDEN;
         continue;
       }
       const margin = d + (outer - r);
       const u = d / Math.max(1e-3, margin);
       uArr[k] = u;
-      dArr[k] = d;
+      dArr[k] = dLand;
       const ny = Math.sin(ang);
       nyArr[k] = ny;
       const toLip = outer - r - layout.lipWidth;
@@ -170,11 +174,11 @@ export function paintShellSurface(buf: PixelBuffer, a: TurtleAnatomy, ctx: Shell
       // Soil: a band whose width breathes with noise and thickens on the south side, with a dithered fringe.
       const soilW = 0.9 * scale * (0.5 + 0.7 * soilNoise.at(px, py)) + 1.7 * scale * Math.max(0, ny) * (0.8 + 0.4 * soilNoise.at(px + 37, py));
       soilAt[k] = soilW;
-      if (d < soilW || (d < soilW * 1.8 && (pixelHash(x, y, salt) & 0xff) / 256 < (1 - (d - soilW) / (soilW * 0.8)) * 0.6)) {
+      if (dLand < soilW || (dLand < soilW * 1.8 && (pixelHash(x, y, salt) & 0xff) / 256 < (1 - (dLand - soilW) / (soilW * 0.8)) * 0.6)) {
         region[k] = SHELL_REGION.SOIL;
         continue;
       }
-      const toSoil = d - soilW * 1.1;
+      const toSoil = dLand - soilW * 1.1;
       // Plates: which row, which plate, and whether this pixel is on a seam.
       const split = uSplit(ang);
       const row = layout.rows === 2 && u < split ? 0 : layout.rows === 2 ? 1 : 0;

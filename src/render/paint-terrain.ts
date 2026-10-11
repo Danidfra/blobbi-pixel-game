@@ -30,6 +30,10 @@ export function paintTerrain(buf: PixelBuffer, terrain: TerrainMap, palette: Wor
   const cliffLight = mix(palette.wood.light, palette.path.mid, 0.4);
   const cliffDark = mix(palette.wood.dark, palette.grass.outline, 0.35);
   const cliffFoot = mix(palette.wood.outline, palette.grass.outline, 0.5);
+  const mossMid = mix(palette.grass.dark, palette.foliage[0].dark, 0.5);
+  const mossDark = mix(mossMid, palette.grass.outline, 0.35);
+  const cloverMid = mix(palette.grass.mid, palette.shallow.mid, 0.1);
+  const cloverLight = mix(palette.grass.light, palette.shallow.light, 0.14);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const c = cls[y * width + x];
@@ -97,6 +101,25 @@ export function paintTerrain(buf: PixelBuffer, terrain: TerrainMap, palette: Wor
           const h = hash32(`${seed}/meadow:${x}:${y}`);
           const k = h & 0x3f;
           color = k === 0 ? palette.flowers[(h >>> 8) % palette.flowers.length] : k === 1 ? palette.flowers[(h >>> 12) % palette.flowers.length] : k === 2 ? palette.grass.light : (h & 0x7) === 0 ? palette.grassPatch : mix(palette.grassPatch, palette.grass.light, 0.4);
+          break;
+        }
+        case T.MOSS: {
+          // Moss: a deep, soft green, speckled lighter and with the odd dark tuft.
+          const h = hash32(`${seed}/moss:${x}:${y}`);
+          color = (h & 0x1f) === 0 ? palette.grass.light : (h & 0x1f) === 1 ? palette.grass.outline : (h & 3) === 0 ? mossDark : mossMid;
+          break;
+        }
+        case T.GRAVEL: {
+          // Gravel: path tones with stone grains.
+          const h = hash32(`${seed}/gravel:${x}:${y}`);
+          const k = h & 0xf;
+          color = k === 0 ? palette.stone.light : k === 1 ? palette.stone.mid : k === 2 ? palette.stone.dark : (h >>> 8) & 1 ? palette.path.mid : palette.path.light;
+          break;
+        }
+        case T.CLOVER: {
+          // Shore turf: a cool, blue-green grass with pale flecks (thrift) here and there.
+          const h = hash32(`${seed}/clover:${x}:${y}`);
+          color = (h & 0xff) === 0 ? palette.flowers[0] : (h & 0x7) === 0 ? cloverLight : (h & 0xf) === 1 ? palette.grass.mid : cloverMid;
           break;
         }
         case T.CLIFF_FACE: {

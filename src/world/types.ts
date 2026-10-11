@@ -23,8 +23,10 @@ export interface WorldOptions {
    * Blobbi a small creature beside 30-50 px trees and 36-48 px houses.
    */
   scale: number;
-  /** `island` (phase 1-3 archipelagos) or `turtle` (one shell carrying the land). */
-  kind: 'island' | 'turtle';
+  /** `island` (phase 1-3 archipelagos), `turtle` (one shell carrying the land) or `manta` (M7: a Wing Carrier). */
+  kind: 'island' | 'turtle' | 'manta';
+  /** A creature carrier's own seed (manta worlds); the world seed when absent. */
+  carrierSeed?: string;
   /** The turtle's own seed; the world seed when absent. */
   turtleSeed?: string;
   /** The World Carrier's shell variant (turtle worlds): 0 = the M1 shell, 1-3 = the enlarged shells. Default: Variant B (2). */
@@ -134,10 +136,16 @@ export const T = {
   POND_EDGE: 15,
   /** A flower meadow: lighter grass with blooms. */
   MEADOW: 16,
+  /** Grown land (M7): soft moss under a mushroom grove. */
+  MOSS: 17,
+  /** Grown land (M7): the gravel of a rocky garden. */
+  GRAVEL: 18,
+  /** Grown land (M7): salt-loving shore turf. */
+  CLOVER: 19,
 } as const;
-export const MAX_TERRAIN_CLASS = 16;
+export const MAX_TERRAIN_CLASS = 19;
 /** Classes a character may stand on. */
-export const WALKABLE = new Set<number>([T.SAND_WET, T.SAND, T.GRASS_EDGE, T.GRASS, T.GRASS_PATCH, T.PATH, T.GRASS_DARK, T.MEADOW]);
+export const WALKABLE = new Set<number>([T.SAND_WET, T.SAND, T.GRASS_EDGE, T.GRASS, T.GRASS_PATCH, T.PATH, T.GRASS_DARK, T.MEADOW, T.MOSS, T.GRAVEL, T.CLOVER]);
 /** Classes that count as land for shore detection, audits and bridges. */
 export const isLandClass = (c: number) => c >= T.GRASS_EDGE && c !== T.RIM && c !== T.SKIN;
 export type TerrainClass = (typeof T)[keyof typeof T];
@@ -194,4 +202,8 @@ export interface WorldDescription {
   terrain: TerrainMap;
   objects: Placement[];
   stats: WorldStats;
+  /** Present on a creature world (M7: the manta), the carrier's species, seed, head and anatomy. */
+  creature?: import('../carriers/manta-world').CreatureInfo;
+  /** Present on a grown world (M7, `world/growth.ts`): the stage, its regions and where they are. */
+  growth?: import('./growth').WorldGrowth;
 }

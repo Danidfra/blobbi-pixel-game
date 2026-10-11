@@ -5,20 +5,32 @@
  */
 import { ITEMS, stackLimit } from './items';
 import type { Inventory } from './inventory';
+import { PLACEABLE_CONTENT, placeableItem } from '../content/placeables';
+import { MEAL_CONTENT } from '../content/meals';
+import { UPGRADES } from '../content/tools';
 
 export interface Ingredient {
   item: string;
   quantity: number;
 }
 
+export type RecipeGroup = 'tools' | 'materials' | 'furniture' | 'outdoor' | 'meals';
+export type Station = 'hand' | 'workbench' | 'cooking';
+
 export interface Recipe {
   id: string;
   label: string;
   ingredients: readonly Ingredient[];
   output: Ingredient;
+  /** Menu tab. */
+  group?: RecipeGroup;
+  /** Where it is made: in the hand (anywhere), at a workbench, at a cooking station. */
+  station?: Station;
+  /** The quest whose completion teaches it; known from the start without one. */
+  unlock?: string;
 }
 
-export const RECIPES: readonly Recipe[] = [
+export const RECIPES: Recipe[] = [
   {
     id: 'blobbi-pixel:recipe:simple-axe',
     label: 'Simple axe',
@@ -38,7 +50,47 @@ export const RECIPES: readonly Recipe[] = [
     ],
     output: { item: ITEMS.pickaxe.id, quantity: 1 },
   },
+  {
+    id: 'blobbi-pixel:recipe:simple-hoe',
+    label: 'Simple hoe',
+    ingredients: [
+      { item: ITEMS.wood.id, quantity: 1 },
+      { item: ITEMS.stick.id, quantity: 2 },
+      { item: ITEMS.stone.id, quantity: 1 },
+    ],
+    output: { item: ITEMS.hoe.id, quantity: 1 },
+  },
 ];
+
+for (const r of RECIPES) {
+  r.group ??= 'tools';
+  r.station ??= 'hand';
+}
+
+/** Materials made from other materials. */
+RECIPES.push({ id: 'blobbi-pixel:recipe:cloth', label: 'Cloth', ingredients: [{ item: 'blobbi-pixel:resource:fibre', quantity: 2 }], output: { item: 'blobbi-pixel:material:cloth', quantity: 1 }, group: 'materials', station: 'workbench' });
+
+/** Every placeable in the content catalogue is crafted into the bag. */
+for (const p of PLACEABLE_CONTENT)
+  RECIPES.push({
+    id: `blobbi-pixel:recipe:${p.kind}`,
+    label: p.label[0].toUpperCase() + p.label.slice(1),
+    ingredients: p.recipe,
+    output: { item: placeableItem(p).id, quantity: p.makes ?? 1 },
+    group: p.where === 'indoor' ? 'furniture' : p.where === 'outdoor' ? 'outdoor' : p.use === 'storage' || p.use === 'cook' || p.use === 'craft' ? 'furniture' : 'outdoor',
+    station: p.station,
+    unlock: p.unlock,
+  });
+
+/** Meals, made at a cooking station. */
+for (const m of MEAL_CONTENT)
+  RECIPES.push({ id: `blobbi-pixel:recipe:${m.id.split(':').pop()}`, label: m.label[0].toUpperCase() + m.label.slice(1), ingredients: m.ingredients, output: { item: m.id, quantity: 1 }, group: 'meals', station: 'cooking', unlock: m.unlock });
+
+/** Copper upgrades: the old tool plus ore, at a workbench. */
+for (const u of UPGRADES)
+  RECIPES.push({ id: `blobbi-pixel:recipe:${u.id}`, label: u.id.split('-').map((w) => w[0].toUpperCase() + w.slice(1)).join(' '), ingredients: [{ item: u.from, quantity: 1 }, ...u.extra], output: { item: u.to, quantity: 1 }, group: 'tools', station: 'workbench', unlock: 'side-miner' });
+/** The fishing rod. */
+RECIPES.push({ id: 'blobbi-pixel:recipe:fishing-rod', label: 'Fishing rod', ingredients: [{ item: 'blobbi-pixel:resource:stick', quantity: 3 }, { item: 'blobbi-pixel:resource:fibre', quantity: 2 }], output: { item: 'blobbi-pixel:tool:fishing-rod', quantity: 1 }, group: 'tools', station: 'hand', unlock: 'carrier' });
 
 export const recipeById = (id: string): Recipe | undefined => RECIPES.find((r) => r.id === id);
 

@@ -36,6 +36,8 @@ export interface AnimatorState {
   turning: { until: number; facing: Facing } | null;
   reaction: Reaction | null;
   sleeping: boolean;
+  /** The resting face the Blobbi's needs suggest (M4 care), or null for neutral. Reactions and sleep win. */
+  mood: Expression | null;
 }
 
 export const WALK_CYCLE_HZ = 1 / 0.62; // the kit's walk: one cycle per 0.62 s
@@ -62,6 +64,7 @@ export class BlobbiAnimator {
       turning: null,
       reaction: null,
       sleeping: false,
+      mood: null,
     };
   }
 
@@ -127,6 +130,7 @@ export class BlobbiAnimator {
     }
     if (s.reaction) pose.expression = s.reaction.expression;
     else if (s.sleeping) pose.expression = 'sleepy';
+    else if (s.mood) pose.expression = s.mood;
     if (!s.moving && time < s.glance.until && !s.reaction) pose.gazeX = s.glance.x;
     return pose;
   }

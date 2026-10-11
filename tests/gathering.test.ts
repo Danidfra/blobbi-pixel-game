@@ -3,6 +3,7 @@ import { generateTurtleWorld } from '../src/world/turtle-world';
 import { generateWorld } from '../src/world/generate';
 import { LiveWorld, IDLE_INPUT, type LiveInput } from '../src/sim/live-world';
 import { generateResources, REACH, RESOURCE_ITEM, RESOURCE_STACK, resourceSprite } from '../src/game/resources';
+import { RESOURCE_KINDS } from '../src/game/resources';
 import { Inventory } from '../src/game/inventory';
 import { memoryStore, loadSave, saveKey, worldIdentity, SAVE_VERSION } from '../src/game/persistence';
 import { T, WALKABLE } from '../src/world/types';
@@ -39,7 +40,9 @@ describe('resource placement', () => {
       const nodes = a.allResources;
       expect(nodes.length).toBeGreaterThan(15);
       const kinds = new Set(nodes.map((n) => n.kind));
-      expect(kinds).toEqual(new Set(['stick', 'stone', 'seed']));
+      // The original three, plus (M5) wild forage generated after them so none of the original nodes moved.
+      for (const k of ['stick', 'stone', 'seed']) expect(kinds.has(k as never)).toBe(true);
+      for (const k of kinds) expect(RESOURCE_KINDS).toContain(k);
       const ids = new Set(nodes.map((n) => n.id));
       expect(ids.size).toBe(nodes.length);
       const { width, cls } = world.terrain;
@@ -51,7 +54,8 @@ describe('resource placement', () => {
         if (n.source >= 0) {
           const o = world.objects[n.source];
           expect(Math.hypot(o.x - n.x, o.y - n.y)).toBeLessThan(16);
-          expect(n.kind === 'stick' ? o.kind === 'tree' : n.kind === 'stone' ? o.kind === 'rock' : o.kind === 'bush' || o.kind === 'flower').toBe(true);
+          const from: Record<string, string[]> = { stick: ['tree'], stone: ['rock'], seed: ['bush', 'flower'], fibre: ['grass'], mushroom: ['tree'], berry: ['bush'], herb: ['flower'] };
+          expect(from[n.kind]).toContain(o.kind);
         }
       }
       for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) expect(Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y)).toBeGreaterThanOrEqual(6);

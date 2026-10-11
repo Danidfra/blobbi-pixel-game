@@ -126,7 +126,7 @@ function carvePond(terrain: TerrainMap, p: Pond): void {
 }
 
 /** Flower meadows: one or two soft patches of lighter grass with blooms, away from the hub. */
-function paintMeadows(seed: string, terrain: TerrainMap, island: Island, hub: { x: number; y: number }, scale: number): void {
+export function paintMeadows(seed: string, terrain: TerrainMap, island: Island, hub: { x: number; y: number }, scale: number): void {
   const rng = stream(seed, 'turtle', 'meadow');
   const { width, height, cls, dist } = terrain;
   const noise = createNoise(`${seed}/meadow`, 18 * scale);
@@ -225,7 +225,7 @@ export function generateTurtleWorld(seed: string, partial: Partial<WorldOptions>
 }
 
 /** Forest floor under trees and a clearing round the hub, as the island world does. */
-function dressGroundTurtle(terrain: TerrainMap, objects: Placement[], hub: { x: number; y: number }, paletteName: string, scale: number): void {
+export function dressGroundTurtle(terrain: TerrainMap, objects: Placement[], hub: { x: number; y: number }, paletteName: string, scale: number): void {
   const { width, height, cls } = terrain;
   const isGrass = (i: number) => cls[i] === T.GRASS || cls[i] === T.GRASS_PATCH || cls[i] === T.GRASS_DARK;
   const r = Math.round(11 * scale);

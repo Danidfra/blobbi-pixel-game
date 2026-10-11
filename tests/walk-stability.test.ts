@@ -134,7 +134,8 @@ describe('walking under a following camera: no back-and-forth on screen', () => 
             expect((origin[i] - origin[i - 1]) * sign, `${mode} ${hz} Hz ${dir} origin ${i}`).toBeGreaterThanOrEqual(0);
           }
         }
-  });
+    // 24 tracks of up to 576 full-screen frames: ~40 s alone, more beside the rest of the suite.
+  }, 240_000);
 
   it('settles with the Blobbi in the centre of the screen after it stops', () => {
     for (const mode of ['exploration', 'closeup'] as const) {

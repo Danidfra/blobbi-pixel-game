@@ -79,16 +79,57 @@ const PICKAXE: Record<ToolOrientation, Template> = {
   'strike-up': ['k...k', '.sSs.', '..h..', '..H..', '..h..', '..g..'],
 };
 
+// The hoe: the same handle, a flat steel blade bent down at the end (its edge, k, cuts the soil).
+const HOE: Record<ToolOrientation, Template> = {
+  rest: ['.hSsk', '.h..k', '.h...', '.H...', '.h...', '.g...'],
+  carry: ['kSs....', 'k.h....', '...h...', '....H..', '.....h.', '......g'],
+  raised: ['ksS....', 'k.h....', '..h....', '..H....', '...h...', '...g...'],
+  strike: ['gHhhhS', '.....s', '.....k'],
+  'strike-down': ['..g..', '..h..', '..H..', '..h..', '..h..', '.sSs.', '.kkk.'],
+  'strike-up': ['.kkk.', '.sSs.', '..h..', '..H..', '..h..', '..g..'],
+};
+
+// The watering can: a steel can (s/S), its spout (k), held by the handle on top (g).
+const CAN: Record<ToolOrientation, Template> = {
+  rest: ['..g..', '.sss.', 'sSSsk', 'sSSs.', 'ssss.'],
+  carry: ['..g..', '.sss.', 'sSSsk', 'sSSs.', 'ssss.'],
+  raised: ['..g..', '.sss.', 'sSSsk', 'sSSs.', 'ssss.'],
+  strike: ['g.....', 'sss...', 'sSSsk.', 'ssss.k'],
+  'strike-down': ['..g..', '.sss.', 'sSSs.', 'ssss.', '..k..'],
+  'strike-up': ['..k..', 'ssss.', 'sSSs.', '.sss.', '..g..'],
+};
+
+// The fishing rod: a long thin rod (h/H) with a line (k) at its tip.
+const ROD: Record<ToolOrientation, Template> = {
+  rest: ['....k', '...hk', '..h..', '.H...', '.h...', 'g....'],
+  carry: ['k.....', 'kh....', '..h...', '...H..', '....h.', '.....g'],
+  raised: ['kh....', '.h....', '..h...', '..H...', '...h..', '...g..'],
+  strike: ['gHhhhhk', '......k', '......k'],
+  'strike-down': ['..g..', '..h..', '..H..', '..h..', '..h..', '..k..', '..k..'],
+  'strike-up': ['..k..', '..h..', '..h..', '..H..', '..h..', '..g..'],
+};
+
 export interface EquipmentVisual {
   item: string;
   templates: Record<ToolOrientation, Template>;
   /** The anatomical hand that holds it, in every view. */
   hand: Hand;
+  /** The metal of its head (steel unless set: copper tools). */
+  metal?: Ramp;
 }
+
+export const COPPER: Ramp = ramp(hex('#d8843a'), { step: 0.1, hueShift: 8 });
 
 export const EQUIPMENT: Record<string, EquipmentVisual> = {
   [ITEMS.axe.id]: { item: ITEMS.axe.id, templates: AXE, hand: 'left' },
   [ITEMS.pickaxe.id]: { item: ITEMS.pickaxe.id, templates: PICKAXE, hand: 'left' },
+  [ITEMS.hoe.id]: { item: ITEMS.hoe.id, templates: HOE, hand: 'left' },
+  [ITEMS.wateringCan.id]: { item: ITEMS.wateringCan.id, templates: CAN, hand: 'left' },
+  'blobbi-pixel:tool:copper-axe': { item: 'blobbi-pixel:tool:copper-axe', templates: AXE, hand: 'left', metal: COPPER },
+  'blobbi-pixel:tool:copper-pickaxe': { item: 'blobbi-pixel:tool:copper-pickaxe', templates: PICKAXE, hand: 'left', metal: COPPER },
+  'blobbi-pixel:tool:copper-hoe': { item: 'blobbi-pixel:tool:copper-hoe', templates: HOE, hand: 'left', metal: COPPER },
+  'blobbi-pixel:tool:copper-can': { item: 'blobbi-pixel:tool:copper-can', templates: CAN, hand: 'left', metal: COPPER },
+  'blobbi-pixel:tool:fishing-rod': { item: 'blobbi-pixel:tool:fishing-rod', templates: ROD, hand: 'left', metal: ramp(hex('#e8ecf4'), { step: 0.06 }) },
 };
 
 export const STEEL: Ramp = ramp(hex('#aeb7c2'), { step: 0.1, hueShift: 4 });
@@ -112,7 +153,8 @@ export function toolSprite(item: string, orientation: ToolOrientation, palette: 
   const w = rows[0].length;
   const h = rows.length;
   const buf = new PixelBuffer(w + 2, h + 2);
-  const colours: Record<string, Color> = { h: palette.wood.mid, H: palette.wood.light, d: palette.wood.dark, g: palette.wood.dark, s: STEEL.mid, S: STEEL.light, k: STEEL.dark };
+  const metal = visual.metal ?? STEEL;
+  const colours: Record<string, Color> = { h: palette.wood.mid, H: palette.wood.light, d: palette.wood.dark, g: palette.wood.dark, s: metal.mid, S: metal.light, k: metal.dark };
   let gripX = 1;
   let gripY = h;
   for (let y = 0; y < h; y++)
@@ -134,9 +176,9 @@ export function toolSprite(item: string, orientation: ToolOrientation, palette: 
       let steel = false;
       for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const c = buf.get(x + ox, y + oy);
-        if (c === STEEL.mid || c === STEEL.light || c === STEEL.dark) steel = true;
+        if (c === metal.mid || c === metal.light || c === metal.dark) steel = true;
       }
-      buf.set(x, y, steel ? STEEL.outline : palette.wood.outline);
+      buf.set(x, y, steel ? metal.outline : palette.wood.outline);
     }
   let sprite: ToolSprite = { buffer: buf, anchorX: gripX, anchorY: gripY, footRx: 0, footRy: 0, gripX, gripY };
   if (scale > 1) sprite = { ...sprite, buffer: buf.scaled(scale), anchorX: gripX * scale, anchorY: gripY * scale, gripX: gripX * scale, gripY: gripY * scale };

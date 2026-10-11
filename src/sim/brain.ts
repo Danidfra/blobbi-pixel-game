@@ -1,16 +1,26 @@
 /**
  * THE BRAIN: autonomous behaviour for a Blobbi. Lightweight and
  * deterministic: a nav grid over the collision map, A* with string pulling,
- * and a four-state machine (idle, wander, inspect, rest) whose choices come
- * from a keyed stream. The brain never moves the character itself: it
- * produces a movement intent each step, and the live world feeds that
- * through the same collision and animation as the keyboard does.
+ * and a small state machine (idle, wander, inspect, rest, and walking to the
+ * shelter to sleep) whose choices come from a keyed stream. The brain never
+ * moves the character itself: it produces a movement intent each step, and
+ * the live world feeds that through the same collision and animation as the
+ * keyboard does.
+ *
+ * NEEDS (M4). The live world may give the brain a read-only view of the
+ * Blobbi's needs (`wants`): a tired Blobbi goes to rest, at its shelter's door
+ * when one is built and reachable, and sleeps until rested. The brain only
+ * ever moves, faces, rests and looks at things: it never touches the
+ * inventory, crops or buildings. While every need is fine it draws exactly
+ * the same random numbers as before, so existing behaviour is unchanged.
  */
 import { stream, type Rng } from '../core/rng';
 import type { CollisionMap } from './collision';
 import type { Placement } from '../world/types';
 
 export const NAV_CELL = 4;
+/** Seconds a rest for recovery lasts at least (a nap asked for when already rested is still a nap). */
+export const MIN_NAP = 6;
 
 /** A coarse walkability grid: a cell is free when a foot ellipse can stand at its centre. */
 export class NavGrid {
@@ -173,7 +183,24 @@ function lineFree(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y:
   return true;
 }
 
-export type BehaviourState = 'idle' | 'wander' | 'inspect' | 'rest' | 'manual';
+export type BehaviourState = 'idle' | 'wander' | 'inspect' | 'rest' | 'manual' | 'to-shelter' | 'goto';
+
+/** What the Blobbi's needs ask for, read each time the brain decides. */
+export interface BrainWants {
+  /** Tired: rest next, until rested. */
+  tired: boolean;
+  /** Rested enough to get up from a recovering rest. */
+  rested: boolean;
+  /** Where to sleep: in front of a finished shelter's door, or null to rest where it stands. */
+  shelter: { x: number; y: number } | null;
+}
+
+/** Something the player made that the Blobbi may walk over to look at (decorations, crops). */
+export interface PointOfInterest {
+  x: number;
+  y: number;
+  kind: string;
+}
 
 export interface BrainIntent {
   dx: number;
@@ -207,13 +234,23 @@ export class Brain {
   private wanders = 0;
   private stuckSince = -1;
   private lastPos = { x: 0, y: 0 };
-  private inspecting: Placement | null = null;
+  private inspecting: { x: number; y: number; kind: string } | null = null;
   private interactAt = -1;
   readonly rng: Rng;
   readonly options: BrainOptions = { speed: 30, manualTimeout: 5 };
   enabled = true;
   /** For the UI: why the current state was chosen. */
   note = '';
+  /** The needs' view (set by the live world); null behaves as "all fine". */
+  wants: (() => BrainWants) | null = null;
+  /** Extra things worth a look (set by the live world). */
+  extras: (() => readonly PointOfInterest[]) | null = null;
+  /** A rest that ends on a timer (a nap between walks) or when rested (tiredness, or the player's R). */
+  restGoal: 'timed' | 'recover' = 'timed';
+  /** Where the current rest is: at the shelter or where the Blobbi stood. */
+  restAtShelter = false;
+  /** What the last inspection looked at (the live world reacts to it). */
+  lastLook: { x: number; y: number; kind: string } | null = null;
 
   constructor(
     seed: string,
@@ -254,21 +291,40 @@ export class Brain {
       }
       return still;
     }
-    if (!this.enabled) return still;
+    // A rest the player asked for goes on with autonomy switched off; everything else waits for it.
+    if (!this.enabled && this.state !== 'rest' && this.state !== 'to-shelter' && this.state !== 'goto') return still;
     switch (this.state) {
       case 'idle':
         if (time >= this.until) this.choose(time, pos);
         return still;
-      case 'rest':
-        if (time >= this.until) {
+      case 'rest': {
+        // A recovering rest lasts at least a short nap, then until rested.
+        const done = time >= this.until && (this.restGoal === 'timed' || (this.wants?.().rested ?? true));
+        if (done) {
           this.state = 'idle';
           this.until = time + 0.5;
           this.note = 'woke up';
+          this.restAtShelter = false;
         }
         return still;
+      }
       case 'wander':
-      case 'inspect': {
+      case 'inspect':
+      case 'to-shelter':
+      case 'goto': {
         if (this.next >= this.path.length) {
+          if (this.state === 'goto') {
+            // The player's tap: there. Autonomy waits a moment before it takes over again.
+            this.state = 'manual';
+            this.manualUntil = time + this.options.manualTimeout;
+            this.note = 'arrived where you tapped';
+            return still;
+          }
+          if (this.state === 'to-shelter') {
+            // In the doorway: turn to face out and sleep until rested.
+            this.beginRest(time, 'recover', true, 'sleeping in the shelter');
+            return { ...still, face: 'down' };
+          }
           // Arrived.
           if (this.state === 'inspect' && this.inspecting) {
             const o = this.inspecting;
@@ -280,6 +336,7 @@ export class Brain {
             if (time >= this.interactAt) {
               this.state = 'idle';
               this.until = time + this.rng.range(1.5, 3);
+              this.lastLook = { x: o.x, y: o.y, kind: o.kind };
               this.inspecting = null;
               this.interactAt = -1;
               this.note = `looked at the ${o.kind}`;
@@ -318,20 +375,92 @@ export class Brain {
     return still;
   }
 
+  private beginRest(time: number, goal: 'timed' | 'recover', atShelter: boolean, note: string): void {
+    this.state = 'rest';
+    this.restGoal = goal;
+    this.restAtShelter = atShelter;
+    if (goal === 'recover') this.until = time + MIN_NAP;
+    this.target = null;
+    this.path = [];
+    this.note = note;
+  }
+
+  /**
+   * Go and rest until rested: walk to the shelter's door when there is one and a path to it, else lie down here.
+   * Used by tiredness and by the player's rest key; the player's movement keys still take over at once.
+   */
+  restNow(time: number, pos: { x: number; y: number }, shelter: { x: number; y: number } | null): void {
+    if (shelter) {
+      const cell = this.grid.nearestFree(shelter.x, shelter.y, 3);
+      const to = cell ? this.grid.centre(cell.c, cell.r) : null;
+      const path = to ? findPath(this.grid, pos, to) : null;
+      if (to && path && Math.hypot(to.x - pos.x, to.y - pos.y) < 3) {
+        this.beginRest(time, 'recover', true, 'sleeping in the shelter');
+        return;
+      }
+      if (to && path && path.length > 1) {
+        this.state = 'to-shelter';
+        this.inspecting = null;
+        this.setPath(path, to);
+        this.note = 'going home to sleep';
+        return;
+      }
+    }
+    this.beginRest(time, 'recover', false, 'sleeping');
+  }
+
+  /** The player tapped a place: walk there (the player's command, so it works with autonomy off). */
+  goTo(time: number, pos: { x: number; y: number }, target: { x: number; y: number }): boolean {
+    const cell = this.grid.nearestFree(target.x, target.y, 3);
+    if (!cell) return false;
+    const to = this.grid.centre(cell.c, cell.r);
+    const path = findPath(this.grid, pos, to);
+    if (!path || path.length < 2) return false;
+    this.state = 'goto';
+    this.setPath(path, to);
+    this.note = 'walking where you tapped';
+    void time;
+    return true;
+  }
+
+  /** Wake from a rest (the player's rest key, pressed again). */
+  wake(time: number): void {
+    if (this.state !== 'rest' && this.state !== 'to-shelter') return;
+    this.state = 'idle';
+    this.until = time + 1;
+    this.restAtShelter = false;
+    this.target = null;
+    this.path = [];
+    this.note = 'woke up';
+  }
+
   /** Pick the next thing to do. */
   private choose(time: number, pos: { x: number; y: number }): void {
+    // Needs first, without drawing from the stream: a tired Blobbi goes to rest.
+    const wants = this.wants?.();
+    if (wants?.tired) {
+      this.restNow(time, pos, wants.shelter);
+      if (this.state === 'rest') this.note = wants.shelter ? 'tired, sleeping in the shelter' : 'tired, sleeping';
+      return;
+    }
     const roll = this.rng.next();
     if (this.wanders >= 3 && roll < 0.3) {
       this.state = 'rest';
+      this.restGoal = 'timed';
+      this.restAtShelter = false;
       this.until = time + this.rng.range(6, 12);
       this.wanders = 0;
       this.note = 'resting';
       return;
     }
     if (roll < 0.62) {
-      const candidates = this.objects.filter((o) => INSPECTABLE.has(o.kind) && Math.hypot(o.x - pos.x, o.y - pos.y) < 90 && Math.hypot(o.x - pos.x, o.y - pos.y) > 10);
+      const near = (o: { x: number; y: number }) => Math.hypot(o.x - pos.x, o.y - pos.y) < 90 && Math.hypot(o.x - pos.x, o.y - pos.y) > 10;
+      const extras = this.extras?.() ?? [];
+      const ownNear = extras.filter(near);
+      const candidates: { x: number; y: number; kind: string }[] = [...this.objects.filter((o) => INSPECTABLE.has(o.kind) && near(o)), ...ownNear];
       if (candidates.length && this.rng.chance(0.45)) {
-        const o = this.rng.pick(candidates);
+        // What the player made nearby is the more interesting half of the time (the extra draw happens only then).
+        const o = ownNear.length && this.rng.chance(0.5) ? this.rng.pick(ownNear) : this.rng.pick(candidates);
         // Stand a little in front of (below) the object, on free ground.
         const standAt = this.grid.nearestFree(o.x, o.y + 8, 4);
         if (standAt) {

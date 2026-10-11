@@ -1,6 +1,8 @@
 /**
- * BUILDINGS. The first construction loop: a small wooden shelter the player places on the island, paid for
- * from the bag, raised over a little world time, and kept for good.
+ * BUILDINGS. The construction loop: a small wooden shelter and (M4) a few decorations the player places on the
+ * island, paid for from the bag, raised over a little world time, and kept for good. Every kind shares one path:
+ * a definition (cost, footprint, build time), a placement check, a footprint that blocks collision and
+ * navigation, and a sprite per construction progress. Decorations are unlocked by objectives (`objectives.ts`).
  *
  * Coordinates are stable: a building's place is stored in the ISLAND FRAME (the Variant 0 canvas, the frame
  * every gameplay coordinate lives in, see `src/carrier/`), so a later carrier canvas or world growth can move
@@ -11,16 +13,37 @@ import { stream } from '../core/rng';
 import { hex, mix } from '../core/color';
 import { ramp, type WorldPalette } from '../core/palette';
 import { Mask, PixelBuffer, type Sprite } from '../core/pixel';
-import { T, WALKABLE, type TerrainMap, type WorldDescription } from '../world/types';
+import { T, WALKABLE, type WorldDescription } from '../world/types';
 import type { Ingredient } from './crafting';
 import { ITEMS } from './items';
+import { generateDecoration } from './decorations';
+import { ART } from './furniture-art';
+import { PLACEABLE_CONTENT, type Layer, type Use, type Where } from '../content/placeables';
 
-export type BuildingKind = 'shelter';
+/** A placeable's kind: the shelter, the M4 decorations, or any kind in `content/placeables.ts`. */
+export type BuildingKind = string;
+/** The kinds B builds in place, paying materials (locked ones are skipped), in the order B cycles them. */
+export const BUILDING_KINDS: readonly BuildingKind[] = ['shelter', 'fence', 'flower-bed', 'lantern', 'bench', 'crate'];
 
 export interface BuildingDefinition {
   kind: BuildingKind;
   id: string;
   label: string;
+  /** A shelter is a building; outdoor pieces are decorations (the "improve the island" goal counts them); indoor ones furniture. */
+  category: 'building' | 'decoration' | 'furniture';
+  /** The bag item it is placed from and picked up into (null: the shelter, which is moved but never picked up). */
+  item: string | null;
+  where: Where;
+  layer: Layer;
+  use?: Use;
+  joy?: number;
+  /** Storage: distinct stacks it holds. */
+  capacity?: number;
+  variants?: number;
+  /** What it does, for the UI. */
+  purpose: string;
+  /** Extra clearance kept to other buildings, in pixels. */
+  gap: number;
   cost: readonly Ingredient[];
   /** Ground footprint half-sizes (a rectangle), in pixels at world scale 1.6. */
   footRx: number;
@@ -34,6 +57,9 @@ export const BUILDINGS: Record<BuildingKind, BuildingDefinition> = {
     kind: 'shelter',
     id: 'blobbi-pixel:building:shelter',
     label: 'wooden shelter',
+    category: 'building',
+    purpose: 'Blobbi rests here, twice as fast',
+    gap: 3,
     cost: [
       { item: ITEMS.wood.id, quantity: 6 },
       { item: ITEMS.stone.id, quantity: 3 },
@@ -41,8 +67,142 @@ export const BUILDINGS: Record<BuildingKind, BuildingDefinition> = {
     footRx: 12,
     footRy: 5,
     buildSeconds: 24,
+    item: null,
+    where: 'outdoor',
+    layer: 'solid',
+    use: 'sleep',
+  },
+  fence: {
+    kind: 'fence',
+    id: 'blobbi-pixel:building:fence',
+    label: 'wooden fence',
+    category: 'decoration',
+    purpose: 'a short fence; fences line up end to end',
+    gap: 0,
+    cost: [{ item: ITEMS.wood.id, quantity: 2 }],
+    footRx: 6,
+    footRy: 1,
+    buildSeconds: 2,
+    item: 'blobbi-pixel:furniture:fence',
+    where: 'outdoor',
+    layer: 'solid',
+    use: 'admire',
+  },
+  'flower-bed': {
+    kind: 'flower-bed',
+    id: 'blobbi-pixel:building:flower-bed',
+    label: 'flower bed',
+    category: 'decoration',
+    purpose: 'Blobbi likes to visit it (happiness)',
+    gap: 1,
+    cost: [
+      { item: ITEMS.wood.id, quantity: 1 },
+      { item: ITEMS.seed.id, quantity: 2 },
+    ],
+    footRx: 6,
+    footRy: 3,
+    buildSeconds: 4,
+    item: 'blobbi-pixel:furniture:flower-bed',
+    where: 'outdoor',
+    layer: 'solid',
+    use: 'admire', joy: 2,
+  },
+  lantern: {
+    kind: 'lantern',
+    id: 'blobbi-pixel:building:lantern',
+    label: 'small lantern',
+    category: 'decoration',
+    purpose: 'a warm glow and the odd firefly',
+    gap: 1,
+    cost: [
+      { item: ITEMS.wood.id, quantity: 1 },
+      { item: ITEMS.stone.id, quantity: 2 },
+      { item: ITEMS.stick.id, quantity: 1 },
+    ],
+    footRx: 2,
+    footRy: 1,
+    buildSeconds: 3,
+    item: 'blobbi-pixel:furniture:lantern',
+    where: 'outdoor',
+    layer: 'solid',
+    use: 'light', joy: 2,
+  },
+  bench: {
+    kind: 'bench',
+    id: 'blobbi-pixel:building:bench',
+    label: 'wooden bench',
+    category: 'decoration',
+    purpose: 'Blobbi sits and enjoys the view (happiness)',
+    gap: 1,
+    cost: [
+      { item: ITEMS.wood.id, quantity: 3 },
+      { item: ITEMS.stick.id, quantity: 1 },
+    ],
+    footRx: 6,
+    footRy: 2,
+    buildSeconds: 5,
+    item: 'blobbi-pixel:furniture:bench',
+    where: 'outdoor',
+    layer: 'solid',
+    use: 'sit', joy: 2,
+  },
+  crate: {
+    kind: 'crate',
+    id: 'blobbi-pixel:building:crate',
+    label: 'storage crate',
+    category: 'decoration',
+    purpose: `+${10} to every stack in the bag (up to two crates)`,
+    gap: 1,
+    cost: [
+      { item: ITEMS.wood.id, quantity: 4 },
+      { item: ITEMS.stick.id, quantity: 2 },
+    ],
+    footRx: 5,
+    footRy: 2,
+    buildSeconds: 5,
+    item: 'blobbi-pixel:furniture:crate',
+    where: 'outdoor',
+    layer: 'solid',
+    use: 'admire',
   },
 };
+
+// Everything in the content catalogue: crafted into the bag, placed from it, built in a moment.
+for (const p of PLACEABLE_CONTENT) {
+  BUILDINGS[p.kind] = {
+    kind: p.kind,
+    id: `blobbi-pixel:placeable:${p.kind}`,
+    label: p.label,
+    category: p.where === 'indoor' ? 'furniture' : 'decoration',
+    purpose: p.description,
+    gap: p.layer === 'floor' ? 0 : 1,
+    cost: p.recipe,
+    footRx: p.footRx,
+    footRy: p.footRy,
+    buildSeconds: p.where === 'indoor' ? 0 : 2,
+    item: `blobbi-pixel:furniture:${p.kind}`,
+    where: p.where,
+    layer: p.layer,
+    use: p.use,
+    joy: p.joy,
+    capacity: p.capacity,
+    variants: p.variants,
+  };
+}
+
+/** Every placeable kind there is. */
+export const ALL_PLACEABLE_KINDS: readonly BuildingKind[] = Object.keys(BUILDINGS);
+/** The placeable kind an item places, or null. */
+export const kindForItem = (item: string): BuildingKind | null => Object.values(BUILDINGS).find((d) => d.item === item)?.kind ?? null;
+/** Walked over (rugs, paths, cushions) or under (the arch): never blocks collision. */
+export const isWalkable = (kind: BuildingKind): boolean => BUILDINGS[kind].layer !== 'solid';
+
+/** Stack room each finished storage crate adds, and how many crates count. */
+export const CRATE_BONUS = 10;
+export const MAX_CRATES = 2;
+
+export const isDecoration = (kind: BuildingKind): boolean => BUILDINGS[kind].category === 'decoration';
+export const isBuildingKind = (kind: string): kind is BuildingKind => kind in BUILDINGS;
 
 export interface Building {
   /** Stable id: `<kind>:<n>` in placement order. */
@@ -54,11 +214,14 @@ export interface Building {
   /** World time of placement; construction progress is measured from it. */
   placedAt: number;
   seed: string;
+  /** Colourway (rugs, beds, cushions...). */
+  variant?: number;
 }
 
 /** Construction progress 0..1 at a world time. */
 export function buildingProgress(b: Building, worldTime: number): number {
   const def = BUILDINGS[b.kind];
+  if (def.buildSeconds <= 0) return 1;
   return Math.max(0, Math.min(1, (worldTime - b.placedAt) / def.buildSeconds));
 }
 
@@ -68,7 +231,7 @@ export const quantizeProgress = (p: number): number => Math.round(Math.max(0, Ma
 
 // ─── Placement ───────────────────────────────────────────────────────────────
 
-export type PlacementProblem = 'water' | 'ground' | 'blocked' | 'building' | 'resource' | 'blobbi' | 'edge';
+export type PlacementProblem = 'water' | 'ground' | 'blocked' | 'building' | 'resource' | 'blobbi' | 'edge' | 'plot' | 'doorway' | 'path' | 'outdoor' | 'door';
 
 export interface PlacementCheck {
   ok: boolean;
@@ -80,7 +243,7 @@ export interface PlacementCheck {
   y1: number;
 }
 
-const BUILDABLE = new Set<number>([T.GRASS, T.GRASS_PATCH, T.GRASS_DARK, T.MEADOW, T.GRASS_EDGE]);
+const BUILDABLE = new Set<number>([T.GRASS, T.GRASS_PATCH, T.GRASS_DARK, T.MEADOW, T.GRASS_EDGE, T.MOSS, T.GRAVEL, T.CLOVER]);
 
 export interface PlacementContext {
   world: WorldDescription;
@@ -89,7 +252,54 @@ export interface PlacementContext {
   buildings: readonly Building[];
   resources: readonly { x: number; y: number }[];
   blobbi: { x: number; y: number; footRx: number; footRy: number };
+  /** Farm plots, as canvas rectangles (inclusive). Nothing is built on a field. */
+  plots?: readonly { x0: number; y0: number; x1: number; y1: number }[];
 }
+
+/**
+ * The ground rules every placement shares, over a rectangle (inclusive, plus a one-pixel margin): inside the map,
+ * buildable grass on one level, unblocked (no object footprint, water, rim or cliff), no resource node on it.
+ */
+export function checkGround(x0: number, y0: number, x1: number, y1: number, level: { x: number; y: number }, ctx: PlacementContext): PlacementProblem | null {
+  const { width, height, cls, elevation } = ctx.world.terrain;
+  if (x0 - 1 < 0 || y0 - 1 < 0 || x1 + 1 >= width || y1 + 1 >= height) return 'edge';
+  const ground = elevation[Math.round(level.y) * width + Math.round(level.x)];
+  for (let py = y0 - 1; py <= y1 + 1; py++)
+    for (let px = x0 - 1; px <= x1 + 1; px++) {
+      const i = py * width + px;
+      const c = cls[i];
+      if (c < T.GRASS_EDGE || c === T.POND || c === T.POND_EDGE) return c <= T.FOAM || c === T.POND || c === T.POND_EDGE ? 'water' : 'ground';
+      if (!BUILDABLE.has(c) || !WALKABLE.has(c) || elevation[i] !== ground) return 'ground';
+      if (ctx.isBlocked(px, py)) return 'blocked';
+    }
+  for (const n of ctx.resources) if (n.x >= x0 - 1 && n.x <= x1 + 1 && n.y >= y0 - 1 && n.y <= y1 + 1) return 'resource';
+  return null;
+}
+
+const overlaps = (a: { x0: number; y0: number; x1: number; y1: number }, b: { x0: number; y0: number; x1: number; y1: number }, margin: number) =>
+  a.x0 - margin <= b.x1 && a.x1 + margin >= b.x0 && a.y0 - margin <= b.y1 && a.y1 + margin >= b.y0;
+
+/** A building's footprint rectangle on the canvas (inclusive). */
+export function footprintRect(b: { kind: BuildingKind; x: number; y: number }): { x0: number; y0: number; x1: number; y1: number } {
+  const d = BUILDINGS[b.kind];
+  return { x0: Math.round(b.x) - d.footRx, y0: Math.round(b.y) - d.footRy, x1: Math.round(b.x) + d.footRx, y1: Math.round(b.y) + d.footRy };
+}
+
+/** The ground in front of a shelter's door, kept clear so the Blobbi can always walk in to sleep. */
+export function doorwayRect(b: { kind: BuildingKind; x: number; y: number }): { x0: number; y0: number; x1: number; y1: number } | null {
+  if (b.kind !== 'shelter') return null;
+  const d = BUILDINGS.shelter;
+  return { x0: Math.round(b.x) - 6, y0: Math.round(b.y) + d.footRy + 1, x1: Math.round(b.x) + 6, y1: Math.round(b.y) + d.footRy + 12 };
+}
+
+const blocksDoorway = (rect: { x0: number; y0: number; x1: number; y1: number }, buildings: readonly Building[]) =>
+  buildings.some((b) => {
+    const door = doorwayRect(b);
+    return door !== null && overlaps(rect, door, 0);
+  });
+
+/** Clearance kept between a farm plot and a building's footprint. */
+export const PLOT_CLEARANCE = 2;
 
 /**
  * Can a building stand with its ground anchor at (x, y)? Every pixel of the footprint (plus a one-pixel margin)
@@ -103,27 +313,50 @@ export function checkPlacement(kind: BuildingKind, x: number, y: number, ctx: Pl
   const y0 = Math.round(y) - def.footRy;
   const y1 = Math.round(y) + def.footRy;
   const result = (problem: PlacementProblem | null): PlacementCheck => ({ ok: problem === null, problem, x0, y0, x1, y1 });
-  const terrain: TerrainMap = ctx.world.terrain;
-  const { width, height, cls, elevation } = terrain;
+  const { width, height } = ctx.world.terrain;
   if (x0 - 1 < 0 || y0 - 1 < 0 || x1 + 1 >= width || y1 + 1 >= height) return result('edge');
   // Other buildings first (their footprints also block, but "too close to a building" is the useful answer).
   for (const b of ctx.buildings) {
     const d = BUILDINGS[b.kind];
-    if (Math.abs(b.x - Math.round(x)) < def.footRx + d.footRx + 3 && Math.abs(b.y - Math.round(y)) < def.footRy + d.footRy + 3) return result('building');
+    const gap = Math.max(def.gap, d.gap);
+    if (Math.abs(b.x - Math.round(x)) < def.footRx + d.footRx + gap && Math.abs(b.y - Math.round(y)) < def.footRy + d.footRy + gap) return result('building');
   }
-  const level = elevation[Math.round(y) * width + Math.round(x)];
-  for (let py = y0 - 1; py <= y1 + 1; py++)
-    for (let px = x0 - 1; px <= x1 + 1; px++) {
-      const i = py * width + px;
-      const c = cls[i];
-      if (c < T.GRASS_EDGE || c === T.POND || c === T.POND_EDGE) return result(c <= T.FOAM || c === T.POND || c === T.POND_EDGE ? 'water' : 'ground');
-      if (!BUILDABLE.has(c) || !WALKABLE.has(c) || elevation[i] !== level) return result('ground');
-      if (ctx.isBlocked(px, py)) return result('blocked');
-    }
-  for (const n of ctx.resources) if (n.x >= x0 - 1 && n.x <= x1 + 1 && n.y >= y0 - 1 && n.y <= y1 + 1) return result('resource');
+  const rect = { x0, y0, x1, y1 };
+  if (blocksDoorway(rect, ctx.buildings)) return result('doorway');
+  for (const p of ctx.plots ?? []) if (overlaps(rect, p, PLOT_CLEARANCE)) return result('plot');
+  const ground = checkGround(x0, y0, x1, y1, { x, y }, ctx);
+  if (ground) return result(ground);
+  // A shelter needs open, walkable ground in front of its door (on its own level), so the Blobbi can walk in.
+  const door = doorwayRect({ kind, x, y });
+  if (door) {
+    const { width, height, cls, elevation } = ctx.world.terrain;
+    const level = elevation[Math.round(y) * width + Math.round(x)];
+    for (let py = door.y0; py <= door.y1; py++)
+      for (let px = door.x0; px <= door.x1; px++) {
+        if (px < 0 || py < 0 || px >= width || py >= height) return result('doorway');
+        const i = py * width + px;
+        if (!WALKABLE.has(cls[i]) || elevation[i] !== level || ctx.isBlocked(px, py)) return result('doorway');
+      }
+  }
   const b = ctx.blobbi;
   if (b.x + b.footRx >= x0 - 1 && b.x - b.footRx <= x1 + 1 && b.y + b.footRy >= y0 - 1 && b.y - b.footRy <= y1 + 1) return result('blobbi');
   return result(null);
+}
+
+/**
+ * Can a farm plot be tilled on a cell rectangle? The same ground rules as a building (flat buildable grass, nothing
+ * standing or lying there), clear of buildings by `PLOT_CLEARANCE`, and not an existing plot. The Blobbi may stand
+ * on it: plots are walkable.
+ */
+export function checkPlot(rect: { x0: number; y0: number; x1: number; y1: number }, ctx: PlacementContext): PlacementCheck {
+  const result = (problem: PlacementProblem | null): PlacementCheck => ({ ok: problem === null, problem, ...rect });
+  const { width, height } = ctx.world.terrain;
+  if (rect.x0 - 1 < 0 || rect.y0 - 1 < 0 || rect.x1 + 1 >= width || rect.y1 + 1 >= height) return result('edge');
+  for (const p of ctx.plots ?? []) if (overlaps(rect, p, -1)) return result('plot');
+  for (const b of ctx.buildings) if (overlaps(rect, footprintRect(b), PLOT_CLEARANCE)) return result('building');
+  if (blocksDoorway(rect, ctx.buildings)) return result('doorway');
+  // Plot tiles abut, so the ground margin is checked only inside the tile (a field's own plots are not obstacles).
+  return result(checkGround(rect.x0 + 1, rect.y0 + 1, rect.x1 - 1, rect.y1 - 1, { x: (rect.x0 + rect.x1) / 2, y: (rect.y0 + rect.y1) / 2 }, ctx));
 }
 
 export const PROBLEM_TEXT: Record<PlacementProblem, string> = {
@@ -134,6 +367,11 @@ export const PROBLEM_TEXT: Record<PlacementProblem, string> = {
   resource: 'resources lie there',
   blobbi: 'you are standing there',
   edge: 'too close to the edge',
+  plot: 'a farm plot is there',
+  doorway: 'the doorway needs open ground',
+  path: 'that would block the way',
+  outdoor: 'that goes inside the house',
+  door: 'keep the door clear',
 };
 
 // ─── The shelter ─────────────────────────────────────────────────────────────
@@ -252,10 +490,28 @@ const spriteCache = new Map<string, Sprite>();
 /** The sprite of a building at a construction progress (quantized), cached. */
 export function buildingSprite(b: Building, palette: WorldPalette, progress: number, scale = 1.6): Sprite {
   const q = quantizeProgress(progress);
-  const key = `${palette.name}|${b.kind}|${b.seed}|${q}|${scale}`;
+  const key = `${palette.name}|${b.kind}|${b.seed}|${b.variant ?? 0}|${q}|${scale}`;
   const hit = spriteCache.get(key);
   if (hit) return hit;
-  const sprite = generateShelter(b.seed, Math.round(18 * scale), palette, q);
+  const sprite = b.kind === 'shelter' ? generateShelter(b.seed, Math.round(18 * scale), palette, q) : BUILDING_KINDS.includes(b.kind) ? generateDecoration(b.kind as never, b.seed, palette, q) : placeableSprite(b.kind, b.seed, palette, b.variant ?? 0, q);
   spriteCache.set(key, sprite);
   return sprite;
+}
+
+/**
+ * A content placeable's sprite: its art, anchored so the footprint (anchor ± footRy) covers the bottom of the
+ * drawing, rising from the ground while it is being placed (`progress` < 1).
+ */
+export function placeableSprite(kind: BuildingKind, seed: string, palette: WorldPalette, variant: number, progress = 1): Sprite {
+  const def = BUILDINGS[kind];
+  const content = PLACEABLE_CONTENT.find((p) => p.kind === kind)!;
+  const full = ART[content.art]({ seed, palette, variant });
+  const anchorY = def.layer === 'wall' ? full.height - 1 : Math.max(0, full.height - 1 - def.footRy);
+  let buffer = full;
+  if (progress < 1) {
+    buffer = new PixelBuffer(full.width, full.height);
+    const shown = Math.max(1, Math.round(full.height * Math.max(0, progress)));
+    for (let y = full.height - shown; y < full.height; y++) for (let x = 0; x < full.width; x++) buffer.set(x, y, full.get(x, y));
+  }
+  return { buffer, anchorX: Math.floor(full.width / 2), anchorY, footRx: def.footRx, footRy: def.footRy };
 }

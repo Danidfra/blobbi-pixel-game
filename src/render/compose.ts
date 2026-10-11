@@ -8,6 +8,7 @@ import { paletteFor } from '../world/generate';
 import { OBJECT_GENERATORS } from '../objects';
 import { paintTerrain } from './paint-terrain';
 import { renderTurtleBody, type TurtleAnatomy, type TurtleBody } from '../turtle/turtle';
+import { creatureUnderlay, drawCreatureParts } from '../carriers/creature-render';
 import { paintShellSurface } from '../carrier/shell-surface';
 import { T, type Layer, type Placement, type WorldDescription } from '../world/types';
 
@@ -48,10 +49,10 @@ export function turtleBodyForWorld(world: WorldDescription): TurtleBody {
   const a = world.turtle!;
   const carrier = world.carrier;
   if (!carrier || carrier.variant === 0) return turtleBodyFor(a, world.options.width, world.options.height);
-  const key = `${a.genome.seed}|${world.options.width}x${world.options.height}|${a.rx.toFixed(1)}|v${carrier.variant}|${world.options.palette}|${world.islands[0].cx},${world.islands[0].cy}`;
+  const key = `${a.genome.seed}|${world.options.width}x${world.options.height}|${a.rx.toFixed(1)}|v${carrier.variant}|${world.options.palette}|${world.islands[0].cx},${world.islands[0].cy}|g${world.growth ? `${world.growth.version}.${world.growth.stage}` : 0}`;
   const hit = bodyCache.get(key);
   if (hit) return hit;
-  const ctx = { island: world.islands[0], palette: paletteFor(world.options.palette), seed: carrier.seed, scale: world.options.scale };
+  const ctx = { island: world.islands[0], land: world.growth?.land, palette: paletteFor(world.options.palette), seed: carrier.seed, scale: world.options.scale };
   const body = renderTurtleBody(a, (buf, anatomy) => paintShellSurface(buf, anatomy, ctx).dome);
   bodyCache.set(key, body);
   return body;
@@ -59,7 +60,8 @@ export function turtleBodyForWorld(world: WorldDescription): TurtleBody {
 
 /** The static underlay for a turtle world: shell dome and rim, neck, tail, with the head and flippers at rest. */
 export function turtleUnderlay(world: WorldDescription, parts: { head: boolean; flippers: boolean } = { head: true, flippers: true }): PixelBuffer | undefined {
-  if (!world.turtle) return undefined;
+  // A creature world (M7: the manta) has its own carrier underlay: the still core of its body.
+  if (!world.turtle) return creatureUnderlay(world);
   const body = turtleBodyForWorld(world);
   const buf = new PixelBuffer(world.options.width, world.options.height);
   buf.blit(body.buffer, 0, 0);
@@ -75,6 +77,8 @@ export function renderWorld(world: WorldDescription, options: Partial<RenderOpti
   const buf = new PixelBuffer(width, height);
   if (o.terrain) paintTerrain(buf, world.terrain, palette, world.seed, { underlay: turtleUnderlay(world) });
   else buf.fill(palette.water.dark);
+  // A creature carrier's moving parts, at rest (the live renderer animates them).
+  if (o.terrain && world.creature) drawCreatureParts(buf, world, 0, 0, 0);
 
   const enabled = (layer: Layer) => (layer === 'vegetation' ? o.vegetation : layer === 'structures' ? o.structures : o.details);
   const objects = world.objects.filter((p) => enabled(p.layer)).map((p) => ({ p, sprite: spriteFor(p, world.options.palette, cache) }));

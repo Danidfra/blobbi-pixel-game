@@ -1,0 +1,159 @@
+/**
+ * CONTENT CATALOGUE GENERATOR: writes docs/game-design/CONTENT-CATALOG.md from the game's own registries, so the
+ * catalogue always matches the code. Run after changing content:
+ *   npx tsx scripts/content-catalog.ts [out=docs/game-design/CONTENT-CATALOG.md]
+ */
+import { writeFileSync } from 'node:fs';
+import { ALL_ITEMS, MENU_CATEGORIES, MENU_LABEL, menuCategory, itemLabel } from '../src/game/items';
+import { CROP_CONTENT } from '../src/content/crops';
+import { FORAGE_CONTENT } from '../src/content/forage';
+import { MEAL_CONTENT } from '../src/content/meals';
+import { DISCOVERY_CONTENT, GROWTH_DISCOVERIES } from '../src/content/discoveries';
+import { LORE } from '../src/content/lore';
+import { FISH_CONTENT, UPGRADES } from '../src/content/tools';
+import { QUEST_CONTENT, REQUEST_POOL } from '../src/content/quests';
+import { RECIPES } from '../src/game/crafting';
+import { BUILDINGS, ALL_PLACEABLE_KINDS } from '../src/game/buildings';
+import { BIOMES, GROWTH_STAGES } from '../src/world/growth';
+import { OBSERVATIONS, MANTA_OBSERVATIONS } from '../src/game/carrier';
+import { SPECIES } from '../src/carriers/species';
+import { SFX } from '../src/audio/sfx';
+import { MOODS, MOOD_DEFS } from '../src/audio/music';
+
+const out = process.argv[2] ?? 'docs/game-design/CONTENT-CATALOG.md';
+const L: string[] = [];
+const row = (...cells: (string | number)[]) => L.push(`| ${cells.map((c) => String(c).replace(/\|/g, '\\|')).join(' | ')} |`);
+const head = (...cells: string[]) => {
+  row(...cells);
+  L.push(`|${cells.map(() => '---').join('|')}|`);
+};
+const ing = (list: readonly { item: string; quantity: number }[]) => list.map((i) => `${i.quantity} ${itemLabel(i.item)}`).join(', ');
+
+L.push('# Content catalogue');
+L.push('');
+L.push('> **GENERATED** from the game\'s registries by `npx tsx scripts/content-catalog.ts`. Do not edit by hand: change the');
+L.push('> content in `src/content/` (or the registries named below) and run the script again. Everything listed here is');
+L.push('> **IMPLEMENTED** in code; whether it has been played and approved by a person is tracked in');
+L.push('> [the manual test plan](../testing/MANUAL-TEST-PLAN.md).');
+L.push('');
+L.push('## Counts');
+L.push('');
+head('Content', 'Count', 'Source');
+row('Items', ALL_ITEMS.length, '`game/items.ts` `ALL_ITEMS`');
+row('Crops', CROP_CONTENT.length, '`content/crops.ts`');
+row('Forage kinds', FORAGE_CONTENT.length, '`content/forage.ts`');
+row('Placeable kinds (incl. the shelter)', ALL_PLACEABLE_KINDS.length, '`game/buildings.ts` `BUILDINGS`');
+row('Recipes', RECIPES.length, '`game/crafting.ts` `RECIPES`');
+row('Meals', MEAL_CONTENT.length, '`content/meals.ts`');
+row('Quests', QUEST_CONTENT.length, '`content/quests.ts`');
+row('Island requests', REQUEST_POOL.length, '`content/quests.ts` `REQUEST_POOL`');
+row('Lore notes', LORE.length, '`content/lore.ts`');
+row('Discoveries (island)', DISCOVERY_CONTENT.length, '`content/discoveries.ts`');
+row('Discoveries (grown land)', GROWTH_DISCOVERIES.length, '`content/discoveries.ts` `GROWTH_DISCOVERIES`');
+row('Fish', FISH_CONTENT.length, '`content/tools.ts`');
+row('Tool upgrades', UPGRADES.length, '`content/tools.ts`');
+row('Biomes (grown land)', Object.keys(BIOMES).length, '`world/growth.ts`');
+row('Growth stages', GROWTH_STAGES.length, '`world/growth.ts`');
+row('Carrier observations (turtle / manta)', `${OBSERVATIONS.length} / ${MANTA_OBSERVATIONS.length}`, '`game/carrier.ts`');
+row('Sound effects', Object.keys(SFX).length, '`audio/sfx.ts`');
+row('Music moods', MOODS.length, '`audio/music.ts`');
+L.push('');
+
+L.push('## Items by menu category');
+for (const c of MENU_CATEGORIES) {
+  const items = ALL_ITEMS.filter((d) => menuCategory(d.id) === c);
+  L.push('');
+  L.push(`### ${MENU_LABEL[c]} (${items.length})`);
+  L.push('');
+  head('Item', 'Id', 'Stack', 'Notes');
+  for (const d of items) {
+    const notes = [d.tool ? `tool: ${d.tool.interactions.join(', ')}${d.tool.tier && d.tool.tier > 1 ? ` (tier ${d.tool.tier})` : ''}` : '', d.food ? `food: +${d.food.restores} fed${d.food.energy ? `, +${d.food.energy} energy` : ''}${d.food.joy ? `, +${d.food.joy} joy` : ''}` : '', d.place ? `places: ${d.place}` : ''].filter(Boolean).join('; ');
+    row(d.label, `\`${d.id}\``, d.stack, notes);
+  }
+}
+L.push('');
+L.push('## Crops');
+L.push('');
+head('Crop', 'Yield', 'Seeds back', 'Wet seconds to grow', 'Seconds per watering', 'Multi-harvest');
+for (const c of CROP_CONTENT) row(c.label, `${c.yield} ${c.produce.plural}`, c.seedBack, c.growSeconds, c.waterSeconds, c.regrowSeconds ? `yes (every ${c.regrowSeconds} s)` : 'no');
+L.push('');
+L.push('## Forage (wild resources)');
+L.push('');
+head('Kind', 'Item', 'Grows near', 'Respawn (world s)');
+for (const f of FORAGE_CONTENT) row(f.kind, f.item.label, f.near, f.respawnSeconds);
+L.push('');
+L.push('## Placeables (buildings, decorations, furniture)');
+L.push('');
+head('Kind', 'Label', 'Category', 'Where', 'Layer', 'Use', 'Cost', 'Build (s)');
+for (const k of ALL_PLACEABLE_KINDS) {
+  const b = BUILDINGS[k];
+  row(k, b.label, b.category, b.where, b.layer, b.use ?? '', ing(b.cost), b.buildSeconds);
+}
+L.push('');
+L.push('## Recipes');
+L.push('');
+head('Recipe', 'Output', 'Ingredients', 'Station', 'Group', 'Unlocked by');
+for (const r of RECIPES) row(r.label, `${r.output.quantity} ${itemLabel(r.output.item)}`, ing(r.ingredients), r.station ?? 'hand', r.group ?? '', r.unlock ?? 'known from the start');
+L.push('');
+L.push('## Meals');
+L.push('');
+head('Meal', 'Restores', 'Ingredients', 'Unlocked by');
+for (const m of MEAL_CONTENT) row(m.label, `+${m.food.restores} fed${m.food.energy ? `, +${m.food.energy} energy` : ''}${m.food.joy ? `, +${m.food.joy} joy` : ''}`, ing(m.ingredients), m.unlock ?? 'with a cooking station');
+L.push('');
+L.push('## Quests');
+L.push('');
+head('Id', 'Type', 'Chapter', 'Title', 'Requires', 'Reward');
+for (const q of QUEST_CONTENT) row(`\`${q.id}\``, q.type, q.chapter ?? '', q.title, (q.requires ?? []).join(', '), q.reward.text);
+L.push('');
+L.push('## Island requests (repeatable, one at a time, new each dawn)');
+L.push('');
+head('Id', 'Title', 'Goal', 'Reward');
+for (const r of REQUEST_POOL) row(`\`${r.id}\``, r.title, `${r.goal.tally} × ${r.goal.n}`, r.reward.text);
+L.push('');
+L.push('## Discoveries');
+L.push('');
+head('Id', 'Item', 'Terrain or biome', 'Journal note');
+for (const d of DISCOVERY_CONTENT) row(`\`${d.id}\``, d.item.label, d.terrain, d.lore);
+for (const d of GROWTH_DISCOVERIES) row(`\`${d.id}\``, d.item.label, `grown ${d.biome}`, d.lore);
+L.push('');
+L.push('## Lore notes');
+L.push('');
+head('Id', 'Title');
+for (const n of LORE) row(`\`${n.id}\``, n.title);
+L.push('');
+L.push('## Fishing and tool upgrades');
+L.push('');
+head('Fish', 'Water', 'Weight');
+for (const f of FISH_CONTENT) row(f.item.label, f.water, f.weight);
+L.push('');
+head('Upgrade', 'From', 'To', 'Extra');
+for (const u of UPGRADES) row(u.id, itemLabel(u.from), itemLabel(u.to), ing(u.extra));
+L.push('');
+L.push('## Grown land: stages and biomes (M7)');
+L.push('');
+head('Stage', 'Name', 'Regions');
+for (const s of GROWTH_STAGES) row(s.stage, s.name, s.regions.map((b) => BIOMES[b].name).join(' + '));
+L.push('');
+head('Biome', 'Name', 'Note');
+for (const b of Object.values(BIOMES)) row(b.id, b.name, b.note);
+L.push('');
+L.push('## World Carrier species');
+L.push('');
+head('Species', 'Name', 'Status', 'Island');
+for (const s of Object.values(SPECIES)) row(s.id, s.name, s.status, s.island);
+L.push('');
+head('Observation (turtle)', 'When');
+for (const o of OBSERVATIONS) row(o.text, o.when ?? 'any time');
+L.push('');
+head('Observation (manta)', 'When');
+for (const o of MANTA_OBSERVATIONS) row(o.text, o.when ?? 'any time');
+L.push('');
+L.push('## Audio');
+L.push('');
+head('Music mood', 'Tempo (bpm)');
+for (const m of MOODS) row(m, MOOD_DEFS[m].bpm);
+L.push('');
+L.push(`Sound effects (${Object.keys(SFX).length}): ${Object.keys(SFX).map((k) => `\`${k}\``).join(', ')}.`);
+L.push('');
+writeFileSync(out, L.join('\n'));
+console.log(`wrote ${out}: ${ALL_ITEMS.length} items, ${RECIPES.length} recipes, ${QUEST_CONTENT.length} quests`);

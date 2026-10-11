@@ -131,6 +131,8 @@ main {
   position: absolute;
   inset: 0;
   cursor: grab;
+  /* Touch drags drive the in-game stick, never scroll or zoom the page. */
+  touch-action: none;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
@@ -316,4 +318,19 @@ canvas.preview {
   color: var(--muted);
   font-size: 11px;
   align-self: center;
+}
+.stats .warn {
+  color: #ffb13b;
+}
+.stats .muted {
+  opacity: 0.6;
+}
+#objectives,
+#farming,
+#building,
+#care {
+  white-space: pre-wrap;
+}
+#build-buttons {
+  flex-wrap: wrap;
 }

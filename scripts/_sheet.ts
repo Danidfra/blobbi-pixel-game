@@ -1,0 +1,23 @@
+import { writeFileSync } from 'node:fs';
+import { PixelBuffer } from '../src/core/pixel';
+import { hex } from '../src/core/color';
+import { toPng } from '../src/node/png';
+import { paletteFor } from '../src/world/generate';
+import { ALL_PLACEABLE_KINDS, BUILDINGS, buildingSprite } from '../src/game/buildings';
+import { drawTinyText } from '../src/render/live-render';
+const palette = paletteFor('cozy');
+const kinds = ALL_PLACEABLE_KINDS.filter((k) => k !== 'shelter');
+const cols = 8, cw = 40, ch = 34;
+const sheet = new PixelBuffer(cols * cw, Math.ceil(kinds.length / cols) * ch);
+sheet.fill(hex('#78d04c'));
+kinds.forEach((k, i) => {
+  const x = (i % cols) * cw, y = Math.floor(i / cols) * ch;
+  if (BUILDINGS[k].where === 'indoor') sheet.fillRect(x, y, cw, ch, hex('#c49a5a'));
+  const s = buildingSprite({ id: k, kind: k, x: 0, y: 0, placedAt: 0, seed: k, variant: i }, palette, 1);
+  sheet.blit(s.buffer, x + cw / 2 - s.anchorX, y + 24 - s.anchorY);
+  const d = BUILDINGS[k];
+  sheet.strokeRect(x + cw / 2 - d.footRx, y + 24 - d.footRy, d.footRx * 2 + 1, d.footRy * 2 + 1, hex('#ff3b5c'));
+  drawTinyText(sheet, k.slice(0, 9).toUpperCase(), x + 1, y + 27, hex('#1b1f2a'));
+});
+writeFileSync(process.argv[2], toPng(sheet.scaled(3)));
+console.log(kinds.length, 'placeables');

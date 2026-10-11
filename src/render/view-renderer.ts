@@ -17,11 +17,32 @@ import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex } from '../core/color';
 import { paletteFor } from '../world/generate';
 import { poseKey, buildBlobbiSprite, type BlobbiPose } from '../blobbi/sprite';
-import { attachTool, EquipmentRig, EQUIPMENT, toolIcon } from '../game/equipment';
-import { ITEMS } from '../game/items';
-import { RESOURCE_KINDS } from '../game/resources';
+import { attachTool, EquipmentRig, EQUIPMENT } from '../game/equipment';
+import { ITEMS, FOODS, itemLabel, itemPlural } from '../game/items';
+import { currentObjective, OBJECTIVES } from '../game/objectives';
+import { BASIC_KINDS } from '../game/resources';
 import type { LiveWorld } from '../sim/live-world';
 import type { PixelBlobbiIdentity } from '../blobbi/identity';
+import { InteriorRenderer } from './interior-render';
+import { drawTeleportParticles, drawTeleportShadow, teleportSprite } from './teleport-render';
+import { applyLight, dayAt, hourAt } from '../game/daylight';
+import { goalCard, statusCard, timeChip, toastCard, toolChip, ToastFeed, type StatusInfo } from '../ui/hud';
+import { itemIcon } from '../ui/icons';
+import { FRIEND_TITLES, friendLevel } from '../game/friendship';
+import { REST_POSE } from '../blobbi/pose';
+import { hex as hexColour, mix as mixColour } from '../core/color';
+
+/** The window's sky over the day: blue, gold at dawn and dusk, a deep blue at night. */
+function skyColour(t: number): number {
+  const h = hourAt(t);
+  const day = hexColour('#9ad0f0');
+  const gold = hexColour('#f0b878');
+  const night = hexColour('#1f2c4d');
+  if (h >= 7.5 && h < 17) return day;
+  if (h >= 5 && h < 7.5) return h < 6.2 ? mixColour(night, gold, (h - 5) / 1.2) : mixColour(gold, day, (h - 6.2) / 1.3);
+  if (h >= 17 && h < 20.5) return h < 18.8 ? mixColour(day, gold, (h - 17) / 1.8) : mixColour(gold, night, (h - 18.8) / 1.7);
+  return night;
+}
 import { drawTinyText, type LiveRenderer, type LiveRenderOptions, type SplitLayers, type FrameText } from './live-render';
 import { CAMERA_MODES, CAMERA_CYCLE, blobbiScreenSize, type CameraModeId, type ViewRect } from './view-camera';
 
@@ -81,15 +102,21 @@ export interface ViewTimings {
 }
 
 export interface ViewUiOptions {
-  /** The resource counter and the tool icon. */
+  /** The resource counter, the tool icon and the needs bars. */
   hud: boolean;
+  /** The current objective, top right (O toggles it); follows `hud` when unset. */
+  goals?: boolean;
+  /** What E would do now, bottom centre; follows `hud` when unset. */
+  prompt?: boolean;
+  /** Day and night lighting (presentation only; off unless set: the game's defaults turn it on). */
+  lighting?: boolean;
   /** The camera mode indicator. */
   indicator: boolean;
   /** Screen pixels per UI font pixel. */
   uiScale: number;
 }
 
-export const DEFAULT_VIEW_UI: ViewUiOptions = { hud: true, indicator: true, uiScale: 2 };
+export const DEFAULT_VIEW_UI: ViewUiOptions = { hud: true, indicator: true, uiScale: 2, goals: true, prompt: true, lighting: true };
 
 /** Where the Blobbi was drawn last frame, in screen pixels (tests and screenshots read it). */
 export interface BlobbiOnScreen {
@@ -110,6 +137,12 @@ export class ViewRenderer {
   private readonly textCache = new Map<string, PixelBuffer>();
   readonly timings: ViewTimings = { world: 0, compose: 0, blobbi: 0, ui: 0, total: 0, worldPixels: 0 };
   lastBlobbi: BlobbiOnScreen | null = null;
+  /** Where the teleport effect was drawn this frame (null when the Blobbi is simply present). */
+  teleportAnchor: { ax: number; groundY: number } | null = null;
+  /** Teleport pixels drawn in the last frame (tests and dev tools). */
+  teleportParticles = 0;
+  /** The room renderer, made the first time the Blobbi goes indoors. */
+  room: InteriorRenderer | null = null;
 
   constructor(
     readonly live: LiveWorld,
@@ -156,8 +189,20 @@ export class ViewRenderer {
     const wy0 = Math.floor(originY);
     const vw = Math.max(1, Math.ceil(originX + W / s) - wx0 + 1);
     const vh = Math.max(1, Math.ceil(originY + H / s) - wy0 + 1);
-    const frame = this.world.render(vw, vh, wx0, wy0, time, { ...o, hud: false }, this.layers);
+    // The scene: the island, or the room the Blobbi is in.
+    const lit = ui.lighting ?? false;
+    const light = lit ? this.live.ambientLight() : { dark: 0, warm: 0, night: false };
+    if (this.live.interior) (this.room ??= new InteriorRenderer(this.live)).sky = skyColour(this.live.worldTime);
+    const scene = this.live.interior ? this.room! : this.world;
+    const frame = scene.render(vw, vh, wx0, wy0, time, { ...o, hud: false }, this.layers);
     const overlay = this.layers.overlay;
+    // Day and night, in world pixels (a fraction of the screen's): the world, what stands in front, the Blobbi.
+    const rain = lit ? this.live.rainNow() : 0;
+    const lights = light.dark > 0.01 ? this.live.lightSources() : [];
+    if (lit) {
+      applyLight(frame.data, vw, vh, wx0, wy0, light, rain, lights);
+      applyLight(overlay.data, vw, vh, wx0, wy0, light, rain, lights);
+    }
     this.timings.worldPixels = vw * vh;
     const t1 = performance.now();
 
@@ -195,7 +240,24 @@ export class ViewRenderer {
     const native = this.native(size);
     const spriteOf = (p: BlobbiPose) => (native ? native.sprite(p) : live.blobbiSprite(p));
     const pose = live.blobbi.animator.pose(time);
-    const sprite = spriteOf(pose);
+    // Teleporting: the eyes stay tightly shut while it concentrates and while it rebuilds (only the lids change).
+    const tp = live.teleport;
+    const away = tp.state !== 'present';
+    if (away && tp.eyesClosed(time)) {
+      pose.lid = 2;
+      pose.expression = 'neutral';
+      pose.walk = -1;
+    }
+    const canonical = spriteOf(pose);
+    let sprite = canonical;
+    if (lit && (light.dark > 0.01 || light.warm > 0.01 || rain > 0)) {
+      // The Blobbi in the same light: a tinted copy, as dark as the world around it (less near a lamp).
+      let f = 1;
+      for (const l of lights) f = Math.min(f, Math.hypot(l.x - b.x, (l.y - b.y) * 1.3) / l.radius);
+      const tinted = sprite.buffer.clone();
+      applyLight(tinted.data, tinted.width, tinted.height, 0, 0, { dark: light.dark * f, warm: light.warm }, rain * f, []);
+      sprite = { ...sprite, buffer: tinted };
+    }
     const bx = Math.round(b.x);
     const by = Math.round(b.y);
     // The anchor pixel sits in the world ground pixel's block: centre column, bottom row.
@@ -209,10 +271,20 @@ export class ViewRenderer {
     // A tool in front sits one world pixel right of its hand point, as the classic renderer has always drawn it
     // (its painter's-order nudge of +0.5 rounds up): the approved M2.3 look, kept in every mode.
     const drawTool = () => tool && blitAt(screen, tool.sprite, ax + Math.round(tool.dx * ratio) + (tool.behind ? 0 : Math.round(s)), ay + Math.round(tool.dy * ratio), ratio);
-    if (tool?.behind) drawTool();
-    blitAt(screen, sprite, ax, ay, ratio);
-    if (tool && !tool.behind) drawTool();
-    this.lastBlobbi = { x: ax, y: ay, size, ratio, sprite };
+    if (away) {
+      // No tool in hand while teleporting; the shadow first (on the ground), then whatever of the body shows.
+      const groundY = ay - Math.round(b.animator.hop(time) * s);
+      drawTeleportShadow(screen, Math.max(tp.shadow(time), tp.state === 'departing' ? tp.visible(time) * 0.5 : 0), ax, groundY - Math.floor(s / 2), tp.halfWidth * s);
+      const shown = teleportSprite(sprite, tp, time);
+      if (shown) blitAt(screen, shown, ax, ay, ratio);
+      this.teleportAnchor = { ax, groundY };
+    } else {
+      this.teleportAnchor = null;
+      if (tool?.behind) drawTool();
+      blitAt(screen, sprite, ax, ay, ratio);
+      if (tool && !tool.behind) drawTool();
+    }
+    this.lastBlobbi = { x: ax, y: ay, size, ratio, sprite: canonical };
     const t3 = performance.now();
 
     // ── 4. What stands in front, magnified onto the screen ────────────────
@@ -231,6 +303,8 @@ export class ViewRenderer {
         for (let yy = ry0; yy < ry1; yy++) dst.fill(c, yy * W + rx0, yy * W + rx1);
       }
     }
+    // The teleport's travelling pixels fly in front of everything (they are up in the air).
+    this.teleportParticles = this.teleportAnchor ? drawTeleportParticles(screen, tp, time, this.teleportAnchor.ax, this.teleportAnchor.groundY, s) : 0;
     const t4 = performance.now();
 
     // ── 5. Text, HUD and the camera indicator at the UI scale ─────────────
@@ -240,7 +314,12 @@ export class ViewRenderer {
       const y = t.head ? t.y + t.head - drawnHeight : t.y;
       this.drawText(screen, t, (t.x - originX) * s, (y - originY) * s, ui.uiScale);
     }
+    this.hudBox = null;
     if (ui.hud) this.drawHud(screen, ui.uiScale);
+    // The goal box, the prompt and goal notices are part of the HUD unless set on their own.
+    if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale);
+    if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale);
+    if (ui.hud) this.drawNotice(screen, ui.uiScale);
     if (ui.indicator) this.drawIndicator(screen, view, ui.uiScale);
     const t5 = performance.now();
     this.timings.world = t1 - t0;
@@ -285,23 +364,128 @@ export class ViewRenderer {
 
   private drawHud(screen: PixelBuffer, ui: number): void {
     const live = this.live;
-    const counts = live.counts();
-    const text = RESOURCE_KINDS.map((k) => `${k.toUpperCase()}S ${counts[k]}`).join('  ') + `  WOOD ${live.inventory.count(ITEMS.wood.id)}`;
     const palette = paletteFor(live.world.options.palette);
+    // The status card: portrait, name, friendship, the three needs and what is carried.
+    const c = live.care;
+    const steps = (v: number) => Math.round(v / 10) * 10;
+    const counts = live.counts();
+    const food = FOODS.reduce((n, f) => n + live.inventory.count(f), 0);
+    const carried = ([['WOOD', live.inventory.count(ITEMS.wood.id)], ...BASIC_KINDS.map((k) => [k.toUpperCase(), counts[k]]), ['FOOD', food]] as [string, number][])
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, n]) => `${k} ${n}`);
+    const away = live.getPresenceState() !== 'present';
+    const level = friendLevel(live.companion.friendship);
+    const info: StatusInfo = { name: live.blobbi.seed.length > 14 ? 'BLOBBI' : live.blobbi.seed, title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
+    const status = this.cachedText(`status|${JSON.stringify(info)}`, () => statusCard({ ...info, face: this.portrait() }), ui);
+    screen.blit(status, 2 * ui, 2 * ui);
+    let bottom = 2 * ui + status.height;
+    // Item toasts under the card, newest last; they slide in (unless motion is reduced) and leave on time. Sim
+    // time keeps frames deterministic, and a toast waits while a menu pauses the world.
+    const now = live.clock.time;
+    this.toasts.update(live.inventory, now);
+    for (const t of this.toasts.toasts) {
+      const text = `+${t.quantity} ${t.quantity > 1 ? itemPlural(t.item) : itemLabel(t.item)}`;
+      const card = this.cachedText(`toast|${t.item}|${text}`, () => toastCard(itemIcon(t.item, palette), text), ui);
+      const age = now - t.at;
+      const slide = this.reducedMotion ? 0 : Math.round(Math.max(0, 1 - age / 0.18) * -card.width);
+      screen.blit(card, 2 * ui + slide, bottom + ui);
+      bottom += card.height + ui;
+    }
+    // The tool in hand, bottom left above the camera indicator.
     const tool = live.equipped && EQUIPMENT[live.equipped] ? live.equipped : null;
-    const buf = this.cachedText(`hud|${text}|${tool}`, () => {
-      const w = text.length * 4 + 3;
-      const icon = tool ? toolIcon(tool, palette) : null;
-      const b = new PixelBuffer(w + (icon ? icon.buffer.width + 3 : 0), Math.max(9, icon ? icon.buffer.height + 2 : 0));
-      b.fillRect(0, 0, w, 9, hex('#1b1f2a'));
-      drawTinyText(b, text, 2, 2, hex('#f4efe4'));
-      if (icon) {
-        b.fillRect(w + 1, 0, icon.buffer.width + 2, icon.buffer.height + 2, hex('#1b1f2a'));
-        b.blit(icon.buffer, w + 2, 1);
-      }
+    if (tool) {
+      const chip = this.cachedText(`tool|${tool}`, () => toolChip(itemIcon(tool, palette), itemLabel(tool)), ui);
+      screen.blit(chip, 2 * ui, screen.height - chip.height - 13 * ui);
+    }
+    this.hudBox = { right: 2 * ui + status.width, bottom: 2 * ui + status.height };
+  }
+
+  /** The Blobbi's face for the status card: its canonical front sprite at the gameplay size. */
+  private portrait(): PixelBuffer {
+    const s = this.live.blobbiSprite({ ...REST_POSE });
+    const b = s.buffer;
+    // Crop to 16×16 around the body (the portrait frame is 18 px).
+    const out = new PixelBuffer(16, 16);
+    out.blit(b, 8 - s.anchorX, 16 - 1 - s.anchorY + 1);
+    return out;
+  }
+
+  /** Item toasts (the bag watched between frames). */
+  readonly toasts = new ToastFeed();
+  /** Calmer HUD motion (the playground copies the setting). */
+  reducedMotion = false;
+
+  /** Where the HUD ended last frame (the goal box moves under it on a narrow screen). */
+  private hudBox: { right: number; bottom: number } | null = null;
+
+  /** The time and weather chip, then the current objective, in the top-right corner. */
+  private drawGoal(screen: PixelBuffer, ui: number): void {
+    const live = this.live;
+    const t = live.worldTime;
+    const hour = hourAt(t);
+    const rain = live.rainNow();
+    const chip = this.cachedText(`time|${dayAt(t)}|${Math.floor(hour * 6)}|${rain > 0.45 ? 2 : rain > 0.2 ? 1 : 0}`, () => timeChip(dayAt(t), hour, rain), ui);
+    const hud = this.hudBox;
+    const narrow = (w: number) => !!hud && screen.width - w - 2 * ui < hud.right + 4 * ui;
+    let y = 2 * ui;
+    if (!narrow(chip.width)) {
+      screen.blit(chip, screen.width - chip.width - 2 * ui, y);
+      y += chip.height + ui;
+    }
+    // A visitor sees where it is and how to go home, not the host's story.
+    if (live.visitor) {
+      const text = `VISITING ${live.visitLabel || 'AN ISLAND'}  LOOK, DON'T TOUCH  Y: GO HOME`.toUpperCase();
+      const chipV = this.cachedText(`visit|${text}`, () => toastCard(null, text), ui);
+      if (narrow(chipV.width)) screen.blit(chipV, 2 * ui, (hud?.bottom ?? 0) + ui);
+      else screen.blit(chipV, screen.width - chipV.width - 2 * ui, y);
+      return;
+    }
+    const goal = currentObjective(live.objectives);
+    if (!goal) return;
+    const n = OBJECTIVES.indexOf(goal) + 1;
+    const ctx = { tally: live.tally, inventory: live.inventory, buildings: live.buildings, worldTime: live.worldTime };
+    const progress = goal.progress ? goal.progress(ctx) : '';
+    const buf = this.cachedText(`goal|${n}|${goal.title}|${progress}`, () => goalCard(n, OBJECTIVES.length, goal.title, progress), ui);
+    if (narrow(buf.width)) screen.blit(buf, 2 * ui, (hud?.bottom ?? 0) + ui);
+    else screen.blit(buf, screen.width - buf.width - 2 * ui, y);
+  }
+
+  /** What E would do now, centred at the bottom. */
+  private drawPrompt(screen: PixelBuffer, ui: number): void {
+    const text = this.live.prompt();
+    if (!text) return;
+    const buf = this.cachedText(`prompt|${text}`, () => {
+      const w = text.length * 4 + 5;
+      const b = new PixelBuffer(w, 11);
+      b.fillRect(0, 0, w, 11, hex('#1b1f2a'));
+      b.strokeRect(0, 0, w, 11, hex('#4a5068'));
+      drawTinyText(b, text, 3, 3, hex('#fffaf0'));
+      // The key, in yellow, when the prompt starts with one.
+      const key = /^[A-Z] {2}/i.exec(text);
+      if (key) drawTinyText(b, key[0].trim(), 3, 3, hex('#ffe07a'));
       return b;
     }, ui);
-    screen.blit(buf, 2 * ui, 2 * ui);
+    screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), screen.height - buf.height - 14 * ui);
+  }
+
+  /** A completed objective and its reward, centred at the top for a few seconds. */
+  private drawNotice(screen: PixelBuffer, ui: number): void {
+    const notice = this.live.notices[0];
+    if (!notice) return;
+    const line1 = `${notice.heading}: ${notice.title}`.toUpperCase();
+    const line2 = notice.text.toUpperCase();
+    const buf = this.cachedText(`notice|${line1}|${line2}`, () => {
+      const w = Math.max(line1.length, line2.length) * 4 + 7;
+      const b = new PixelBuffer(w, 17);
+      b.fillRect(0, 0, w, 17, hex('#2b2340'));
+      b.strokeRect(0, 0, w, 17, hex('#ffe07a'));
+      drawTinyText(b, line1, Math.round((w - line1.length * 4) / 2), 3, hex('#ffe07a'));
+      drawTinyText(b, line2, Math.round((w - line2.length * 4) / 2), 10, hex('#f4efe4'));
+      return b;
+    }, ui);
+    screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), 16 * ui);
   }
 
   /** "CAMERA  EXPLORATION 2X" and three pips, the active one lit, in the bottom-left corner. */
