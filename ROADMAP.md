@@ -227,7 +227,38 @@ Report: `REPORT-M3.2.md`. Images: `examples/mining/`, `examples/fidelity32/`.
       press is now kept until a step consumes it, and the small rock
       answers "too small to mine" with dust and a hop. 157 tests.
 
-### M3.3 and beyond (not started)
+### M3.3: Camera and visual LOD (complete)
+
+Report: `REPORT-M3.3.md`. Images: `examples/camera/`.
+- [x] Three camera modes: Overview (1×, the whole turtle, centred on it;
+      0.75× with a 12 px Blobbi on screens smaller than the turtle),
+      Exploration (2×, follows), Close-up (4×, follows).
+- [x] Z cycles (also the wheel and a Camera selector), an in-frame
+      indicator, eased transitions (0.4 s, nearest-neighbour throughout).
+- [x] Resolution-aware Blobbi: the canonical V3 raster at 12 / 24 / 48 px,
+      with expressions, walk frames, gaze and the tool rig at that size;
+      never a magnified sprite.
+- [x] World magnified by whole pixels only; terrain, objects, buildings,
+      footprints and nav unchanged; presentation only (tested).
+- [x] LOD: the world rendered over the visible rectangle only, the
+      overview reusing the gameplay sprite cache, bounded native caches,
+      text and HUD at a fixed UI scale.
+- [x] Per-mode render cost measured (`scripts/camera-perf.ts`).
+- [x] Tests: 168 passing (11 new); typecheck and build pass.
+- [x] Initial manual review (2026-10-10): proportions and feel approved;
+      three follow-ups requested before committing.
+- [x] Follow-ups (REPORT-M3.3.md section 9): overview Blobbi drawn at 12 px
+      (presentation only; proportions now differ by mode); walking jitter
+      fixed at both causes (sub-pixel kit walk motion rasterized as is, now
+      whole-pixel rig motion for walking poses; camera and Blobbi rounded
+      separately, now one rounding and following in simulation time);
+      close-up verified as a native 64 px raster. 178 tests.
+- [x] Manual approval (2026-10-10): camera, walk and performance approved.
+- [x] One Blobbi-to-world proportion in every mode: drawn natively at 12 /
+      24 / 48 px (¾ of its world size at 1× / 2× / 4×, presentation only);
+      speech bubbles rest on the drawn head. 181 tests.
+
+### M3.4 and beyond (not started)
 
 More building kinds, removal, interiors, paths to doors, farming, world
 growth.

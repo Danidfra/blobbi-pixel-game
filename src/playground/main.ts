@@ -26,8 +26,10 @@ import { RECIPES, canCraft } from '../game/crafting';
 import { toolIcon } from '../game/equipment';
 import { BUILDINGS } from '../game/buildings';
 import { isLargeRock } from '../game/rocks';
+import { ViewCamera, CAMERA_CYCLE, CAMERA_MODES, DEFAULT_CAMERA_MODE, isCameraMode, worldBounds, type CameraModeId, type WorldBounds } from '../render/view-camera';
+import { ViewRenderer, DEFAULT_VIEW_UI } from '../render/view-renderer';
 import { paletteFor } from '../world/generate';
-import { Camera, LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
+import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { blobbiIdentity } from '../blobbi/identity';
 import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT } from '../blobbi/canonical';
 import { buildNativeSprite } from '../blobbi/native-sprite';
@@ -153,7 +155,7 @@ app.innerHTML = `
         <button id="play-reset">Reset world</button>
       </div>
       <label>Speed <select id="play-speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
-      <label>Zoom <select id="play-zoom"><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+      <label>Camera <select id="play-camera"><option value="overview">Overview (1×, whole turtle)</option><option value="exploration">Exploration (2×, follows)</option><option value="closeup">Close-up (4×, follows)</option></select></label>
       <label>Blobbi seed <input id="blobbi-seed" type="text" spellcheck="false" /></label>
       <div class="row"><button id="blobbi-random">Random Blobbi</button></div>
       <label>Blobbi size <select id="blobbi-size"><option>12</option><option>14</option><option>16</option><option>18</option><option>20</option><option>24</option><option>32</option></select></label>
@@ -163,7 +165,7 @@ app.innerHTML = `
       <label class="check"><input id="live-debug" type="checkbox" /> debug collision</label>
       <label class="check"><input id="live-autonomy" type="checkbox" /> autonomy (WASD takes over, resumes after 5 s)</label>
       <label class="check"><input id="live-path" type="checkbox" /> debug path and nav grid</label>
-      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, chop a tree with the axe, else interact · C craft axe · V craft pickaxe · Q switch tool · B build · P plant a tree · click the view first</div>
+      <div class="hint">WASD / arrows move · E or Space collect a resource in reach, chop a tree with the axe, else interact · C craft axe · V craft pickaxe · Q switch tool · B build · P plant a tree · Z camera mode (or the wheel) · click the view first</div>
       <h2>Inventory</h2>
       <div id="inventory" class="stats"></div>
       <div class="row" id="axe-icon-row" style="align-items:center;gap:8px"><canvas id="axe-icon" width="36" height="36"></canvas><span class="hint" id="axe-icon-label">simple axe</span></div>
@@ -349,7 +351,28 @@ function showWorldStats(): void {
 
 let live: LiveWorld | null = null;
 let liveRenderer: LiveRenderer | null = null;
-const camera = new Camera();
+let viewRenderer: ViewRenderer | null = null;
+let bounds: WorldBounds | null = null;
+const CAMERA_KEY = 'blobbi-pixel:camera-mode';
+/** The camera mode is a viewer preference (browser storage), never part of the world save. */
+function storedCameraMode(): CameraModeId {
+  try {
+    const v = localStorage.getItem(CAMERA_KEY);
+    return isCameraMode(v) ? v : DEFAULT_CAMERA_MODE;
+  } catch {
+    return DEFAULT_CAMERA_MODE;
+  }
+}
+const viewCamera = new ViewCamera(storedCameraMode());
+function setCameraMode(mode: CameraModeId): void {
+  viewCamera.setMode(mode);
+  $<HTMLSelectElement>('play-camera').value = mode;
+  try {
+    localStorage.setItem(CAMERA_KEY, mode);
+  } catch {
+    // Storage unavailable: the mode just is not remembered.
+  }
+}
 let liveCanvas: HTMLCanvasElement | null = null;
 const keys = new Set<string>();
 let interactPressed = false;
@@ -359,6 +382,8 @@ const frameTimes: number[] = [];
 const simTimes: number[] = [];
 const renderTimes: number[] = [];
 const uploadTimes: number[] = [];
+/** View render time per camera mode (the last 90 frames spent in each). */
+const modeTimes: Record<CameraModeId, number[]> = { overview: [], exploration: [], closeup: [] };
 let fps = 0;
 let statsTimer = 0;
 let rafId = 0;
@@ -367,15 +392,18 @@ function startLive(): void {
   if (!world) return;
   live = new LiveWorld(world, state.blobbiSeed, state.blobbiSize, { store: localStore() });
   liveRenderer = new LiveRenderer(live);
+  viewRenderer = new ViewRenderer(live, liveRenderer);
+  bounds = worldBounds(world);
   drawAxeIcon();
   showInventory();
   live.clock.speed = state.speed;
-  camera.follow(live.blobbi.x, live.blobbi.y, view.width / state.playZoom, view.height / state.playZoom, world.options.width, world.options.height, 0, true);
+  viewCamera.update(0, { x: live.blobbi.x, y: live.blobbi.y, size: live.blobbi.size }, view.width, view.height, bounds, true);
 }
 
 function stopLive(): void {
   live = null;
   liveRenderer = null;
+  viewRenderer = null;
   liveCanvas = null;
 }
 
@@ -407,17 +435,16 @@ function playFrame(now: number): void {
   lastFrameTime = now;
   push(frameTimes, real * 1000);
   const t0 = performance.now();
-  live.update(real, readInput());
+  const steps = live.update(real, readInput());
   const t1 = performance.now();
-  const zoom = state.playZoom;
-  const viewW = Math.ceil(view.width / zoom);
-  const viewH = Math.ceil(view.height / zoom);
-  camera.follow(live.blobbi.x, live.blobbi.y - 6, viewW, viewH, world.options.width, world.options.height, real);
-  const frame = liveRenderer.render(viewW, viewH, camera.x, camera.y, live.clock.time, state.live);
+  // The camera is presentation only: it reads the Blobbi's position and never feeds anything back.
+  const cameraView = viewCamera.update(real, { x: live.blobbi.x, y: live.blobbi.y, size: live.blobbi.size }, view.width, view.height, bounds!, false, steps * live.clock.dt);
+  const frame = viewRenderer!.render(cameraView, viewCamera.restScale(viewCamera.mode, view.width, view.height, bounds!), live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud });
+  push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   liveCanvas = toCanvas(frame, liveCanvas ?? undefined);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(liveCanvas, 0, 0, viewW * zoom, viewH * zoom);
+  ctx.drawImage(liveCanvas, 0, 0);
   const t3 = performance.now();
   push(simTimes, t1 - t0);
   push(renderTimes, t2 - t1);
@@ -528,11 +555,17 @@ function showPlayStats(): void {
   showBuilding();
   const b = live.blobbi;
   const t = liveRenderer.timings;
+  const v = viewRenderer?.timings;
+  const cam = CAMERA_MODES[viewCamera.mode];
+  const native = viewRenderer?.lastBlobbi;
   $('stats').innerHTML =
     `fps       <b>${fps.toFixed(0)}</b>  frame ${avg(frameTimes).toFixed(1)} ms\n` +
     `worst     ${max(frameTimes).toFixed(1)} ms (last 90 frames)\n` +
     `sim       ${avg(simTimes).toFixed(2)} ms  render ${avg(renderTimes).toFixed(2)} ms\n` +
     `upload    ${avg(uploadTimes).toFixed(2)} ms  (copy ${t.copy.toFixed(2)} water ${t.water.toFixed(2)} objects ${t.objects.toFixed(2)})\n` +
+    `camera    <b>${cam.label}</b> ${viewCamera.scale.toFixed(2)}×  blobbi ${native ? `${native.size} px native` : '-'}  world px ${v?.worldPixels ?? 0}\n` +
+    `view      world ${v?.world.toFixed(2)} compose ${v?.compose.toFixed(2)} blobbi ${v?.blobbi.toFixed(2)} ui ${v?.ui.toFixed(2)} ms\n` +
+    `per mode  ${CAMERA_CYCLE.map((m) => `${m} ${modeTimes[m].length ? avg(modeTimes[m]).toFixed(2) : '-'}`).join('  ')} ms\n` +
     `clock     ${live.clock.time.toFixed(1)} s   step ${live.clock.step}   speed ${live.clock.speed}× ${live.clock.paused ? '(paused)' : ''}\n` +
     `blobbi    <b>${escapeHtml(b.seed)}</b>  at ${b.x.toFixed(0)},${b.y.toFixed(0)}  ${b.animator.state.direction}${b.animator.state.moving ? ' walking' : ''}\n` +
     `drawn     ${t.drawn} sprites   particles ${live.particles.particles.length}   planted ${live.planted.length}\n` +
@@ -553,9 +586,10 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyV') craftPickaxe();
   if (e.code === 'KeyQ') toggleAxe();
   if (e.code === 'KeyB') toggleBuild();
+  if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { live: () => live, camera: () => camera };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { live: () => live, camera: () => viewCamera, view: () => viewRenderer };
 window.addEventListener('beforeunload', () => live?.save());
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) live?.save();
@@ -598,7 +632,7 @@ $('play-speed').addEventListener('change', (e) => {
   state.speed = Number((e.target as HTMLSelectElement).value);
   if (live) live.clock.speed = state.speed;
 });
-$('play-zoom').addEventListener('change', (e) => (state.playZoom = Number((e.target as HTMLSelectElement).value)));
+$('play-camera').addEventListener('change', (e) => setCameraMode((e.target as HTMLSelectElement).value as CameraModeId));
 $('blobbi-seed').addEventListener('change', (e) => setBlobbiSeed((e.target as HTMLInputElement).value.trim() || 'abc123'));
 $('blobbi-random').addEventListener('click', () => setBlobbiSeed(randomSeed('blobbi')));
 $('blobbi-size').addEventListener('change', (e) => {
@@ -931,7 +965,7 @@ function renderFidelityView(): void {
   }
   // Gameplay-size strip: the sprite exactly as the game draws it, at the play zoom, beside the canonical at the same screen height.
   const gh = document.createElement('h3');
-  gh.textContent = `gameplay size: ${state.blobbiSize} px at ${state.playZoom}× (what the player sees)`;
+  gh.textContent = `gameplay size: ${state.blobbiSize} px in world pixels, shown ×${state.playZoom} here; in play the camera draws it natively at ${state.blobbiSize}, ${state.blobbiSize * 2} or ${state.blobbiSize * 4} px`;
   host.append(gh);
   const strip = document.createElement('div');
   strip.className = 'preview-row fid-row';
@@ -1073,7 +1107,7 @@ function syncControls(): void {
   $<HTMLInputElement>('gallery-prefix').value = state.galleryPrefix;
   $<HTMLSelectElement>('gallery-count').value = String(state.galleryCount);
   $<HTMLSelectElement>('play-speed').value = String(state.speed);
-  $<HTMLSelectElement>('play-zoom').value = String(state.playZoom);
+  $<HTMLSelectElement>('play-camera').value = viewCamera.mode;
   $<HTMLInputElement>('blobbi-seed').value = state.blobbiSeed;
   $<HTMLInputElement>('blobbi-seed-2').value = state.blobbiSeed;
   $<HTMLSelectElement>('blobbi-size').value = String(state.blobbiSize);
@@ -1233,8 +1267,9 @@ view.addEventListener(
   (e) => {
     e.preventDefault();
     if (state.mode === 'play') {
-      state.playZoom = Math.max(2, Math.min(6, state.playZoom + (e.deltaY < 0 ? 1 : -1)));
-      $<HTMLSelectElement>('play-zoom').value = String(state.playZoom);
+      // The wheel steps through the camera modes: up moves closer, down pulls back.
+      const at = CAMERA_CYCLE.indexOf(viewCamera.mode) + (e.deltaY < 0 ? 1 : -1);
+      if (at >= 0 && at < CAMERA_CYCLE.length) setCameraMode(CAMERA_CYCLE[at]);
       return;
     }
     const rect = view.getBoundingClientRect();

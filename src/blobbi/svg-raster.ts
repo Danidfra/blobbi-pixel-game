@@ -378,6 +378,14 @@ export interface RasterOptions {
   features?: boolean;
   /** A whole-pixel shift applied to every iris, pupil and highlight: the gaze, identical for both eyes. */
   gazeShift?: { dx: number; dy: number };
+  /**
+   * WHOLE-PIXEL RIG MOTION. A rig transform (`data-rig`: the body's bounce and sway, a leg's lift, an arm's swing)
+   * that moves its part by less than one output pixel everywhere cannot be drawn as motion; rasterized as is, it
+   * only tips individual features across rounding thresholds (an eye steps a pixel, the outline does not: the
+   * part shakes). With this on, such a transform is replaced by the whole-pixel translation nearest to its mean
+   * displacement, so the part moves rigidly or not at all. Transforms that move a part by a pixel or more are kept.
+   */
+  snapRig?: boolean;
 }
 
 /**
@@ -730,13 +738,67 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
 
   let irisBox: { x0: number; x1: number; y0: number; y1: number; color: Color } | null = null;
 
-  const walk = (node: Node, ctm: Matrix, opacity: number, clip: Mask | null) => {
+  /** Every outline point of the drawn shapes under a node, in output pixels. */
+  const groupPoints = (node: Node, ctm: Matrix, out: Pt[] = []): Pt[] => {
     for (const c of node.children) {
       if (c.tag === 'defs' || c.tag === 'clipPath' || c.tag === 'filter' || c.tag === 'linearGradient' || c.tag === 'radialGradient' || c.tag === 'stop') continue;
       const part = c.attrs['data-part'] ?? '';
       if (skipParts.some((p) => part.startsWith(p))) continue;
       if (skipFiltered && c.attrs.filter) continue;
       const m = multiply(ctm, parseTransform(c.attrs.transform));
+      if (c.tag === 'g' || c.tag === 'svg') groupPoints(c, m, out);
+      else for (const poly of shapePolys(c, m)) for (const pt of poly) out.push(pt);
+    }
+    return out;
+  };
+
+  /**
+   * The rig transform of `node` under `ctm`, or its whole-pixel replacement when it moves the part less than a
+   * pixel everywhere. A pure translation (a leg's lift and stride, a bounce) becomes the nearest whole-pixel
+   * step, and at least one pixel once it reaches a quarter pixel, so a step the kit makes stays visible. A
+   * rotation or squash of a limb (an arm's swing, the tuft) becomes a rigid translation by the rounded
+   * displacement of its farthest-moving point, so a swinging hand still moves a pixel; the body (the root rig,
+   * which carries the face) moves by its rounded mean displacement instead, so its sub-pixel lean, largest at
+   * the crown, never shifts the whole face sideways.
+   */
+  const rigMatrix = (node: Node, ctm: Matrix): Matrix => {
+    const local = parseTransform(node.attrs.transform);
+    const m = multiply(ctm, local);
+    if (!o.snapRig || !node.attrs['data-rig'] || !node.attrs.transform) return m;
+    const before = groupPoints(node, ctm);
+    const after = groupPoints(node, m);
+    if (!before.length || before.length !== after.length) return m;
+    let sx = 0;
+    let sy = 0;
+    let most = 0;
+    let far: [number, number] = [0, 0];
+    for (let i = 0; i < before.length; i++) {
+      const dx = after[i][0] - before[i][0];
+      const dy = after[i][1] - before[i][1];
+      sx += dx;
+      sy += dy;
+      const d = Math.hypot(dx, dy);
+      if (d > most) {
+        most = d;
+        far = [dx, dy];
+      }
+    }
+    if (most >= 1) return m;
+    const translation = local[0] === 1 && local[1] === 0 && local[2] === 0 && local[3] === 1;
+    const step = (v: number) => (Math.abs(v) < 0.25 ? 0 : Math.sign(v) * Math.max(1, Math.round(Math.abs(v))));
+    const root = node.attrs['data-part'] === 'character';
+    const dx = translation ? step(sx / before.length) : Math.round(root ? sx / before.length : far[0]);
+    const dy = translation ? step(sy / before.length) : Math.round(root ? sy / before.length : far[1]);
+    return multiply([1, 0, 0, 1, dx, dy], ctm);
+  };
+
+  const walk = (node: Node, ctm: Matrix, opacity: number, clip: Mask | null) => {
+    for (const c of node.children) {
+      if (c.tag === 'defs' || c.tag === 'clipPath' || c.tag === 'filter' || c.tag === 'linearGradient' || c.tag === 'radialGradient' || c.tag === 'stop') continue;
+      const part = c.attrs['data-part'] ?? '';
+      if (skipParts.some((p) => part.startsWith(p))) continue;
+      if (skipFiltered && c.attrs.filter) continue;
+      const m = rigMatrix(c, ctm);
       let own = Number(c.attrs.opacity ?? 1);
       if (o.minOpacity) for (const [prefix, floor] of Object.entries(o.minOpacity)) if (part.startsWith(prefix)) own = Math.max(own, floor);
       const op = opacity * own;

@@ -49,6 +49,28 @@ export interface FrameTimings {
   drawn: number;
 }
 
+/**
+ * A split frame, for the multi-scale view: the Blobbi and its tool are left out (the view draws them at native
+ * resolution), whatever stands in front of the Blobbi in painter's order goes to `overlay` (transparent
+ * elsewhere), and text is handed back to be drawn at the screen's UI scale instead of being magnified.
+ */
+export interface SplitLayers {
+  overlay: PixelBuffer;
+  texts: FrameText[];
+}
+
+export interface FrameText {
+  kind: 'bubble' | 'label';
+  text: string;
+  /** World position: the bubble's tail point, or the label's top-centre. */
+  x: number;
+  y: number;
+  color: Color;
+  background: Color;
+  /** A bubble over the Blobbi: its world height (see `Bubble.head`). */
+  head?: number;
+}
+
 interface WaveStroke {
   x: number;
   y: number;
@@ -92,7 +114,8 @@ export class LiveRenderer {
   private readonly waves: WaveStroke[] = [];
   private readonly sorted: { index: number; p: Placement }[];
   readonly timings: FrameTimings = { copy: 0, water: 0, objects: 0, particles: 0, total: 0, drawn: 0 };
-  private readonly background = hex('#0d1016');
+  /** What fills the frame beyond the world's edge. */
+  background = hex('#0d1016');
 
   constructor(readonly live: LiveWorld) {
     const world = live.world;
@@ -165,7 +188,7 @@ export class LiveRenderer {
   }
 
   /** Render the viewport (viewW × viewH world pixels) whose top-left is the camera position. */
-  render(viewW: number, viewH: number, camX: number, camY: number, time: number, o: LiveRenderOptions): PixelBuffer {
+  render(viewW: number, viewH: number, camX: number, camY: number, time: number, o: LiveRenderOptions, split?: SplitLayers): PixelBuffer {
     const t0 = performance.now();
     const world = this.live.world;
     const palette = paletteFor(world.options.palette);
@@ -264,15 +287,29 @@ export class LiveRenderer {
     const by = Math.round(b.y);
     if (o.shadows) this.paintShadow(frame, bx, by - 1, b.footRx, 2, ox, oy);
     const hop = b.animator.hop(time);
-    drawables.push({ y: by, x: bx, sprite: bs, sway: 0, dy: hop });
-    // The equipped tool, attached to a hand, just behind or just in front of the Blobbi in the painter's order.
-    if (live.equipped && EQUIPMENT[live.equipped]) {
-      const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), live.rig, (p) => live.blobbiSprite(p), palette);
-      if (at.visible) drawables.push({ y: by, x: bx + (at.behind ? -0.5 : 0.5), sprite: at.sprite, sway: 0, dy: hop, offset: { x: at.dx, y: at.dy } });
+    if (!split) {
+      drawables.push({ y: by, x: bx, sprite: bs, sway: 0, dy: hop });
+      // The equipped tool, attached to a hand, just behind or just in front of the Blobbi in the painter's order.
+      if (live.equipped && EQUIPMENT[live.equipped]) {
+        const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), live.rig, (p) => live.blobbiSprite(p), palette);
+        if (at.visible) drawables.push({ y: by, x: bx + (at.behind ? -0.5 : 0.5), sprite: at.sprite, sway: 0, dy: hop, offset: { x: at.dx, y: at.dy } });
+      }
     }
     drawables.sort((a, c) => a.y - c.y || a.x - c.x);
-    for (const d of drawables) this.blitSway(frame, d.sprite, Math.round(d.x + (d.offset?.x ?? 0)) - d.sprite.anchorX - ox, d.y + (d.offset?.y ?? 0) - d.sprite.anchorY - oy + d.dy, d.sway);
-    this.timings.drawn = drawables.length;
+    // Split: what sorts after the Blobbi (and its tool, at x ± 0.5) stands in front of it and goes to the overlay.
+    if (split) {
+      if (split.overlay.width !== viewW || split.overlay.height !== viewH) split.overlay = new PixelBuffer(viewW, viewH);
+      else split.overlay.fill(0);
+      split.texts.length = 0;
+    }
+    let out = frame;
+    for (const d of drawables) {
+      if (split && out === frame && (d.y > by || (d.y === by && d.x > bx + 0.5))) out = split.overlay;
+      this.blitSway(out, d.sprite, Math.round(d.x + (d.offset?.x ?? 0)) - d.sprite.anchorX - ox, d.y + (d.offset?.y ?? 0) - d.sprite.anchorY - oy + d.dy, d.sway);
+    }
+    // Everything drawn from here on is in front of the Blobbi.
+    out = split ? split.overlay : frame;
+    this.timings.drawn = drawables.length + (split ? 1 : 0);
     const t3 = performance.now();
 
     // ── Build mode: the placement preview, a ghost of the shelter with its footprint, green or red ──
@@ -287,14 +324,17 @@ export class LiveRenderer {
         for (let x = 0; x < ghost.buffer.width; x++) {
           const c = ghost.buffer.get(x, y);
           if (!(c >>> 24) || ((x + y) & 1)) continue; // a checker ghost
-          frame.set(gx + x, gy + y, c);
+          out.set(gx + x, gy + y, c);
         }
       const colour = check.ok ? hex('#4dffb0') : hex('#ff3b5c');
-      frame.strokeRect(check.x0 - ox, check.y0 - oy, check.x1 - check.x0 + 1, check.y1 - check.y0 + 1, colour);
+      out.strokeRect(check.x0 - ox, check.y0 - oy, check.x1 - check.x0 + 1, check.y1 - check.y0 + 1, colour);
       const text = check.ok ? (live.canAfford(live.buildMode) ? 'E TO BUILD' : 'NOT ENOUGH MATERIALS') : PROBLEM_TEXT[check.problem!].toUpperCase();
       const w = text.length * 4 + 3;
-      frame.fillRect(Math.round(spot.x - w / 2) - ox, check.y0 - 12 - oy, w, 9, hex('#1b1f2a'));
-      drawTinyText(frame, text, Math.round(spot.x - w / 2) + 2 - ox, check.y0 - 10 - oy, colour);
+      if (split) split.texts.push({ kind: 'label', text, x: spot.x, y: check.y0 - 12, color: colour, background: hex('#1b1f2a') });
+      else {
+        out.fillRect(Math.round(spot.x - w / 2) - ox, check.y0 - 12 - oy, w, 9, hex('#1b1f2a'));
+        drawTinyText(out, text, Math.round(spot.x - w / 2) + 2 - ox, check.y0 - 10 - oy, colour);
+      }
       void def;
     }
     // ── Pickups floating up, the reach marker, the resource counter ──────
@@ -302,7 +342,7 @@ export class LiveRenderer {
       const t = Math.min(1, (time - p.start) / PICKUP_SECONDS);
       if (t >= 1 || ((t * 10) | 0) % 3 === 2) continue; // flickers out near the end
       const s = resourceSprite(p.node.kind, p.node.variant, palette);
-      frame.blit(s.buffer, p.node.x - s.anchorX - ox, p.node.y - s.anchorY - Math.round(t * 14) - oy);
+      out.blit(s.buffer, p.node.x - s.anchorX - ox, p.node.y - s.anchorY - Math.round(t * 14) - oy);
     }
     if (reachable) {
       const s = resourceSprite(reachable.kind, reachable.variant, palette);
@@ -310,27 +350,30 @@ export class LiveRenderer {
       const mx = reachable.x - ox;
       const my = reachable.y - s.buffer.height - 3 - oy + bob;
       const ink = hex('#fffaf0');
-      frame.set(mx, my, ink);
-      frame.set(mx - 1, my - 1, ink);
-      frame.set(mx + 1, my - 1, ink);
-      frame.set(mx, my - 1, ink);
+      out.set(mx, my, ink);
+      out.set(mx - 1, my - 1, ink);
+      out.set(mx + 1, my - 1, ink);
+      out.set(mx, my - 1, ink);
     }
-    if (o.hud) {
+    if (o.hud && !split) {
       const counts = live.counts();
       const text = RESOURCE_KINDS.map((k) => `${k.toUpperCase()}S ${counts[k]}`).join('  ') + `  WOOD ${live.inventory.count(ITEMS.wood.id)}`;
       const w = text.length * 4 + 3;
-      frame.fillRect(2, 2, w, 9, hex('#1b1f2a'));
-      drawTinyText(frame, text, 4, 4, hex('#f4efe4'));
+      out.fillRect(2, 2, w, 9, hex('#1b1f2a'));
+      drawTinyText(out, text, 4, 4, hex('#f4efe4'));
       // The equipped tool's icon beside the counter.
       if (live.equipped && EQUIPMENT[live.equipped]) {
         const icon = toolIcon(live.equipped, palette);
-        frame.fillRect(2 + w + 1, 2, icon.buffer.width + 2, icon.buffer.height + 2, hex('#1b1f2a'));
-        frame.blit(icon.buffer, 2 + w + 2, 3);
+        out.fillRect(2 + w + 1, 2, icon.buffer.width + 2, icon.buffer.height + 2, hex('#1b1f2a'));
+        out.blit(icon.buffer, 2 + w + 2, 3);
       }
     }
     // ── Front particles and the speech bubble ─────────────────────────────
-    live.particles.draw(frame, ox, oy, true);
-    if (live.bubble) this.drawBubble(frame, live.bubble.text, live.bubble.x - ox, live.bubble.y - oy);
+    live.particles.draw(out, ox, oy, true);
+    if (live.bubble) {
+      if (split) split.texts.push({ kind: 'bubble', text: live.bubble.text, x: live.bubble.x, y: live.bubble.y, color: hex('#2b2340'), background: hex('#fffaf0'), head: live.bubble.head });
+      else this.drawBubble(frame, live.bubble.text, live.bubble.x - ox, live.bubble.y - oy);
+    }
     const t4 = performance.now();
 
     // ── Debug overlay ─────────────────────────────────────────────────────
@@ -339,15 +382,15 @@ export class LiveRenderer {
       const blocked = live.collision.blocked;
       for (let y = y0; y < y1; y++)
         for (let x = x0; x < x1; x++)
-          if (blocked[y * width + x] && ((x + y) & 1) === 0) frame.data[(y - oy) * viewW + (x - ox)] = red;
+          if (blocked[y * width + x] && ((x + y) & 1) === 0) out.data[(y - oy) * viewW + (x - ox)] = red;
       const yellow = hex('#ffe44d');
       const n = 24;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
-        frame.set(Math.round(b.x + Math.cos(a) * b.footRx) - ox, Math.round(b.y + Math.sin(a) * b.footRy) - oy, yellow);
+        out.set(Math.round(b.x + Math.cos(a) * b.footRx) - ox, Math.round(b.y + Math.sin(a) * b.footRy) - oy, yellow);
       }
       const target = live.facingObject();
-      if (target) frame.strokeRect(target.placement.x - target.sprite.footRx - 1 - ox, target.placement.y - target.sprite.footRy - 1 - oy, target.sprite.footRx * 2 + 3, target.sprite.footRy * 2 + 3, hex('#4dffb0'));
+      if (target) out.strokeRect(target.placement.x - target.sprite.footRx - 1 - ox, target.placement.y - target.sprite.footRy - 1 - oy, target.sprite.footRx * 2 + 3, target.sprite.footRy * 2 + 3, hex('#4dffb0'));
     }
     if (o.debugPath) {
       const brain = live.brain;
@@ -359,14 +402,14 @@ export class LiveRenderer {
           if (!live.nav.isFree(c, r)) continue;
           const p = live.nav.centre(c, r);
           if (p.x < ox || p.y < oy || p.x >= ox + viewW || p.y >= oy + viewH) continue;
-          if (((c + r) & 3) === 0) frame.set(Math.floor(p.x) - ox, Math.floor(p.y) - oy, hex('#2fbf7a'));
+          if (((c + r) & 3) === 0) out.set(Math.floor(p.x) - ox, Math.floor(p.y) - oy, hex('#2fbf7a'));
         }
-      for (let i = 0; i + 1 < brain.path.length; i++) frame.line(Math.round(brain.path[i].x) - ox, Math.round(brain.path[i].y) - oy, Math.round(brain.path[i + 1].x) - ox, Math.round(brain.path[i + 1].y) - oy, cyan);
+      for (let i = 0; i + 1 < brain.path.length; i++) out.line(Math.round(brain.path[i].x) - ox, Math.round(brain.path[i].y) - oy, Math.round(brain.path[i + 1].x) - ox, Math.round(brain.path[i + 1].y) - oy, cyan);
       if (brain.target) {
         const tx = Math.round(brain.target.x) - ox;
         const ty = Math.round(brain.target.y) - oy;
-        frame.hline(tx - 3, tx + 3, ty, magenta);
-        frame.vline(tx, ty - 3, ty + 3, magenta);
+        out.hline(tx - 3, tx + 3, ty, magenta);
+        out.vline(tx, ty - 3, ty + 3, magenta);
       }
     }
     const t5 = performance.now();

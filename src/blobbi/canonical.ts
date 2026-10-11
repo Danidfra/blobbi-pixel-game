@@ -35,6 +35,13 @@ export interface CanonicalOptions {
   bands?: number;
   /** Extra `data-part` prefixes to leave out (the equipment layer finds a hand by drawing the sprite without its arm). */
   skipParts?: readonly string[];
+  /**
+   * Whole-pixel rig motion (see `RasterOptions.snapRig`). Default: on for walking poses. The kit's walk moves the
+   * body by fractions of a pixel at gameplay sizes (a 0.95° sway is 0.2 px at the crown of a 12 px Blobbi); drawn
+   * as is, that only flips eyes and outline pixels independently from frame to frame and the Blobbi shakes. Off
+   * reproduces the raw raster (for comparison).
+   */
+  snapRig?: boolean;
 }
 
 /** Map a lab pose onto the kit's state. */
@@ -96,6 +103,7 @@ export function buildCanonicalSprite(genome: BlobbiGenome, pose: BlobbiPose, siz
     // are given a floor. The colour and the shape are still the kit's.
     minOpacity: { pattern: 0.8, 'special-mark': 1, freckle: 1 },
     gazeShift: gazeShiftFor(pose, size),
+    snapRig: options.snapRig ?? pose.walk >= 0,
   });
   // The ground point of this very drawing, so the sprite stands where the kit says it stands.
   const geo = buildBlobbiGeometry(deriveMorphology(genome, 'adult'), state);

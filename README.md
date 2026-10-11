@@ -56,7 +56,7 @@ identity). Everything else is dev-only: Vite, Vitest, TypeScript, `pngjs`, `tsx`
 | Mode | What it does |
 | --- | --- |
 | **World** | The static generator: seed, randomize, regenerate, islands, palette, density, size; zoom, pan, layer toggles (terrain, vegetation, structures, details, shadows); PNG export; statistics and an audit. |
-| **Play** | The living world, on a turtle by default (world kind, turtle seed). The Blobbi is autonomous; WASD or arrows take over and autonomy resumes after five seconds; the statistics show its mind, note and destination, and an overlay draws the nav grid and path. WASD or arrows move the Blobbi, E or Space interacts with what it faces (trees shake and drop leaves, bushes sparkle, houses send hearts, signs speak, lanterns glitter), P plants a tree that grows. Pause/resume, speed 0.25× to 4×, camera zoom, Blobbi seed and size (12 to 32 px, default 16), toggles for water, wind, shadows and a collision debug overlay. Statistics show FPS, frame time (sim, render, upload), clock, caches and what the Blobbi faces. |
+| **Play** | The living world, on a turtle by default (world kind, turtle seed). The Blobbi is autonomous; WASD or arrows take over and autonomy resumes after five seconds; the statistics show its mind, note and destination, and an overlay draws the nav grid and path. WASD or arrows move the Blobbi, E or Space interacts with what it faces (trees shake and drop leaves, bushes sparkle, houses send hearts, signs speak, lanterns glitter), P plants a tree that grows. Pause/resume, speed 0.25× to 4×, three camera modes (Z, the wheel or the Camera selector: Overview 1× with the whole turtle, Exploration 2× and Close-up 4× following the Blobbi, which is drawn natively at 12, 24 and 48 px, three quarters of its world size in every mode so its proportion to the world never changes (presentation only); walking frames use whole-pixel rig motion so small sizes do not shake; an indicator in the corner; the mode is a viewer preference in browser storage, never in the save), Blobbi seed and size (12 to 32 px, default 16), toggles for water, wind, shadows and a collision debug overlay. Statistics show FPS, frame time (sim, render, upload), the camera (mode, scale, native size, per-mode render time), clock, caches and what the Blobbi faces. |
 | **Blobbi** | Appearance gallery (24 seeds of a prefix), a four-direction animated preview (idle breathing, blinking, glances; walking on request; click to make it react), and an expression strip. |
 | **Growth** | One tree seed at eight ages, plus an animated stage with a growth slider, Grow and Reset. |
 | **Gallery** | Many world seeds side by side, each audited (unbridged island, object off land, clipped object). |
@@ -90,6 +90,7 @@ seed ─► world/layout ─► world/terrain ─► world/bridges ─► world/
 | `blobbi/sprite.ts` | Pixel geometry of a Blobbi: egg silhouette by rows, banded shading, feet, arms, belly, patterns, mark, eyes with lids and gaze, mouth per expression, cheeks, tuft, antennae, horns, ears, tail. Front, back and both sides from one identity. |
 | `blobbi/animation.ts` | Pose state machine: walk phases, breathing, seeded blink and glance schedules, turning through a side frame, reactions with a hop. |
 | `sim/clock.ts`, `sim/collision.ts`, `sim/particles.ts`, `sim/live-world.ts` | Fixed-step clock with speed and pause; walkability mask (water, footprints, cliff rims, bridges and piers) with sliding movement; seeded particles (leaves, petals, sparkles, hearts, notes, smoke, dust); the live world: input, wind, ambient events, interactions, planting and growth. |
+| `render/view-camera.ts`, `render/view-renderer.ts` | The multi-scale camera (M3.3): three modes, eased transitions, the overview framing the turtle; the view composes the world magnified by whole pixels (nearest-neighbour), the Blobbi and its tool rasterized natively at the screen size between what stands behind and in front of it, and text and HUD at a fixed UI scale. Presentation only: it never writes to the simulation. |
 | `render/paint-terrain.ts`, `render/compose.ts`, `render/live-render.ts` | Terrain painter; the static compositor; the live renderer: cached static layer, per-frame foam and wave strokes from precomputed lists, objects with wind sway, the Blobbi in painter's order, particles, speech bubble, debug overlay, camera. |
 | `carrier/` | The World Carrier: the turtle as the creature carrying the island. Shell variants (B default), the carrier record (species, variant, coverage, canvas, the island frame's `origin`), the enlarged-shell anatomy fit, the procedural shell surface (plates, soil, moss, lip) and the embedding of an island-frame world into the carrier's canvas by one explicit translation. |
 | `game/items.ts`, `game/resources.ts`, `game/inventory.ts`, `game/crafting.ts`, `game/trees.ts`, `game/equipment.ts`, `game/buildings.ts`, `game/rocks.ts`, `game/persistence.ts` | Gameplay (M2.1, M2.2): the item registry (stable ids, stack limits, tool interactions), resource nodes generated from the world (sticks, stones, seeds), the local inventory (shaped for a later `@nostr-games/inventory` adapter), recipes and atomic crafting (the simple axe), tree harvest state and regrowth in world time through the growth system, the equipment layer (procedural axe templates, hands found on the canonical sprite, direction-aware attachment, the swing), buildings (the wooden shelter: placement preview and checks, atomic cost, construction in world time, island-frame coordinates), large-rock mining and rubble (pickaxe), renewable resource nodes, and the versioned per-world save record (collected nodes, inventory, equipped tool, tree states, world time) in any key-value store. |
@@ -119,7 +120,10 @@ keep the door open (full list in `ROADMAP.md`):
 
 All drawing is integer rasterization into typed arrays, which runs identically
 in Node (tests, sheets, headless frames) and in the browser. The page only
-blits a frame with `imageSmoothingEnabled = false` at an integer zoom. The live
+blits a frame with `imageSmoothingEnabled = false`. In play the frame is
+already screen-sized: the view magnifies world pixels by a whole number in
+software (so headless screenshots are the frames players see) and draws the
+Blobbi at its native screen resolution, never enlarged. The live
 renderer copies a cached static layer by rows, repaints a few thousand
 animated water pixels, and blits the sprites in view; nothing is regenerated
 per frame. If a game later wants PixiJS or Phaser, a `PixelBuffer` is a texture.
@@ -134,6 +138,14 @@ turning and reactions; clock stepping; collision rules, sliding movement,
 bridge crossing; deterministic replay of the live world (state, particles and
 pixels), walking, interaction, planting and growth; camera clamping and
 viewport rendering; growth reproducibility and morphology stability.
+`tests/camera.test.ts` (M3.3): mode cycling and transitions, tracking, the
+overview framing the turtle, per-mode determinism, the 1× overview identical
+to the classic render, native Blobbi per mode, expressions and walk frames,
+tool attachment, world pixels unresized, and the camera leaving world state,
+reach, placement and saves untouched. `tests/walk-stability.test.ts`: a still
+body through the walk at 12-32 px, only arms and tuft moving at 48 px, feet that still step, no back-and-forth
+under the following camera at 60/120/144 Hz, and native 24 and 48 px
+rasters.
 
 Visual regression hashes are pinned in `tests/__snapshots__/render-hashes.json`;
 re-pin on purpose with `UPDATE_SNAPSHOTS=1 npm test` after inspecting
@@ -144,4 +156,7 @@ re-pin on purpose with `UPDATE_SNAPSHOTS=1 npm test` after inspecting
 `examples/`: eight worlds at 2×, an autumn world, a 640×448 world, a 16-seed
 contact sheet, object sheets, Blobbi sheets at 18 and 24 px (four views,
 expressions, blink, breath, walk frames), a close-up, a growth sheet, a
-plateau close-up and two frames of the living world.
+plateau close-up and two frames of the living world. `examples/camera/`: the
+same scene in the three camera modes at 960×540, Blobbi crops per mode and a
+transition strip (`npx tsx scripts/camera-modes.ts`; costs with
+`npx tsx scripts/camera-perf.ts`).

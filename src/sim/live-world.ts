@@ -71,6 +71,8 @@ export interface Bubble {
   until: number;
   x: number;
   y: number;
+  /** Set when the Blobbi speaks: its world height then, so a view drawing it at another size can rest the tail on its head. */
+  head?: number;
 }
 
 export interface LiveStats {
@@ -278,7 +280,7 @@ export class LiveWorld {
     const b = this.blobbi;
     const item = RESOURCE_ITEM[node.kind];
     if (this.inventory.add(item, 1) === 0) {
-      this.bubble = { text: `${RESOURCE_LABEL[node.kind]} full`, until: time + 1.6, x: b.x, y: b.y - b.size - 2 };
+      this.bubble = { text: `${RESOURCE_LABEL[node.kind]} full`, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.8, 0);
       return null;
     }
@@ -288,7 +290,7 @@ export class LiveWorld {
     this.pickups.push({ node, start: time });
     this.particles.sparkle(node.x, node.y - 2, hex('#ffffff'));
     this.particles.sparkle(node.x + 2, node.y - 1, hex('#fff2b0'));
-    this.bubble = { text: `+1 ${node.kind}  ${this.inventory.count(item)}/${this.inventory.limit(item)}`, until: time + 1.4, x: b.x, y: b.y - b.size - 2 };
+    this.bubble = { text: `+1 ${node.kind}  ${this.inventory.count(item)}/${this.inventory.limit(item)}`, until: time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.7, 2);
     this.stats.collected++;
     this.save();
@@ -388,7 +390,7 @@ export class LiveWorld {
     const check = canCraft(this.inventory, recipe);
     if (!check.ok) {
       const why = check.outputFull ? `already have a ${itemLabel(recipe.output.item)}` : check.missing.map((m) => `need ${m.need - m.have} ${itemLabel(m.item)}`).join(', ');
-      this.bubble = { text: why, until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+      this.bubble = { text: why, until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.7, 0);
       return false;
     }
@@ -396,7 +398,7 @@ export class LiveWorld {
     this.stats.crafted++;
     for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-6, 6), b.y - b.size * 0.6 + this.particles.rng.range(-5, 5), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
     this.particles.note(b.x + 4, b.y - b.size - 2);
-    this.bubble = { text: `crafted a ${itemLabel(recipe.output.item)}!`, until: time + 2, x: b.x, y: b.y - b.size - 2 };
+    this.bubble = { text: `crafted a ${itemLabel(recipe.output.item)}!`, until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('excited', time, 1.1, 3);
     this.save();
     return true;
@@ -440,7 +442,7 @@ export class LiveWorld {
     const { index, placement: o, sprite } = target;
     if (!isLargeRock(o.size)) {
       // No swing (nothing to mine), but a clear answer: the bubble, a puff of dust on the rock and a small shrug.
-      this.bubble = { text: 'too small to mine', until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+      this.bubble = { text: 'too small to mine', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       const palette = paletteFor(this.world.options.palette);
       for (let i = 0; i < 3; i++) this.particles.dust(o.x + this.particles.rng.range(-1, 1), o.y - sprite.anchorY + 1, palette.stone.light);
       b.animator.react('surprised', time, 0.6, 1);
@@ -479,7 +481,7 @@ export class LiveWorld {
     for (let i = 0; i < 5; i++) this.particles.dust(impact.x + this.particles.rng.range(-1, 1), impact.y - this.particles.rng.range(0, 2), i % 2 ? palette.stone.light : palette.stone.mid);
     this.particles.sparkle(impact.x, impact.y - 1, hex('#fff2b0'));
     if (state.hits < HITS_TO_MINE) {
-      this.bubble = { text: `mine ${state.hits}/${HITS_TO_MINE}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2 };
+      this.bubble = { text: `mine ${state.hits}/${HITS_TO_MINE}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2, head: b.size };
       this.save();
       return;
     }
@@ -489,7 +491,7 @@ export class LiveWorld {
     const stones = stoneYield(o.seed, o.size);
     const got = this.inventory.add(ITEMS.stone.id, stones);
     for (let i = 0; i < 8; i++) this.particles.dust(o.x + this.particles.rng.range(-sprite.footRx, sprite.footRx), o.y - this.particles.rng.range(0, 6), i % 2 ? palette.stone.light : palette.stone.dark);
-    this.bubble = { text: got === stones ? `+${got} stone  ${this.inventory.count(ITEMS.stone.id)}/${this.inventory.limit(ITEMS.stone.id)}` : got > 0 ? `+${got} stone, bag full` : 'stones full', until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+    this.bubble = { text: got === stones ? `+${got} stone  ${this.inventory.count(ITEMS.stone.id)}/${this.inventory.limit(ITEMS.stone.id)}` : got > 0 ? `+${got} stone, bag full` : 'stones full', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 1, 3);
     this.save();
   }
@@ -516,7 +518,7 @@ export class LiveWorld {
     const top = o.y - sprite.anchorY;
     for (let i = 0; i < 3; i++) this.particles.leaf(o.x + this.particles.rng.range(-sprite.buffer.width * 0.3, sprite.buffer.width * 0.3), top + this.particles.rng.range(2, Math.max(3, (sprite.swayRow ?? sprite.anchorY) - 1)), i % 2 ? foliage.dark : foliage.mid);
     if (state.hits < HITS_TO_FELL) {
-      this.bubble = { text: `chop ${state.hits}/${HITS_TO_FELL}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2 };
+      this.bubble = { text: `chop ${state.hits}/${HITS_TO_FELL}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2, head: b.size };
       this.save();
       return;
     }
@@ -529,7 +531,7 @@ export class LiveWorld {
     for (let i = 0; i < 10; i++) this.particles.leaf(o.x + this.particles.rng.range(-sprite.buffer.width * 0.4, sprite.buffer.width * 0.4), top + this.particles.rng.range(1, Math.max(3, (sprite.swayRow ?? sprite.anchorY) - 1)), i % 2 ? foliage.dark : foliage.mid);
     for (let i = 0; i < 4; i++) this.particles.dust(o.x + this.particles.rng.range(-4, 4), o.y - 1, paletteFor(this.world.options.palette).wood.light);
     this.impulses.delete(index);
-    this.bubble = { text: got === wood ? `+${got} wood  ${this.inventory.count(ITEMS.wood.id)}/${this.inventory.limit(ITEMS.wood.id)}` : got > 0 ? `+${got} wood, bag full` : 'wood full', until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+    this.bubble = { text: got === wood ? `+${got} wood  ${this.inventory.count(ITEMS.wood.id)}/${this.inventory.limit(ITEMS.wood.id)}` : got > 0 ? `+${got} wood, bag full` : 'wood full', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 1, 3);
     this.save();
     return;
@@ -600,13 +602,13 @@ export class LiveWorld {
     const spot = this.placementSpot(kind);
     const check = this.placementCheck(kind, spot);
     if (!check.ok) {
-      this.bubble = { text: PROBLEM_TEXT[check.problem!], until: time + 1.6, x: b.x, y: b.y - b.size - 2 };
+      this.bubble = { text: PROBLEM_TEXT[check.problem!], until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.6, 0);
       return null;
     }
     if (!consumeIngredients(this.inventory, def.cost)) {
       const missing = def.cost.filter((c) => this.inventory.count(c.item) < c.quantity).map((c) => `need ${c.quantity - this.inventory.count(c.item)} ${itemLabel(c.item)}`);
-      this.bubble = { text: missing.join(', '), until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+      this.bubble = { text: missing.join(', '), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.6, 0);
       return null;
     }
@@ -617,7 +619,7 @@ export class LiveWorld {
     this.nav.rebuild(building.x - def.footRx - 20, building.y - def.footRy - 16, building.x + def.footRx + 20, building.y + def.footRy + 16);
     this.stats.built++;
     for (let i = 0; i < 6; i++) this.particles.dust(spot.x + this.particles.rng.range(-def.footRx, def.footRx), spot.y + this.particles.rng.range(-2, 2), i % 2 ? paletteFor(this.world.options.palette).wood.light : paletteFor(this.world.options.palette).path.dark);
-    this.bubble = { text: `building a ${def.label}`, until: time + 1.8, x: b.x, y: b.y - b.size - 2 };
+    this.bubble = { text: `building a ${def.label}`, until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('excited', time, 1, 2);
     this.buildMode = null;
     this.save();
@@ -955,10 +957,10 @@ export class LiveWorld {
       const p = this.buildingAt(building);
       if (p >= 1) {
         for (let i = 0; i < 3; i++) this.particles.heart(building.x + this.particles.rng.range(-4, 4), building.y - 14 - i * 2);
-        this.bubble = { text: 'home sweet home', until: time + 2, x: b.x, y: b.y - b.size - 2 };
+        this.bubble = { text: 'home sweet home', until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
         b.animator.react('excited', time, 1.2, 3);
       } else {
-        this.bubble = { text: `under construction, ${Math.ceil((1 - p) * BUILDINGS[building.kind].buildSeconds)} s`, until: time + 1.6, x: b.x, y: b.y - b.size - 2 };
+        this.bubble = { text: `under construction, ${Math.ceil((1 - p) * BUILDINGS[building.kind].buildSeconds)} s`, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
         b.animator.react('neutral', time, 0.5, 0);
       }
       return;
