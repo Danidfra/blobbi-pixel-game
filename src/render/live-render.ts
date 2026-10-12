@@ -132,7 +132,7 @@ export class LiveRenderer {
     this.staticLayer = this.paintStatic(world);
     if (live.reveal && live.world.growth) {
       // The island as the player last saw it (the stage the reveal starts from), to grow the new land in from.
-      this.revealFrom = this.paintStatic(growWorld(live.baseWorld, live.reveal.fromStage, live.world.growth.version));
+      this.revealFrom = this.paintStatic(growWorld(live.baseWorld, live.reveal.fromStage, live.world.growth.version, live.growth.history));
       this.revealTo = this.staticLayer.clone();
     }
     // Foam pixels and wave strokes, precomputed once.

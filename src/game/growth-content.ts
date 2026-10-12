@@ -18,6 +18,7 @@ const RESOURCES: Record<BiomeId, [ResourceKind, number][]> = {
   rocky: [['stone', 7], ['herb', 1]],
   coastal: [['fibre', 3], ['shell', 2], ['stick', 1]],
   mushroom: [['mushroom', 6], ['stick', 2]],
+  sanctuary: [['berry', 3], ['seed', 3], ['herb', 2], ['stick', 2]],
 };
 
 const SPRITES: Partial<Record<ResourceKind, number>> = { stick: 3, stone: 3, seed: 2, ...Object.fromEntries(FORAGE_CONTENT.map((f) => [f.kind, f.sprites.length])) };

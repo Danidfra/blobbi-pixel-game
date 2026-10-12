@@ -95,7 +95,7 @@ export class GrowthScreen implements Screen {
       // Not ready: the button stays muted, and a press says what is still missing (never closes the panel).
       g.button(label, x, cy, () => this.grow(ui), { w: lw, primary: r.ready, enabled: r.ready, whyNot: () => this.grow(ui) });
       cy += 14;
-      g.para('Nothing grows by itself and nothing is lost by waiting: the island only grows when you choose. Existing land, buildings and crops never move.', x, cy, lw, UI.muted, 4);
+      g.para('Nothing grows by itself and nothing is lost by waiting: it grows when you choose. Nothing you placed ever moves.', x, cy, lw, UI.muted, 3);
     }
     // Right: the land that has grown so far.
     const rx = x + lw + 8;

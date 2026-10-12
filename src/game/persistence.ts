@@ -185,7 +185,7 @@ export function growthFromSave(raw: unknown): GrowthSave {
   const g = newGrowthSave();
   if (!raw || typeof raw !== 'object') return g;
   const r = raw as Partial<Record<keyof GrowthSave, unknown>>;
-  if (typeof r.stage === 'number' && Number.isInteger(r.stage) && r.stage >= 0 && r.stage <= 3) g.stage = r.stage;
+  if (typeof r.stage === 'number' && Number.isInteger(r.stage) && r.stage >= 0 && r.stage <= 4) g.stage = r.stage;
   if (typeof r.version === 'number' && Number.isInteger(r.version) && r.version >= 1) g.version = r.version;
   if (Array.isArray(r.history))
     g.history = r.history

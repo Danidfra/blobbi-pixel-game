@@ -108,6 +108,11 @@ export const LORE: readonly LoreNote[] = [
     title: 'The deep green',
     text: 'Moss as thick as a cushion, old-looking trees, and mushrooms that glow when the sun goes down. The Carrier hums differently here: lower, slower, pleased.',
   },
+  {
+    id: 'new-sanctuary',
+    title: 'Sanctuary',
+    text: 'The land reaches almost to the Carrier\'s edges now, and the old Keepers had a word for an island like this: a sanctuary. The Carrier swims slower, as if it does not want to spill anything.',
+  },
 ];
 
 export const loreById = (id: string): LoreNote | undefined => LORE.find((l) => l.id === id);

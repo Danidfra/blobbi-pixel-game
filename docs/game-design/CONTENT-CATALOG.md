@@ -9,7 +9,7 @@
 
 | Content | Count | Source |
 |---|---|---|
-| Items | 120 | `game/items.ts` `ALL_ITEMS` |
+| Items | 121 | `game/items.ts` `ALL_ITEMS` |
 | Crops | 11 | `content/crops.ts` |
 | Forage kinds | 5 | `content/forage.ts` |
 | Placeable kinds (incl. the shelter) | 44 | `game/buildings.ts` `BUILDINGS` |
@@ -17,13 +17,13 @@
 | Meals | 19 | `content/meals.ts` |
 | Quests | 38 | `content/quests.ts` |
 | Island requests | 8 | `content/quests.ts` `REQUEST_POOL` |
-| Lore notes | 19 | `content/lore.ts` |
+| Lore notes | 20 | `content/lore.ts` |
 | Discoveries (island) | 8 | `content/discoveries.ts` |
-| Discoveries (grown land) | 5 | `content/discoveries.ts` `GROWTH_DISCOVERIES` |
+| Discoveries (grown land) | 6 | `content/discoveries.ts` `GROWTH_DISCOVERIES` |
 | Fish | 4 | `content/tools.ts` |
 | Tool upgrades | 4 | `content/tools.ts` |
-| Biomes (grown land) | 5 | `world/growth.ts` |
-| Growth stages | 3 | `world/growth.ts` |
+| Biomes (grown land) | 6 | `world/growth.ts` |
+| Growth stages | 4 | `world/growth.ts` |
 | Carrier observations (turtle / manta / whale) | 8 / 6 / 8 | `game/carrier.ts` |
 | Sound effects | 59 | `audio/sfx.ts` |
 | Music moods | 6 | `audio/music.ts` |
@@ -162,7 +162,7 @@
 | wooden bench | `blobbi-pixel:furniture:bench` | 10 | places: bench |
 | storage crate | `blobbi-pixel:furniture:crate` | 10 | places: crate |
 
-### Special (13)
+### Special (14)
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
@@ -179,6 +179,7 @@
 | little geode | `blobbi-pixel:special:geode` | 1 |  |
 | blue sea glass | `blobbi-pixel:special:sea-glass` | 1 |  |
 | glowcap | `blobbi-pixel:special:glowcap` | 1 |  |
+| golden seed | `blobbi-pixel:special:golden-seed` | 1 |  |
 
 ## Crops
 
@@ -423,6 +424,7 @@
 | `geode` | little geode | grown rocky | new-rocky |
 | `sea-glass` | blue sea glass | grown coastal | new-shore |
 | `glowcap` | glowcap | grown mushroom | new-grove |
+| `golden-seed` | golden seed | grown sanctuary | new-sanctuary |
 
 ## Lore notes
 
@@ -447,6 +449,7 @@
 | `new-woodland` | A young wood |
 | `new-rocky` | The rocky garden |
 | `new-grove` | The deep green |
+| `new-sanctuary` | Sanctuary |
 
 ## Fishing and tool upgrades
 
@@ -471,6 +474,7 @@
 | 1 | The shore widens | Shore turf + Flower meadow |
 | 2 | Groves and stones | Little woodland + Rocky garden |
 | 3 | The deep green | Mushroom grove + Shore turf |
+| 4 | Sanctuary | Sanctuary gardens |
 
 | Biome | Name | Note |
 |---|---|---|
@@ -479,6 +483,7 @@
 | rocky | Rocky garden | Gravel and boulders with tough little flowers; stone and copper. |
 | coastal | Shore turf | Salt-loving turf along the new shore: reeds (fibre) and shells. |
 | mushroom | Mushroom grove | Soft moss under old trees, and mushrooms after rain. |
+| sanctuary | Sanctuary gardens | The island spreads across the Carrier's whole back: orchards, flowers and soft lawns. |
 
 ## World Carrier species
 

@@ -27,15 +27,25 @@ describe('island growth: deterministic and versioned', () => {
     expect(again.growth!.version).toBe(GROWTH_VERSION);
   });
 
-  it('version 2 changes only the whale: turtle and manta grow exactly as in version 1', () => {
-    expect(GROWTH_VERSION).toBe(2);
+  it('version 2 changes only the whale: turtle and manta grow exactly as in version 1; version 3 (M9) only adds stage 4', () => {
+    expect(GROWTH_VERSION).toBe(3);
     for (const w of [generateTurtleWorld('turtle-0'), generateMantaWorld('manta-world-0')])
       for (let s = 1; s <= 3; s++) {
         const v1 = growWorld(w, s, 1);
         const v2 = growWorld(w, s, 2);
+        const v3 = growWorld(w, s, 3);
         expect(sig(v2.terrain.cls)).toBe(sig(v1.terrain.cls));
         expect(JSON.stringify(v2.objects)).toBe(JSON.stringify(v1.objects));
+        expect(sig(v3.terrain.cls)).toBe(sig(v2.terrain.cls));
+        expect(JSON.stringify(v3.objects)).toBe(JSON.stringify(v2.objects));
       }
+    const whale = generateWhaleWorld('whale-v3', { carrierSeed: 'whale-test' });
+    for (let s = 1; s <= 3; s++) {
+      expect(sig(growWorld(whale, s, 3).terrain.cls)).toBe(sig(growWorld(whale, s, 2).terrain.cls));
+      expect(JSON.stringify(growWorld(whale, s, 3).objects)).toBe(JSON.stringify(growWorld(whale, s, 2).objects));
+    }
+    // A v1 or v2 record cannot make stage 4 (it is capped at 3).
+    expect(growWorld(whale, 4, 2).growth!.stage).toBe(3);
   });
 
   it('a whale saved with version 1 is regrown exactly as version 1 (never silently changed)', () => {
@@ -223,23 +233,28 @@ describe('growth progression (earned, never accidental)', () => {
     const tally = newTally();
     const input = { stage: 0, harmony: 0, tally, completed: {} as Record<string, number>, found: 0, days: 1, possible: true };
     let last = growthReadiness(input).progress;
-    for (const k of ['fed', 'harvested', 'built'] as const) {
+    for (const k of ['fed', 'harvested', 'built', 'crafted', 'cooked', 'talked'] as const) {
       tally[k] += 5;
       const p = growthReadiness(input).progress;
       expect(p).toBeGreaterThanOrEqual(last);
       last = p;
     }
-    const ready = growthReadiness({ ...input, harmony: 99, tally: { ...tally, fed: 99, harvested: 99, built: 99 }, completed: { shelter: 0 }, found: 9 });
+    const ready = growthReadiness({ ...input, harmony: 99, tally: { ...tally, fed: 99, harvested: 99, built: 99, crafted: 99 }, completed: { home: 0 }, found: 9, days: 3 });
     expect(ready.ready).toBe(true);
-    expect(growthReadiness({ ...input, stage: 3 }).next).toBeNull();
+    // Each stage asks more than the one before (M9): stage 4 is a long-term goal.
+    const needs = [0, 1, 2, 3].map((s) => growthReadiness({ ...input, stage: s }).requirements);
+    for (let s = 1; s < 4; s++) expect(needs[s].find((r) => r.id === 'harmony')!.need).toBeGreaterThan(needs[s - 1].find((r) => r.id === 'harmony')!.need);
+    expect(growthReadiness({ ...input, stage: 3 }).next).toBe(4);
+    expect(growthReadiness({ ...input, stage: 4 }).next).toBeNull();
     expect(growthReadiness({ ...input, possible: false }).blocked).toBeTruthy();
   });
 
   it('when ready, the player grows it: the stage and its history are saved, and a reload stands on the grown world', () => {
     const store = memoryStore();
     const live = new LiveWorld(base, 'blobbi-9', 16, { store });
-    Object.assign(live.tally, { fed: 10, harvested: 10, built: 10 });
-    live.objectives.completed.shelter = 0;
+    Object.assign(live.tally, { fed: 10, harvested: 10, built: 10, crafted: 10 });
+    live.objectives.completed.home = 0;
+    live.timeOffset += 2 * 1200;
     live.carrier.bond = 50;
     live.found.add(live.discoveries[0].id);
     expect(live.growthReadiness().ready).toBe(true);

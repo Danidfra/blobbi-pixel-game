@@ -8,6 +8,7 @@
  * Regression: a press on the muted NOT READY YET button (or anywhere in a panel that missed a control) used to
  * close the panel silently, so "pressing Growth" appeared to do nothing at all.
  */
+import { DAY_SECONDS } from '../src/game/daylight';
 import { describe, expect, it } from 'vitest';
 import { generateWhaleWorld } from '../src/carriers/whale-world';
 import { generateMantaWorld } from '../src/carriers/manta-world';
@@ -68,15 +69,17 @@ function harness(base: WorldDescription, store: KeyValueStore) {
 
 /** Everything the next stage asks, as a player would have earned it (lifetime counts, quests, finds, bond). */
 function meetRequirements(live: LiveWorld): void {
-  Object.assign(live.tally, { fed: 40, harvested: 30, built: 15 });
+  Object.assign(live.tally, { fed: 70, harvested: 45, built: 15, decorations: 5, crafted: 30, cooked: 20, talked: 12 });
   for (const q of QUESTS) live.objectives.completed[q.id] ??= live.worldTime;
   live.carrier.bond = Math.max(live.carrier.bond, 400);
-  for (const d of live.discoveries.slice(0, 6)) live.found.add(d.id);
+  for (const d of live.discoveries.slice(0, 9)) live.found.add(d.id);
+  for (const p of live.places) live.visited.add(p.id);
+  live.timeOffset += 13 * DAY_SECONDS;
 }
 
 describe('the growth button grows the island on screen (button → save → rebuild → render)', () => {
   for (const [species, make] of WORLDS) {
-    it(`${species}: all three stages from the panel, with the pointer, then a reload`, () => {
+    it(`${species}: all four stages from the panel, with the pointer, then a reload`, () => {
       const base = make();
       const store = memoryStore();
       const { h, ui, button } = harness(base, store);
@@ -85,7 +88,8 @@ describe('the growth button grows the island on screen (button → save → rebu
       meetRequirements(h.live);
       h.live.save();
       let prev = h.live.world;
-      for (let stage = 1; stage <= 3; stage++) {
+      for (let stage = 1; stage <= 4; stage++) {
+        meetRequirements(h.live); // the new land's places explored too
         expect(h.live.growthReadiness().ready, `stage ${stage} ready`).toBe(true);
         const old = h.live;
         const before = new LiveRenderer(old).staticLayer.data.slice();
@@ -173,7 +177,7 @@ describe('the growth panel never silently does nothing', () => {
     expect(b, 'the muted button still takes a press').not.toBeNull();
     ui.handlePointer(...centre(b!));
     expect(ui.screen?.id).toBe('growth');
-    expect(ui.message?.text).toMatch(/^not ready yet: 6 still needed/);
+    expect(ui.message?.text).toMatch(/^not ready yet: \d+ still needed/);
     expect(ui.message?.text).toBe(notReadyMessage(h.live.growthReadiness()));
     expect(h.live.growth.stage).toBe(0);
     expect(h.live.world.growth).toBeUndefined();

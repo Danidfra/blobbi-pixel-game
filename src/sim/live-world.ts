@@ -474,7 +474,7 @@ export class LiveWorld {
     let world = base;
     if (save && save.growth.stage > 0) {
       try {
-        world = growWorld(base, save.growth.stage, save.growth.version);
+        world = growWorld(base, save.growth.stage, save.growth.version, save.growth.history);
         this.growth = save.growth;
       } catch (e) {
         // Never regrow differently or overwrite: keep the save untouched and play nothing that could save.
@@ -3123,7 +3123,7 @@ export class LiveWorld {
 
   /** Progress toward the island's next growth stage (never goes backwards; see game/growth-progress.ts). */
   growthReadiness(): GrowthReadiness {
-    return growthReadiness({ stage: this.growth.stage, harmony: this.harmony().value, tally: this.tally, completed: this.objectives.completed, found: this.found.size, days: dayAt(this.worldTime), possible: canGrow(this.baseWorld) && !this.growthError });
+    return growthReadiness({ stage: this.growth.stage, harmony: this.harmony().value, tally: this.tally, completed: this.objectives.completed, found: this.found.size, days: dayAt(this.worldTime), places: this.visited.size, possible: canGrow(this.baseWorld) && !this.growthError });
   }
 
   /**

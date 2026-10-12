@@ -5,11 +5,11 @@ Let the island grow, in earned stages, into new regions with their own biomes �
 what the player already built, and while keeping the World Carrier exactly as it is.
 
 ## 2. Status
-**IMPLEMENTED** (M7) for turtle (Variants A–C) and manta worlds, and (M8 phase 0) whale worlds. **NOT TESTED** by a
-person.
+**IMPLEMENTED** (M7) for turtle (Variants A–C and S) and manta worlds, (M8 phase 0) whale worlds, and (M9) a fourth
+stage, the Sanctuary, with rebalanced requirements. **NOT TESTED** by a person.
 
 ## 3. Player-facing behaviour
-- The growth panel (L, or ISLAND GROWTH in the Carrier panel) shows the stage (0–3), progress toward the next one with
+- The growth panel (L, or ISLAND GROWTH in the Carrier panel) shows the stage (0–4), progress toward the next one with
   every requirement (DONE or a count), what it adds, the grown regions (NEW / VISITED) and the stage ladder.
 - When all requirements are met a notice says "The Carrier stirs: the island is ready to grow". Nothing happens until
   the player presses LET THE ISLAND GROW and confirms (press it again, or Enter).
@@ -22,12 +22,46 @@ person.
   about 4.5 s with sparkles and leaves, new plants appear as it reaches them, a chime plays and the music turns
   special; then the new land stays lit for 3.5 s and fades back to its own colours (so a thin band of growth, as on
   a turtle, is still noticed), and a notice "The island grew: stage N" ends it.
-- Each stage adds two regions: 1 shore turf + flower meadow, 2 little woodland + rocky garden, 3 mushroom grove + outer
-  shore. Each region has its biome's ground and plants, resources, a named place and (for the five biomes) a
+- Each stage adds regions: 1 shore turf + flower meadow, 2 little woodland + rocky garden, 3 mushroom grove + outer
+  shore, 4 (M9) the Sanctuary gardens (orchards, flowers, lawns, a golden-seed discovery and a journal note) over most
+  of the Carrier's back. Each region has its biome's ground and plants, resources, a named place and (for the five biomes) a
   discovery.
 - Where the land goes depends on the Carrier: all round a turtle's shell; out along a manta's wings; along a whale's
   back toward its tail (stage 1 meadow aft, stage 2 woodland and rocky garden along the north and south flanks behind
   the fins, stage 3 mushroom grove furthest aft), never toward its head or past the knuckles near its tail.
+
+### Requirements (M9 rebalance, `src/game/growth-progress.ts`)
+
+Every count is a lifetime count (breaks never lose progress; days pass only while playing, 20 minutes each).
+
+| Next stage | Quest | Harmony | Other | Finds | Days |
+|---|---|---|---|---|---|
+| 1 The shore widens | Make it home | 15 | care 8, harvests 4, crafted 8 | 1 | 2 |
+| 2 Groves and stones | Listen to the Carrier | 30 | care 20, harvests 12, meals 3, built/decorated 6 | 3 | 4 |
+| 3 The deep green | Begin restoring the island | 45 | care 40, harvests 25, meals 8, built/decorated 12, places explored 6 | 5 | 7 |
+| 4 Sanctuary | The dream home | 60 | care 60, harvests 40, meals 15, listened to the Carrier 10, places explored 8 | 8 | 12 |
+
+(Before M9: stage 1 needed only the first shelter, so the island grew within the first hour.) Places and
+discoveries are enough on every Carrier at every stage (`tests/growth-stage4.test.ts`).
+
+### Stage 4: the Sanctuary geometry (growth version 3)
+
+- **Target:** about 80 % of the Carrier's SUITABLE carrying surface (an art-direction target; measured 85–92 %
+  on the test seeds, see the tests' bounds 78–97 %). Suitable surface (`suitableSurface`): a turtle's shell top
+  inside the lip and a ring of plates; a manta's still back in a breathing oval over its disc, never out on the
+  beating wings nor toward the tail; a whale's back from just behind the blowholes (the spout stays clear) to the
+  knuckles, with rounded, noise-wobbled ends; on creatures a margin from the body's edge is always kept.
+- **How:** the stage-3 world, then a fill of the still-free suitable pixels deeper than a noise-varied inset from the
+  surface's edge (no straight lines), flood-connected to the island (no floating land); the shore bands are recomputed
+  (new beach or moss, and old shore bands now inland become plain ground: no seam). Objects: orchards, bushes,
+  flowers, stones, tufts, mushrooms, on the new land only, appended after stage 3's.
+- **Only adds:** every land pixel stays land; earlier objects keep index and position; the base world, island record,
+  hubs and paths are the same; buildings never move (island-frame coordinates).
+- **The turtle's shell** draws its soil band along the new coast (a distance field, `growth.landField`), keeping the
+  plate ring, head, flippers and their animation as they are.
+- **Versions:** v3 makes stages 1–3 exactly as v2 for every Carrier; a v1/v2 save stays capped at stage 3 until it
+  grows on, and then each stage is regrown with the version recorded for it in the save's history (a v1 whale keeps
+  its v1 stage-3 objects).
 
 ## 4. Controls
 L growth panel · Enter / the button to grow · dev tools (test worlds only, i.e. a seed containing "test": the dev
@@ -54,7 +88,7 @@ swaps its renderers and pulls the camera back (`adoptRebuilt`). The same module 
 tests (`tests/growth-flow.test.ts`).
 
 ## 7. Persistence
-Only the stage, version, history and region ids are saved; the grown world is regenerated from the base world's seeds
+Only the stage (0–4), version, history and region ids are saved; the grown world is regenerated from the base world's seeds
 and the stage, exactly as at the moment of growth (tested). Buildings stay in island-frame coordinates.
 
 ## 8. Edge cases

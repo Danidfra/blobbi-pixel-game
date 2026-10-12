@@ -49,10 +49,10 @@ export function turtleBodyForWorld(world: WorldDescription): TurtleBody {
   const a = world.turtle!;
   const carrier = world.carrier;
   if (!carrier || carrier.variant === 0) return turtleBodyFor(a, world.options.width, world.options.height);
-  const key = `${a.genome.seed}|${world.options.width}x${world.options.height}|${a.rx.toFixed(1)}|v${carrier.variant}|${world.options.palette}|${world.islands[0].cx},${world.islands[0].cy}|g${world.growth ? `${world.growth.version}.${world.growth.stage}` : 0}`;
+  const key = `${a.genome.seed}|${world.options.width}x${world.options.height}|${a.rx.toFixed(1)}|v${carrier.variant}|${world.options.palette}|${world.islands[0].cx},${world.islands[0].cy}|g${world.growth ? `${world.growth.version}.${world.growth.stage}` : 0}|${world.seed}`;
   const hit = bodyCache.get(key);
   if (hit) return hit;
-  const ctx = { island: world.islands[0], land: world.growth?.land, palette: paletteFor(world.options.palette), seed: carrier.seed, scale: world.options.scale };
+  const ctx = { island: world.islands[0], land: world.growth?.land, landField: world.growth?.landField, palette: paletteFor(world.options.palette), seed: carrier.seed, scale: world.options.scale };
   const body = renderTurtleBody(a, (buf, anatomy) => paintShellSurface(buf, anatomy, ctx).dome);
   bodyCache.set(key, body);
   return body;

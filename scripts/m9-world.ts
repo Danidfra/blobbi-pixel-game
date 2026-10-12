@@ -20,7 +20,8 @@ import { ITEMS } from '../src/game/items';
 import { doorSpot } from '../src/game/buildings';
 import { memoryStore } from '../src/game/persistence';
 import type { CarrierKind } from '../src/game/carrier';
-import { turtleBodyForWorld } from '../src/render/compose';
+import { turtleBodyForWorld, renderWorld } from '../src/render/compose';
+import { growWorld } from '../src/world/growth';
 import { GameUI } from '../src/ui/game-ui';
 import { HomeScreen } from '../src/ui/screens/home';
 import { installCustomisation } from '../src/ui/screens/home-style';
@@ -96,6 +97,39 @@ if (!only || only === 'styles') {
   f = shot(live, view, 'exploration');
   ui.render(f, 2);
   write('styles-02-rooms-locked-floor.png', f);
+}
+
+if (!only || only === 'growth') {
+  // Growth stages 0-4 for every Carrier: the whole Carrier, the stages side by side (half size), and stage 4 alone.
+  for (const kind of ['turtle', 'manta', 'whale'] as const) {
+    const base = island(kind);
+    const pics = [0, 1, 2, 3, 4].map((stage) => renderWorld(growWorld(base, stage), { shadows: true }));
+    const half = (b: PixelBuffer) => {
+      const out = new PixelBuffer(Math.floor(b.width / 2), Math.floor(b.height / 2));
+      for (let y = 0; y < out.height; y++) for (let x = 0; x < out.width; x++) out.set(x, y, b.get(x * 2, y * 2));
+      return out;
+    };
+    const small = pics.map(half);
+    const sheet = new PixelBuffer(small[0].width * 3, small[0].height * 2);
+    small.forEach((p, i) => sheet.blit(p, (i % 3) * p.width, Math.floor(i / 3) * p.height));
+    write(`growth-${kind}-stages-0-4.png`, sheet);
+    write(`growth-${kind}-stage4.png`, pics[4]);
+  }
+  const b = generateTurtleWorld('turtle-0');
+  write('growth-turtle-variantB-stage4.png', renderWorld(growWorld(b, 4), { shadows: true }));
+}
+
+if (!only || only === 'cams') {
+  // Stage 4 in play, at the three camera scales, on every Carrier.
+  for (const kind of ['turtle', 'manta', 'whale'] as const) {
+    const store = memoryStore();
+    const probe = new LiveWorld(island(kind), 'blobbi-9', 16, { store });
+    probe.growth = { stage: 4, version: 3, history: [], regions: [] };
+    probe.save();
+    const live = new LiveWorld(island(kind), 'blobbi-9', 16, { store });
+    const view = new ViewRenderer(live, new LiveRenderer(live));
+    for (const mode of ['overview', 'exploration', 'closeup'] as const) write(`stage4-${kind}-${mode}.png`, shot(live, view, mode));
+  }
 }
 
 if (!only || only === 'flippers') {

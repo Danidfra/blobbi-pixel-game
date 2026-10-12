@@ -28,6 +28,8 @@ export interface ShellSurfaceContext {
   /** A grown island's coastline (M7): what the land covers now. The plate layout still follows `island`, so the
    * visible plates keep their exact place; only the covered part and the soil band follow the new coast. */
   land?: Island;
+  /** Stage 4 (M9): distance from each canvas pixel to the land (0 on land), when the coast is no island record. */
+  landField?: Float32Array;
   palette: WorldPalette;
   /** The turtle seed: plate layout, soil and moss come from it. */
   seed: string;
@@ -155,7 +157,7 @@ export function paintShellSurface(buf: PixelBuffer, a: TurtleAnatomy, ctx: Shell
       // Dome lighting, kept mostly mid and light: the ring should read warm, not as a dark rind.
       shade[k] = shadeIndex(blobScore(dx / (a.rx + rim), dy / (a.ry + rim), 0.9), 0.95, 0.3, -0.28);
       const d = islandDistance(island, px, py, 0);
-      const dLand = ctx.land ? islandDistance(ctx.land, px, py, 0) : d;
+      const dLand = ctx.landField ? ctx.landField[y * buf.width + x] : ctx.land ? islandDistance(ctx.land, px, py, 0) : d;
       if (dLand <= 0) {
         region[k] = SHELL_REGION.HIDDEN;
         continue;

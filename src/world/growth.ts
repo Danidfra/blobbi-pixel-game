@@ -33,12 +33,18 @@ import { T, type CoastFeature, type Island, type Placement, type WorldDescriptio
  *     narrow aft land is never walled off (v1 could fence off the tip of the stage-3 grove). Turtle and manta
  *     worlds are identical in v1 and v2; a v1 save is still regrown exactly as v1.
  */
-export const GROWTH_VERSION = 2;
+export const GROWTH_VERSION = 3;
 /** Every version this generator can reproduce. */
-export const GROWTH_VERSIONS: readonly number[] = [1, 2];
-export const MAX_GROWTH_STAGE = 3;
+export const GROWTH_VERSIONS: readonly number[] = [1, 2, 3];
+/**
+ *  3  M9: stage 4, the Sanctuary. Stages 1-3 are exactly v2's for every Carrier; only stage 4 is new, so a v1 or v2
+ *     save at stage 0-3 is still regrown exactly, and grows on to stage 4 with v3.
+ */
+export const MAX_GROWTH_STAGE = 4;
+/** The last stage each generator version can make (a v1/v2 save cannot be stage 4). */
+export const MAX_STAGE_OF_VERSION: Readonly<Record<number, number>> = { 1: 3, 2: 3, 3: 4 };
 
-export type BiomeId = 'meadow' | 'woodland' | 'rocky' | 'coastal' | 'mushroom';
+export type BiomeId = 'meadow' | 'woodland' | 'rocky' | 'coastal' | 'mushroom' | 'sanctuary';
 
 export interface BiomeDef {
   id: BiomeId;
@@ -54,18 +60,19 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
   rocky: { id: 'rocky', name: 'Rocky garden', ground: T.GRAVEL, note: 'Gravel and boulders with tough little flowers; stone and copper.' },
   coastal: { id: 'coastal', name: 'Shore turf', ground: T.CLOVER, note: 'Salt-loving turf along the new shore: reeds (fibre) and shells.' },
   mushroom: { id: 'mushroom', name: 'Mushroom grove', ground: T.MOSS, note: 'Soft moss under old trees, and mushrooms after rain.' },
+  sanctuary: { id: 'sanctuary', name: 'Sanctuary gardens', ground: T.GRASS, note: 'The island spreads across the Carrier\'s whole back: orchards, flowers and soft lawns.' },
 };
 
 export interface GrowthRegion {
   id: string;
-  stage: 1 | 2 | 3;
+  stage: 1 | 2 | 3 | 4;
   biome: BiomeId;
   /** Where on the coast, as an angle from the island's centre (radians; 0 east, π/2 south); null for a ring. */
   bearing: number | null;
 }
 
 export interface GrowthStageDef {
-  stage: 1 | 2 | 3;
+  stage: 1 | 2 | 3 | 4;
   name: string;
   regions: BiomeId[];
 }
@@ -75,6 +82,7 @@ export const GROWTH_STAGES: readonly GrowthStageDef[] = [
   { stage: 1, name: 'The shore widens', regions: ['coastal', 'meadow'] },
   { stage: 2, name: 'Groves and stones', regions: ['woodland', 'rocky'] },
   { stage: 3, name: 'The deep green', regions: ['mushroom', 'coastal'] },
+  { stage: 4, name: 'Sanctuary', regions: ['sanctuary'] },
 ];
 
 export interface WorldGrowth {
@@ -93,6 +101,11 @@ export interface WorldGrowth {
   area: number[];
   /** Object count after each stage (index 0 = the base world's): stage s's new objects are [objectsAt[s-1], objectsAt[s]). */
   objectsAt: number[];
+  /**
+   * Stage 4: distance (pixels) from every pixel outside the land to the nearest land pixel (0 on land), for the
+   * turtle shell's soil band along a coast that is no longer the island record's. Absent below stage 4.
+   */
+  landField?: Float32Array;
 }
 
 /** Can this world grow? A turtle on an enlarged shell (Variant A-C): there must be a shell ring to grow over. */
@@ -213,10 +226,11 @@ export function planV1(base: WorldDescription): Plan {
   let minRoom = Infinity;
   for (let k = 0; k < SAMPLES; k++) minRoom = Math.min(minRoom, limit[k] / islandRadius(island, (k / SAMPLES) * TAU) - 1);
   minRoom = Math.max(0, minRoom);
-  const ring = [0, minRoom * 0.18, minRoom * 0.18, minRoom * 0.4];
+  // (Stage 4 adds no ring or lobe: its land is the Sanctuary fill, see `sanctuaryFill`.)
+  const ring = [0, minRoom * 0.18, minRoom * 0.18, minRoom * 0.4, minRoom * 0.4];
   for (const def of GROWTH_STAGES) {
     for (const biome of def.regions) {
-      if (biome === 'coastal') {
+      if (biome === 'coastal' || biome === 'sanctuary') {
         regions.push({ id: `s${def.stage}-${biome}`, stage: def.stage, biome, bearing: null });
         continue;
       }
@@ -266,10 +280,10 @@ function landAt(island: Island, plan: Plan, stage: number): Island {
  * The world at a growth stage. Stage 0 returns the base world itself. Throws for an unknown version (a save from
  * a newer generator must not be "regrown" differently).
  */
-export function growWorld(base: WorldDescription, stage: number, version = GROWTH_VERSION): WorldDescription {
+export function growWorld(base: WorldDescription, stage: number, version = GROWTH_VERSION, history: readonly { stage: number; version: number }[] = []): WorldDescription {
   if (!GROWTH_VERSIONS.includes(version)) throw new Error(`unknown growth version ${version}`);
   if (stage <= 0 || !canGrow(base)) return base;
-  stage = Math.min(MAX_GROWTH_STAGE, Math.floor(stage));
+  stage = Math.min(MAX_STAGE_OF_VERSION[version] ?? 3, Math.floor(stage));
   const plan = planV1(base);
   const island = base.islands[0];
   const { width, height } = base.terrain;
@@ -278,7 +292,7 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
   const origin = base.carrier?.origin ?? { x: 0, y: 0 };
   const wobbleNoise = createNoise(`${base.seed}/terrain/wobble`, 28 * scale);
   const patchNoise = createNoise(`${base.seed}/growth/patch`, 20 * scale);
-  const lands = [0, 1, 2, 3].map((s) => (s <= stage ? landAt(island, plan, s) : null));
+  const lands = [0, 1, 2, 3, 4].map((s) => (s <= stage ? landAt(island, plan, s) : null));
   // The region a new pixel belongs to: the lobe of its stage that reaches it most, else that stage's ring (or the
   // nearest earlier one).
   const regionFor = (ang: number, s: number) => {
@@ -362,9 +376,15 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
   const newObjects: Placement[] = [];
   const objectsAt = [base.objects.length];
   let final = terrainAt(1);
+  let landField: Float32Array | undefined;
   for (let s = 1; s <= stage; s++) {
     if (s > 1) final = terrainAt(s);
-    newObjects.push(...regionObjects(base, plan, s, final.cls, final.dist, final.region, feet, passageFor(base, version)));
+    // Stage 4: the stage-3 land (stage 4's coastline record is stage 3's), then the Sanctuary fill over the back.
+    if (s === 4) landField = sanctuaryFill(base, plan, final, version);
+    // Each stage's objects with the version that stage was grown with (a v1 whale's stages keep v1's passages when
+    // it grows on to stage 4 with v3): its history entry, else the record's version.
+    const sv = history.find((h) => h.stage === s)?.version ?? version;
+    newObjects.push(...regionObjects(base, plan, s, final.cls, final.dist, final.region, feet, passageFor(base, Math.min(sv, version))));
     objectsAt.push(base.objects.length + newObjects.length);
   }
   const { cls, dist, owner, region, bornAt } = final;
@@ -381,7 +401,7 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
     terrain: { width, height, cls, dist, owner, elevation: base.terrain.elevation },
     objects,
     stats: { ...base.stats, landPixels, objects: counts },
-    growth: { version, stage, regions, baseObjects: base.objects.length, land: lands[stage]!, region, bornAt, area, objectsAt },
+    growth: { version, stage, regions, baseObjects: base.objects.length, land: lands[stage]!, region, bornAt, area, objectsAt, ...(landField ? { landField } : {}) },
   };
 }
 
@@ -399,6 +419,219 @@ interface Foot {
  */
 function passageFor(base: WorldDescription, version: number): number {
   return version >= 2 && base.creature?.species === 'whale' ? Math.round(10 * base.options.scale) : 0;
+}
+
+/**
+ * The SUITABLE CARRYING SURFACE (stage 4): where land may lie on a Carrier at all, leaving its anatomy visible.
+ *  - turtle: the shell top, with a ring of plates and the lip kept round it (the same rule as stages 1-3);
+ *  - manta: the still back, clear of its edge by a margin, never out on the wings (which beat) nor toward the tail;
+ *  - whale: the still back between the blowholes (with their spout) and the knuckles, clear of its edge.
+ * Pure; 1 = suitable.
+ */
+export function suitableSurface(base: WorldDescription): Uint8Array {
+  const { width, height, cls } = base.terrain;
+  const out = new Uint8Array(width * height);
+  const scale = base.options.scale;
+  const a = base.turtle;
+  if (a) {
+    const lip = Math.max(2, Math.round(1.6 * scale));
+    const keep = Math.round(2.5 * scale);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (cls[i] !== T.RIM) continue;
+        const dx = x + 0.5 - a.cx;
+        const dy = y + 0.5 - a.cy;
+        if (shellRadius(a, Math.atan2(dy, dx)) + a.rimWidth - Math.hypot(dx, dy) >= lip + keep) out[i] = 1;
+      }
+    return out;
+  }
+  // Depth from the BODY's edge (the sea), the island counted as body: the back round the land stays suitable.
+  const body = new Uint8Array(width * height);
+  for (let i = 0; i < body.length; i++) body[i] = cls[i] === T.SKIN || isLandClass(cls[i]) ? 1 : 0;
+  const depth = stepsInside(body, width, height);
+  const keep = Math.round(7 * scale);
+  const c = base.creature!;
+  let inside = (_x: number, _y: number) => true;
+  if (c.species === 'whale') {
+    // From just behind the blowholes (their spout rises in front of the land) back to the knuckles; the ends wobble
+    // across the back (no straight cut).
+    const east = Math.max(c.anatomy.x(0.18), c.anatomy.x(0.87));
+    const west = Math.min(c.anatomy.x(0.18), c.anatomy.x(0.87));
+    const wob = createNoise(`${base.seed}/growth/sanctuary-ends`, 14 * scale);
+    // Rounded ends: the limit bows back toward the middle away from the spine, as the back curves away.
+    const half = Math.max(1, c.anatomy.half(0.4));
+    const bow = (y: number) => 34 * scale * Math.min(1.5, ((y + 0.5 - c.anatomy.cy) / half) ** 2);
+    inside = (x, y) => x >= west + bow(y) + 9 * scale * wob.at(0, y) && x <= east - bow(y) - 9 * scale * wob.at(100, y);
+  } else {
+    // The manta's disc: out along the wings only as far as they stay still, never toward the tail (north).
+    const m = c.anatomy;
+    const wob = createNoise(`${base.seed}/growth/sanctuary-ends`, 20 * scale);
+    // An oval over the disc (it breathes with noise: no straight sides), cut off before the tail.
+    inside = (x, y) => {
+      const ex = (x + 0.5 - m.cx) / (m.S * 0.64);
+      const ey = (y + 0.5 - m.cy) / (m.C * 0.5);
+      return ex * ex + ey * ey <= 1 + 0.18 * (wob.at(x, y) - 0.5) && y + 0.5 >= m.cy - m.C * 0.32;
+    };
+  }
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (cls[i] === T.SKIN && depth[i] >= keep && inside(x, y)) out[i] = 1;
+    }
+  return out;
+}
+
+/** Steps (4-neighbour) from each pixel of `mask` to the nearest pixel outside it; 0 outside. */
+function stepsInside(mask: Uint8Array, width: number, height: number): Int32Array {
+  const d = new Int32Array(width * height).fill(-1);
+  const queue: number[] = [];
+  for (let i = 0; i < mask.length; i++)
+    if (!mask[i]) {
+      d[i] = 0;
+      queue.push(i);
+    }
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q];
+    const x = i % width;
+    const y = (i / width) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const xx = x + dx;
+      const yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
+      const j = yy * width + xx;
+      if (d[j] < 0) {
+        d[j] = d[i] + 1;
+        queue.push(j);
+      }
+    }
+  }
+  return d;
+}
+
+/** The share of the suitable surface's depth the Sanctuary's coast keeps free (tuned for ~80 % coverage). */
+const SANCTUARY_INSET: Readonly<Record<'turtle' | 'manta' | 'whale', { base: number; wobble: number }>> = {
+  turtle: { base: 4.5, wobble: 4 },
+  manta: { base: 3.5, wobble: 4 },
+  whale: { base: 5, wobble: 5 },
+};
+
+/** The island's own ground (its beach included; a manta's sand sits below GRASS_EDGE in the class order). */
+const isLandClass = (c: number) => c >= T.SAND_WET && c !== T.RIM && c !== T.SKIN;
+
+/**
+ * Stage 4, the Sanctuary: the island spreads over most of the suitable surface. New land is ADDED only: every pixel
+ * that was land stays land (the old coast's edge band becomes plain inland ground, as at every stage), nothing
+ * moves. The new coast follows the carrying surface's own edge at a breathing inset (noise, no straight lines),
+ * and only land connected to the island is kept. Mutates `t` (the stage-3 terrain) into the stage-4 terrain;
+ * returns the distance field outside the land (for the turtle's soil band).
+ */
+function sanctuaryFill(base: WorldDescription, plan: Plan, t: { cls: Uint8Array; dist: Float32Array; owner: Int8Array; region: Uint8Array; bornAt: Uint8Array }, version: number): Float32Array {
+  void version;
+  const { width, height } = base.terrain;
+  const scale = base.options.scale;
+  const B = bandsFor(scale);
+  const species = base.turtle ? 'turtle' : base.creature!.species;
+  const free = freeClass(base);
+  const suit = suitableSurface(base);
+  // Depth into the carrying surface measured with the island as part of it, so the new land meets the old coast
+  // with no strip of bare Carrier between them.
+  const inner = new Uint8Array(width * height);
+  for (let i = 0; i < inner.length; i++) inner[i] = suit[i] || isLandClass(t.cls[i]) ? 1 : 0;
+  const depth = stepsInside(inner, width, height);
+  const noise = createNoise(`${base.seed}/growth/sanctuary`, 34 * scale);
+  const inset = SANCTUARY_INSET[species];
+  const sanc = plan.regions.findIndex((g) => g.biome === 'sanctuary');
+  const ground = BIOMES.sanctuary.ground;
+  const patch = createNoise(`${base.seed}/growth/patch`, 20 * scale);
+  // Candidates: still-free suitable pixels deep enough inside the surface.
+  const cand = new Uint8Array(width * height);
+  for (let i = 0; i < suit.length; i++) {
+    if (!suit[i] || t.cls[i] !== free) continue;
+    const x = i % width;
+    const y = (i / width) | 0;
+    const need = (inset.base + inset.wobble * noise.fbm(x + 0.5, y + 0.5, 2)) * scale;
+    if (depth[i] >= need) cand[i] = 1;
+  }
+  // Only what joins the island: a flood from the land through the candidates.
+  const keep = new Uint8Array(width * height);
+  const queue: number[] = [];
+  for (let i = 0; i < t.cls.length; i++) if (isLandClass(t.cls[i])) queue.push(i);
+  const seen = new Uint8Array(width * height);
+  for (const i of queue) seen[i] = 1;
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q];
+    const x = i % width;
+    const y = (i / width) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const xx = x + dx;
+      const yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
+      const j = yy * width + xx;
+      if (seen[j] || !cand[j]) continue;
+      seen[j] = 1;
+      keep[j] = 1;
+      queue.push(j);
+    }
+  }
+  const island = base.islands[0];
+  for (let i = 0; i < keep.length; i++) {
+    if (!keep[i]) continue;
+    t.cls[i] = ground;
+    t.region[i] = sanc + 1;
+    t.bornAt[i] = 4;
+    t.owner[i] = island.id;
+  }
+  // The coast, again: every land pixel's distance to the nearest non-land pixel; the new shore bands where it is
+  // close, and plain ground where an old shore band is now inland.
+  const land = new Uint8Array(width * height);
+  for (let i = 0; i < land.length; i++) land[i] = isLandClass(t.cls[i]) ? 1 : 0;
+  const nd = stepsInside(land, width, height);
+  const creature = !!base.creature;
+  const beachW = B.sandNorth + 1;
+  const shore = base.creature?.species === 'whale' ? T.MOSS : T.SAND;
+  const edgeBand = creature ? beachW + B.grassEdge : B.grassEdge;
+  const shoreSet = new Set<number>(creature ? (shore === T.MOSS ? [T.GRASS_EDGE, T.MOSS] : [T.GRASS_EDGE, T.SAND, T.SAND_WET]) : [T.GRASS_EDGE]);
+  for (let i = 0; i < land.length; i++) {
+    if (!land[i]) continue;
+    const fresh = keep[i] === 1;
+    // Base land never changes class except its old shore band (as at every stage); grown land likewise.
+    if (!fresh && !shoreSet.has(t.cls[i])) continue;
+    // A whale's moss and a manta's sand that belong to the base island's own beach stay where they still face the
+    // sea; only bands now enclosed by land become inland ground.
+    const d = nd[i];
+    let c: number;
+    if (creature && d <= beachW) c = fresh ? shore : t.cls[i];
+    else if (d <= edgeBand) c = fresh ? T.GRASS_EDGE : t.cls[i] === T.GRASS_EDGE || !creature ? T.GRASS_EDGE : t.cls[i];
+    else if (fresh) {
+      const x = i % width;
+      const y = (i / width) | 0;
+      c = patch.fbm(x + 0.5, y + 0.5, 2) > 0.64 ? T.GRASS_PATCH : ground;
+    } else {
+      // An old shore band, now inland.
+      const r = t.region[i];
+      c = r ? BIOMES[plan.regions[r - 1].biome].ground : T.GRASS;
+      if (c === T.MEADOW || c === T.GRAVEL || c === T.CLOVER || c === T.MOSS) c = c === T.MOSS ? T.MOSS : c;
+    }
+    t.cls[i] = c;
+    if (fresh || d > edgeBand) t.dist[i] = Math.min(t.dist[i] < 0 ? t.dist[i] : 0, -d);
+  }
+  // The distance field outside the land, for the turtle's soil band (chamfer, a few pixels is all it needs).
+  const field = new Float32Array(width * height).fill(1e6);
+  for (let i = 0; i < field.length; i++) if (isLandClass(t.cls[i])) field[i] = 0;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (x > 0) field[i] = Math.min(field[i], field[i - 1] + 1);
+      if (y > 0) field[i] = Math.min(field[i], field[i - width] + 1, x > 0 ? field[i - width - 1] + 1.41 : 1e6, x < width - 1 ? field[i - width + 1] + 1.41 : 1e6);
+    }
+  for (let y = height - 1; y >= 0; y--)
+    for (let x = width - 1; x >= 0; x--) {
+      const i = y * width + x;
+      if (x < width - 1) field[i] = Math.min(field[i], field[i + 1] + 1);
+      if (y < height - 1) field[i] = Math.min(field[i], field[i + width] + 1, x < width - 1 ? field[i + width + 1] + 1.41 : 1e6, x > 0 ? field[i + width - 1] + 1.41 : 1e6);
+    }
+  return field;
 }
 
 /** Plants and stones for one stage's regions, on that stage's terrain; `feet` carries earlier stages' footprints. */
@@ -473,6 +706,19 @@ function regionObjects(base: WorldDescription, plan: Plan, stage: number, cls: U
         put('grass', 'details', 4, per(6), 'reed');
         put('bush', 'vegetation', Math.round(9 * S), per(0.4), 'bush', undefined, 10);
         put('flower', 'details', 4, per(1), 'thrift', { color: 0 });
+        break;
+      }
+      case 'sanctuary': {
+        // Orchards, flowers and lawns: the island's long-term home garden.
+        const foliage = rng.int(0, palette.foliage.length - 1);
+        put('tree', 'vegetation', Math.round(rng.range(20, 28) * S), per(1.6), 'orchard', { foliage }, 10);
+        put('bush', 'vegetation', Math.round(10 * S), per(1.2), 'bush', undefined, 8);
+        const color = rng.int(0, palette.flowers.length - 1);
+        put('flower', 'details', 6, per(10), 'flower-a', { color });
+        put('flower', 'details', 5, per(8), 'flower-b', { color: (color + 3) % palette.flowers.length });
+        put('rock', 'vegetation', Math.round(9 * S), per(0.6), 'stone', undefined, 8);
+        put('grass', 'details', 4, per(3), 'tuft');
+        put('decor', 'details', 8, per(0.4), 'mushroom', { kind: 'mushroom' }, 6);
         break;
       }
       case 'mushroom': {

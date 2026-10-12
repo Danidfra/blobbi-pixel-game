@@ -83,7 +83,7 @@ export const DISCOVERY_CONTENT: readonly DiscoveryContent[] = [
  */
 export interface GrowthDiscoveryContent extends DiscoveryContent {
   /** The biome whose region holds it (see world/growth.ts). */
-  biome: 'meadow' | 'woodland' | 'rocky' | 'coastal' | 'mushroom';
+  biome: 'meadow' | 'woodland' | 'rocky' | 'coastal' | 'mushroom' | 'sanctuary';
 }
 
 export const GROWTH_DISCOVERIES: readonly GrowthDiscoveryContent[] = [
@@ -121,6 +121,13 @@ export const GROWTH_DISCOVERIES: readonly GrowthDiscoveryContent[] = [
     terrain: 'forest',
     lore: 'new-grove',
     item: special('glowcap', 'glowcap', 'A tiny mushroom that glows faintly green in the dark.', ['.gggg.', 'gGgGgg', 'gggggg', '..ww..', '..ww..', '.wwww.'], { g: '#8ae07a', G: '#d8ffc8', w: '#f0e8d8' }),
+  },
+  {
+    id: 'golden-seed',
+    biome: 'sanctuary',
+    terrain: 'grass',
+    lore: 'new-sanctuary',
+    item: special('golden-seed', 'golden seed', 'A warm seed the colour of evening sun. It hums, very softly.', ['..yy..', '.yYYy.', 'yYWYyy', 'yyYyyy', '.yyyy.', '..gg..'], { y: '#e8b040', Y: '#ffd870', W: '#fff8d0', g: '#5aa04a' }),
   },
 ];
 
