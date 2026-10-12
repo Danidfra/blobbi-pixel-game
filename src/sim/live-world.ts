@@ -43,7 +43,7 @@ import { currentTip, TIP_PAUSE, updateTutorial, type TutorialContext, type Tutor
 import { optionUnlocked, PART_NAMES, STYLE_OPTIONS, unlockedKeys, type StylePart, type UnlockContext } from '../content/home-styles';
 import { resolveLook } from '../game/house-art';
 import type { HouseLook } from '../game/house-art';
-import { doorSpot, doorwayRect, footOf, footprintRect, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
+import { doorOffsetX, doorSpot, doorwayRect, footOf, footprintRect, houseChimney, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
 import { JOY, addHappiness, eat, isHungry, isRested, isTired, mood, newCare, pet as petCare, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
@@ -2130,7 +2130,8 @@ export class LiveWorld {
       out.push({ x: r.x, y: r.y - Math.round(sprite.anchorY * 0.6), radius: this.inside ? 40 : 30 });
     }
     // The shelter's doorway glows warmly at night.
-    if (!this.inside) for (const s of this.buildings) if (s.kind === 'shelter' && this.buildingAt(s) >= 1) out.push({ x: s.x, y: s.y, radius: 18 });
+    // (M9) A bigger home glows more: its windows are lit.
+    if (!this.inside) for (const s of this.buildings) if (s.kind === 'shelter' && this.buildingAt(s) >= 1) out.push({ x: s.x + doorOffsetX(s), y: s.y - 2, radius: [18, 26, 34][houseLevel(s) - 1] });
     return out;
   }
 
@@ -3141,13 +3142,29 @@ export class LiveWorld {
     return r.next;
   }
 
+  /** The next stage's requirements already met (null until first checked: nothing is announced on loading). */
+  private metGrowth: Set<string> | null = null;
+
   /** The stage whose readiness was announced (not saved: a reload may announce it again, kindly). */
   private announcedStage = -1;
 
   /** When the island becomes ready to grow, the Carrier stirs: a notice (checked every few seconds). */
   private stepGrowthNotice(time: number): void {
-    if (this.announcedStage === this.growth.stage || Math.floor(time * 60) % 180 !== 0 || this.reveal) return;
+    if (Math.floor(time * 60) % 180 !== 0 || this.reveal) return;
     const r = this.growthReadiness();
+    // Progress feedback (M9): each requirement of the next stage, the moment it is met (never on loading).
+    if (r.next) {
+      const met = new Set(r.requirements.filter((q) => q.have >= q.need).map((q) => `${r.next}:${q.id}`));
+      if (this.metGrowth && !r.ready) {
+        const fresh = r.requirements.filter((q) => q.have >= q.need && !this.metGrowth!.has(`${r.next}:${q.id}`));
+        if (fresh.length) {
+          const left = r.requirements.filter((q) => q.have < q.need).length;
+          this.notices.push({ heading: 'Island growth', title: `${fresh[0].label}: done`, text: `${left} more for stage ${r.next} (L)`, until: Math.max(time, this.notices.at(-1)?.until ?? 0) + 3 });
+        }
+      }
+      this.metGrowth = met;
+    }
+    if (this.announcedStage === this.growth.stage) return;
     if (!r.ready) return;
     this.announcedStage = this.growth.stage;
     this.notices.push({ heading: 'The Carrier stirs', title: 'The island is ready to grow', text: 'open growth (L) or visit the Carrier', until: (this.notices.at(-1)?.until ?? time) + 5 });
@@ -3762,9 +3779,12 @@ export class LiveWorld {
       this.islandParticles.sparkle(l.x + this.ambient.range(-6, 6), l.y - this.ambient.range(4, 14), this.ambient.chance(0.5) ? hex('#ffe07a') : hex('#d8ff8a'));
     }
     this.smokeTimer -= dt;
-    if (this.smokeTimer <= 0 && this.chimneys.length) {
+    // Chimneys: the generated cottage's, and a grown home's (M9: a Cottage or a Dream Home has a fire going).
+    const homeChimneys = this.buildings.filter((s) => s.kind === 'shelter' && this.buildingAt(s) >= 1).map((s) => houseChimney(s, paletteFor(this.world.options.palette), this.world.options.scale)).filter((c): c is { x: number; y: number } => !!c);
+    const smoking = homeChimneys.length ? [...this.chimneys, ...homeChimneys] : this.chimneys;
+    if (this.smokeTimer <= 0 && smoking.length) {
       this.smokeTimer = this.ambient.range(1.2, 2.4);
-      const c = this.ambient.pick(this.chimneys);
+      const c = this.ambient.pick(smoking);
       this.islandParticles.smoke(c.x + 1, c.y - 1);
     }
     // Leaves shaken loose by a gust.

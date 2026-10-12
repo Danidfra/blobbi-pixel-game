@@ -529,15 +529,38 @@ export function generateShelter(seed: string, size: number, palette: WorldPalett
 const spriteCache = new Map<string, Sprite>();
 
 /** The sprite of a building at a construction progress (quantized), cached. */
-export function buildingSprite(b: Building, palette: WorldPalette, progress: number, scale = 1.6): Sprite {
+export function buildingSprite(b: Building, palette: WorldPalette, progress: number, scale = 1.6, lit = false): Sprite {
   const q = quantizeProgress(progress);
   const look = b.kind === 'shelter' ? resolveLook(houseLevel(b), b.look) : null;
-  const key = `${palette.name}|${b.kind}|${b.seed}|${b.variant ?? 0}|${q}|${scale}${look ? `|${houseLevel(b)}|${look.roof},${look.wall},${look.door},${look.window}` : ''}`;
+  // A house at night: its windows glow (M9).
+  const glow = !!look && lit && q >= 1;
+  const key = `${palette.name}|${b.kind}|${b.seed}|${b.variant ?? 0}|${q}|${scale}${look ? `|${houseLevel(b)}|${look.roof},${look.wall},${look.door},${look.window}${glow ? '|lit' : ''}` : ''}`;
   const hit = spriteCache.get(key);
   if (hit) return hit;
-  const sprite = b.kind === 'shelter' ? houseSprite(b, palette, q, scale) : BUILDING_KINDS.includes(b.kind) ? generateDecoration(b.kind as never, b.seed, palette, q) : placeableSprite(b.kind, b.seed, palette, b.variant ?? 0, q);
+  const sprite = b.kind === 'shelter' ? houseSprite(b, palette, q, scale, glow) : BUILDING_KINDS.includes(b.kind) ? generateDecoration(b.kind as never, b.seed, palette, q) : placeableSprite(b.kind, b.seed, palette, b.variant ?? 0, q);
   spriteCache.set(key, sprite);
   return sprite;
+}
+
+/** Where a finished house's chimney smokes, in world pixels (Cottage and Dream Home; the shelter has none). */
+const chimneyCache = new Map<string, { x: number; y: number } | null>();
+export function houseChimney(b: Building, palette: WorldPalette, scale = 1.6): { x: number; y: number } | null {
+  const level = houseLevel(b);
+  if (b.kind !== 'shelter' || level === 1) return null;
+  const look = resolveLook(level, b.look);
+  // Cached by everything that moves the chimney (drawing a house is not free, and smoke asks often).
+  const key = `${b.seed}|${level}|${look.roof},${look.wall},${look.door},${look.window}|${b.x},${b.y}|${scale}|${palette.name}`;
+  if (chimneyCache.has(key)) return chimneyCache.get(key)!;
+  const at = chimneyAt(b, palette, scale, level, look);
+  if (chimneyCache.size > 64) chimneyCache.clear();
+  chimneyCache.set(key, at);
+  return at;
+}
+
+function chimneyAt(b: Building, palette: WorldPalette, scale: number, level: number, look: ResolvedLook): { x: number; y: number } | null {
+  const size = Math.round(18 * scale);
+  const art = level === 2 ? drawCottage(b.seed, size + 10, palette, look, 1) : drawDreamHome(b.seed, size + 20, palette, look, 1);
+  return art.chimney ? { x: b.x - art.anchorX + art.chimney.x, y: b.y - art.anchorY + art.chimney.y } : null;
 }
 
 /** A house at its level and look: the shelter (level 1), the Cottage or the Dream Home. */

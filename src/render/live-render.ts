@@ -9,6 +9,7 @@
  *  - DEBUG: the collision mask and footprints, when asked.
  * The frame is a viewport-sized PixelBuffer; the page blits it at a zoom.
  */
+import { lightAt } from '../game/daylight';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hash32 } from '../core/rng';
 import { type Color, hex } from '../core/color';
@@ -353,7 +354,7 @@ export class LiveRenderer {
     // Buildings, placed and under construction, with their shadows.
     for (const building of live.buildings) {
       if (building.x < ox - 48 || building.x > ox + viewW + 48 || building.y < oy - 48 || building.y > oy + viewH + 48) continue;
-      const sprite = buildingSprite(building, palette, live.buildingAt(building), world.options.scale);
+      const sprite = buildingSprite(building, palette, live.buildingAt(building), world.options.scale, building.kind === 'shelter' && lightAt(live.worldTime).night);
       // Paths and rugs lie flat on the ground, under everything that stands.
       if (BUILDINGS[building.kind].layer === 'floor') {
         frame.blit(sprite.buffer, building.x - sprite.anchorX - ox, building.y - sprite.anchorY - oy);
