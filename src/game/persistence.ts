@@ -35,8 +35,13 @@ export interface KeyValueStore {
  * 10 (M8): the island's own name, the intro cinematic's state and the tutorial's state. Records 1-9 migrate as
  * worlds that are already under way: no name, the intro counted as seen (it never replays for them) and tips off
  * (a player can turn them back on in the guide).
+ * 11 (M10 phase B): cleared land and the canoe. A tree's `regrowAt` and a rock's `reformAt` (null while the ground
+ * is clear and the resource waits for a free spot), cleared bushes, small rocks and natural stumps or mushrooms
+ * (`cleared`), the canoe (`boat`, island frame) and the fish species caught (`caught`). Records 1-10 migrate with
+ * none of these: their felled trees and broken rocks keep the old timelines (no `regrowAt`/`reformAt`), nothing
+ * is cleared, there is no canoe, no species are recorded.
  */
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 /**
  * Who a world record belongs to. Everything in it (inventory, equipment, buildings, resources, world time) is the
@@ -50,6 +55,8 @@ const NAMESPACE = 'blobbi-pixel-lab:save:v1';
 export interface TreeSaveState {
   hits: number;
   harvestedAt: number | null;
+  /** Schema 11: when the seedling came up; null while waiting on clear ground; absent: the old timeline. */
+  regrowAt?: number | null;
 }
 
 /** A placed building. `x`, `y` are in the ISLAND FRAME (canvas minus the carrier's origin): stable across canvases. */
@@ -72,6 +79,16 @@ export interface BuildingSave {
 export interface RockSaveState {
   hits: number;
   minedAt: number | null;
+  /** Schema 11: when the rock surfaced again; null while waiting on clear ground; absent: the old timeline. */
+  reformAt?: number | null;
+}
+
+/** The canoe (schema 11): where it is, in the ISLAND FRAME like buildings, which way it points, and who is in it. */
+export interface BoatSave {
+  x: number;
+  y: number;
+  heading: 'left' | 'right' | 'up' | 'down';
+  aboard: boolean;
 }
 
 /** A farm plot: its grid cell in the ISLAND FRAME (stable across canvases), its history and its crop. */
@@ -139,6 +156,12 @@ export interface WorldSave {
   intro: IntroSave;
   /** The contextual tutorial (schema 10; older records: tips off). */
   tutorial: TutorialSave;
+  /** Schema 11: cleared bushes, small rocks and natural stumps or mushrooms, per world object index. */
+  cleared: Record<string, { at: number; returnedAt: number | null }>;
+  /** Schema 11: the canoe, once launched. */
+  boat: BoatSave | null;
+  /** Schema 11: the fish species ever caught (item ids, sorted). */
+  caught: string[];
 }
 
 /** The intro cinematic of a new island: still to play (a reload mid-intro plays it again), seen, or skipped. */
@@ -315,7 +338,8 @@ export function loadSave(store: KeyValueStore, identity: string): LoadedSave | n
         if (!/^\d+$/.test(k) || !v || typeof v !== 'object') continue;
         const hits = typeof v.hits === 'number' && Number.isInteger(v.hits) && v.hits >= 0 ? v.hits : 0;
         const harvestedAt = typeof v.harvestedAt === 'number' && Number.isFinite(v.harvestedAt) ? v.harvestedAt : null;
-        if (hits > 0 || harvestedAt !== null) trees[k] = { hits, harvestedAt };
+        const regrow = (v as { regrowAt?: unknown }).regrowAt;
+        if (hits > 0 || harvestedAt !== null) trees[k] = { hits, harvestedAt, ...(parsed.version >= 11 && (regrow === null || finite(regrow)) ? { regrowAt: regrow as number | null } : {}) };
       }
     const buildings: BuildingSave[] = [];
     if (parsed.version >= 3 && Array.isArray(parsed.buildings))
@@ -337,7 +361,8 @@ export function loadSave(store: KeyValueStore, identity: string): LoadedSave | n
         if (!/^\d+$/.test(k) || !v || typeof v !== 'object') continue;
         const hits = typeof v.hits === 'number' && Number.isInteger(v.hits) && v.hits >= 0 ? v.hits : 0;
         const minedAt = typeof v.minedAt === 'number' && Number.isFinite(v.minedAt) ? v.minedAt : null;
-        if (hits > 0 || minedAt !== null) rocks[k] = { hits, minedAt };
+        const reform = (v as { reformAt?: unknown }).reformAt;
+        if (hits > 0 || minedAt !== null) rocks[k] = { hits, minedAt, ...(parsed.version >= 11 && (reform === null || finite(reform)) ? { reformAt: reform as number | null } : {}) };
       }
     // Schema 6 states the tally; before, it is seeded from what the record itself shows was done.
     let tally: Tally;
@@ -380,10 +405,34 @@ export function loadSave(store: KeyValueStore, identity: string): LoadedSave | n
       name: parsed.version >= 10 ? sanitizeIslandName((parsed as { name?: unknown }).name) || null : null,
       intro: parsed.version >= 10 ? introFromSave((parsed as { intro?: unknown }).intro) : { ...INTRO_SEEN },
       tutorial: parsed.version >= 10 ? tutorialFromSave((parsed as { tutorial?: unknown }).tutorial) : { done: [], skipped: true },
+      // Schema 11: nothing cleared, no canoe, no species recorded before.
+      cleared: parsed.version >= 11 ? clearedFromSave((parsed as { cleared?: unknown }).cleared) : {},
+      boat: parsed.version >= 11 ? boatFromSave((parsed as { boat?: unknown }).boat) : null,
+      caught: parsed.version >= 11 && Array.isArray((parsed as { caught?: unknown }).caught) ? ((parsed as { caught: unknown[] }).caught.filter((x): x is string => typeof x === 'string')) : [],
     };
   } catch {
     return null;
   }
+}
+
+function clearedFromSave(raw: unknown): Record<string, { at: number; returnedAt: number | null }> {
+  const out: Record<string, { at: number; returnedAt: number | null }> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^\d+$/.test(k) || !v || typeof v !== 'object') continue;
+    const at = (v as { at?: unknown }).at;
+    const back = (v as { returnedAt?: unknown }).returnedAt;
+    if (finite(at)) out[k] = { at, returnedAt: finite(back) ? back : null };
+  }
+  return out;
+}
+
+function boatFromSave(raw: unknown): BoatSave | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const b = raw as Partial<BoatSave>;
+  if (!finite(b.x) || !finite(b.y)) return null;
+  const heading = b.heading === 'left' || b.heading === 'right' || b.heading === 'up' || b.heading === 'down' ? b.heading : 'right';
+  return { x: b.x, y: b.y, heading, aboard: b.aboard === true };
 }
 
 export function storeSave(store: KeyValueStore, save: WorldSave): void {

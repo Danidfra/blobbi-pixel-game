@@ -365,8 +365,8 @@ describe('the camera never touches the game', () => {
     expect(viewedStore.get(key)).toBe(plainStore.get(key));
     const record = JSON.parse(viewedStore.get(key)!);
     expect(record.version).toBe(SAVE_VERSION);
-    expect(SAVE_VERSION).toBe(10);
-    expect(Object.keys(record).sort()).toEqual(['buildings', 'care', 'carrier', 'collected', 'collectedAt', 'companion', 'containers', 'equipped', 'found', 'generator', 'growth', 'interiors', 'intro', 'inventory', 'name', 'objectives', 'owner', 'places', 'plots', 'producers', 'rocks', 'species', 'tally', 'trees', 'tutorial', 'version', 'world', 'worldTime']);
+    expect(SAVE_VERSION).toBe(11);
+    expect(Object.keys(record).sort()).toEqual(['boat', 'buildings', 'care', 'carrier', 'caught', 'cleared', 'collected', 'collectedAt', 'companion', 'containers', 'equipped', 'found', 'generator', 'growth', 'interiors', 'intro', 'inventory', 'name', 'objectives', 'owner', 'places', 'plots', 'producers', 'rocks', 'species', 'tally', 'trees', 'tutorial', 'version', 'world', 'worldTime']);
   });
 
   it('a save made in one mode loads to the same world in another', () => {
@@ -385,7 +385,7 @@ describe('the camera never touches the game', () => {
     expect([...b.rocks.entries()]).toEqual([...a.rocks.entries()]);
   });
 
-  it('small-rock feedback and large-rock mining work the same in close-up', () => {
+  it('small-rock clearing and large-rock mining work the same in close-up', () => {
     const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
     live.brain.enabled = false;
     live.inventory.add(ITEMS.pickaxe.id, 1);
@@ -408,6 +408,9 @@ describe('the camera never touches the game', () => {
     live.update(1 / 120, { ...IDLE_INPUT, interact: true });
     live.update(1 / 120, IDLE_INPUT);
     view.render(camera.update(1 / 60, target(live), W, H, bounds), 4, live.clock.time, DEFAULT_LIVE_OPTIONS);
-    expect(live.bubble?.text).toBe('too small to mine');
+    // M10 phase B: the pickaxe clears a small rock (one swing, a stone, its ground free).
+    expect(live.swing?.action).toBe('clear');
+    for (let i = 0; i < 60; i++) live.update(1 / 60, IDLE_INPUT);
+    expect(live.bubble?.text).toBe('cleared  +1 stone');
   });
 });

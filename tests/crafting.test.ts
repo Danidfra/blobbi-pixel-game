@@ -4,7 +4,7 @@ import { LiveWorld, IDLE_INPUT, SWING, type LiveInput } from '../src/sim/live-wo
 import { Inventory } from '../src/game/inventory';
 import { ITEMS, isTool, toolSupports, stackLimit } from '../src/game/items';
 import { RECIPES, canCraft, craft } from '../src/game/crafting';
-import { HITS_TO_FELL, REGROW_SECONDS, STUMP_SECONDS, treeCondition, woodYield } from '../src/game/trees';
+import { HITS_TO_FELL, REGROW_SECONDS, STUMP_SECONDS, TREE_RETURN_SECONDS, treeCondition, woodYield } from '../src/game/trees';
 import { memoryStore, loadSave, saveKey, worldIdentity, SAVE_VERSION } from '../src/game/persistence';
 import { newCarrier } from '../src/game/carrier';
 import { newTally } from '../src/game/objectives';
@@ -201,7 +201,7 @@ describe('chopping trees', () => {
 });
 
 describe('regeneration', () => {
-  it('goes stump → seedling → sapling → grown in world time, through the existing growth stages, then is harvestable again', () => {
+  it('goes stump → (clear ground) → seedling → sapling → grown in world time, through the existing growth stages, then is harvestable again', () => {
     const state = { hits: 0, harvestedAt: 100 };
     expect(treeCondition(undefined, 500)).toEqual({ phase: 'grown', growth: 1, remaining: 0 });
     expect(treeCondition({ hits: 2, harvestedAt: null }, 500).phase).toBe('chopping');
@@ -226,9 +226,17 @@ describe('regeneration', () => {
       chopOnce(live);
     }
     const felledAt = live.worldTime;
-    // Advance world time by running the clock (the stump phase, then regrowth).
+    // Advance world time by running the clock: the stump, then (M10 phase B) clear ground, then the seedling.
     run(live, Math.ceil(STUMP_SECONDS * 60) + 60);
+    expect(live.treeAt(index).phase).toBe('cleared');
+    expect(live.collision.isBlocked(tree.x, tree.y)).toBe(false);
+    // Its spot must be free to come back: the Blobbi steps away (standing there, it would wait).
+    const front = { x: live.blobbi.x, y: live.blobbi.y };
+    live.blobbi.x = live.world.hubs[0].x;
+    live.blobbi.y = live.world.hubs[0].y;
+    run(live, Math.ceil(TREE_RETURN_SECONDS * 60) + 60 * 6);
     expect(live.treeAt(index).phase).toBe('regrowing');
+    expect(live.collision.isBlocked(tree.x, tree.y)).toBe(true);
     const seedling = live.objectSprite(index);
     expect(seedling.buffer.height).toBeLessThan(10); // the seedling form
     run(live, Math.ceil(REGROW_SECONDS * 60 * 0.5));
@@ -237,10 +245,12 @@ describe('regeneration', () => {
     expect(sapling.buffer.height).toBeLessThan(live.spriteOf(tree).buffer.height);
     expect(sapling).toBe(live.spriteOf(tree, live.treeAt(index).growth)); // the existing growth system
     run(live, Math.ceil(REGROW_SECONDS * 60 * 0.5) + 120);
-    expect(live.worldTime - felledAt).toBeGreaterThan(STUMP_SECONDS + REGROW_SECONDS);
+    expect(live.worldTime - felledAt).toBeGreaterThan(STUMP_SECONDS + TREE_RETURN_SECONDS + REGROW_SECONDS);
     expect(live.treeAt(index).phase).toBe('grown');
     expect(live.objectSprite(index)).toBe(live.spriteOf(tree));
     // Harvestable again: the next three hits fell it once more.
+    live.blobbi.x = front.x;
+    live.blobbi.y = front.y;
     const wood = live.inventory.count(ITEMS.wood.id);
     for (let i = 0; i < HITS_TO_FELL; i++) {
       chopOnce(live);
@@ -269,7 +279,7 @@ describe('persistence and reloads', () => {
     live.save();
     const record = JSON.parse(store.get(saveKey(worldIdentity(live.world)))!);
     expect(record.version).toBe(SAVE_VERSION);
-    expect(record.trees[String(index)]).toEqual({ hits: 0, harvestedAt });
+    expect(record.trees[String(index)]).toEqual({ hits: 0, harvestedAt, regrowAt: null });
     expect(record.worldTime).toBeCloseTo(timeBefore, 3);
     // Reload.
     live = new LiveWorld(generateTurtleWorld('turtle-2'), 'blobbi-9', 16, { store });
@@ -277,13 +287,13 @@ describe('persistence and reloads', () => {
     expect(live.inventory.count(ITEMS.axe.id)).toBe(1);
     expect(live.inventory.count(ITEMS.wood.id)).toBe(wood);
     expect(live.worldTime).toBeCloseTo(timeBefore, 3);
-    expect(live.trees.get(index)).toEqual({ hits: 0, harvestedAt });
+    expect(live.trees.get(index)).toEqual({ hits: 0, harvestedAt, regrowAt: null });
     expect(live.treeAt(index).phase).toBe('stump');
-    expect(live.treeAt(index).remaining).toBeCloseTo(STUMP_SECONDS + REGROW_SECONDS - (timeBefore - harvestedAt), 1);
-    // Time keeps counting from there.
+    expect(live.treeAt(index).remaining).toBeCloseTo(STUMP_SECONDS + TREE_RETURN_SECONDS + REGROW_SECONDS - (timeBefore - harvestedAt), 1);
+    // Time keeps counting from there: the stump gives way to clear ground (M10 phase B).
     run(live, 60 * 10);
     expect(live.worldTime).toBeCloseTo(timeBefore + 10, 2);
-    expect(live.treeAt(index).phase).toBe('regrowing');
+    expect(live.treeAt(index).phase).toBe('cleared');
     // Chop hits in progress survive too.
     const other = faceTree(live);
     chopOnce(live);
@@ -304,7 +314,7 @@ describe('persistence and reloads', () => {
     const identity = worldIdentity(world);
     store.set(saveKey(identity), JSON.stringify({ version: 1, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] } }));
     const v1 = loadSave(store, identity)!;
-    expect(v1).toEqual({ version: SAVE_VERSION, owner: 'local-world', world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [], collectedAt: { 'stick:0': 0 }, rocks: {}, plots: [], care: { hunger: 100, energy: 100, happiness: 70, lastPet: -Infinity }, tally: { ...newTally(), collected: 1 }, objectives: { completed: {}, request: null, requestsDone: 0, nextRequestAt: 0, lore: [] }, interiors: {}, containers: {}, producers: {}, companion: { friendship: 0, tasted: [] }, found: [], carrier: newCarrier(), places: [], growth: { stage: 0, version: 1, history: [], regions: [] }, species: 'turtle', generator: 'm6.0', name: null, intro: { state: 'done', at: 0 }, tutorial: { done: [], skipped: true } });
+    expect(v1).toEqual({ version: SAVE_VERSION, owner: 'local-world', world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [], collectedAt: { 'stick:0': 0 }, rocks: {}, plots: [], care: { hunger: 100, energy: 100, happiness: 70, lastPet: -Infinity }, tally: { ...newTally(), collected: 1 }, objectives: { completed: {}, request: null, requestsDone: 0, nextRequestAt: 0, lore: [] }, interiors: {}, containers: {}, producers: {}, companion: { friendship: 0, tasted: [] }, found: [], carrier: newCarrier(), places: [], growth: { stage: 0, version: 1, history: [], regions: [] }, species: 'turtle', generator: 'm6.0', name: null, intro: { state: 'done', at: 0 }, tutorial: { done: [], skipped: true }, cleared: {}, boat: null, caught: [] });
     const live = new LiveWorld(world, 'blobbi-9', 16, { store });
     expect(live.collected.has('stick:0')).toBe(true);
     expect(live.inventory.count(ITEMS.stick.id)).toBe(2);

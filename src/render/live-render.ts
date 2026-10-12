@@ -131,6 +131,43 @@ export class LiveRenderer {
     return (this.sea ??= new OpenSea(this.live.world, paletteFor(this.live.world.options.palette)));
   }
 
+  /** The ground without object shadows, and which objects were absent when the static layer was last painted. */
+  private bare: PixelBuffer | null = null;
+  private absentPainted = new Set<number>();
+  private absentSeen = -1;
+
+  /**
+   * A tree felled to clear ground, a rock broken, a bush cleared (or one come back): repaint only those spots of the
+   * static layer — the bare ground, then the shadows of every object standing there now.
+   */
+  private refreshGround(): void {
+    const live = this.live;
+    const world = live.world;
+    const now = new Set<number>();
+    for (const i of live.absentIndices()) now.add(i);
+    const changed: number[] = [];
+    for (const i of now) if (!this.absentPainted.has(i)) changed.push(i);
+    for (const i of this.absentPainted) if (!now.has(i)) changed.push(i);
+    this.absentPainted = now;
+    if (!changed.length || !this.bare) return;
+    const { width, height } = world.terrain;
+    const rects = changed.map((i) => {
+      const p = world.objects[i];
+      const s = live.spriteOf(p);
+      return { x0: Math.max(0, Math.floor(p.x - s.footRx - 3)), y0: Math.max(0, Math.floor(p.y - s.footRy - 3)), x1: Math.min(width - 1, Math.ceil(p.x + s.footRx + 3)), y1: Math.min(height - 1, Math.ceil(p.y + s.footRy + 3)) };
+    });
+    const target = this.revealTo ?? this.staticLayer;
+    for (const r of rects) for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) target.data[y * width + x] = this.bare.data[y * width + x];
+    world.objects.forEach((p, i) => {
+      if (now.has(i)) return;
+      const s = live.spriteOf(p);
+      if (s.footRx <= 0) return;
+      if (!rects.some((r) => p.x + s.footRx + 2 >= r.x0 && p.x - s.footRx - 2 <= r.x1 && p.y + s.footRy + 2 >= r.y0 && p.y - s.footRy - 2 <= r.y1)) return;
+      this.paintShadow(target, p.x, p.y, s.footRx, s.footRy, 0, 0, world);
+    });
+    if (target !== this.staticLayer) this.staticLayer.data.set(target.data);
+  }
+
   /** During a growth reveal: the layer before and after this stage's new land (see LiveWorld.startReveal). */
   private revealFrom: PixelBuffer | null = null;
   private revealTo: PixelBuffer | null = null;
@@ -139,6 +176,7 @@ export class LiveRenderer {
     const world = live.world;
     const { width, height, cls } = world.terrain;
     this.staticLayer = this.paintStatic(world);
+    for (const i of live.absentIndices()) this.absentPainted.add(i);
     if (live.reveal && live.world.growth) {
       // The island as the player last saw it (the stage the reveal starts from), to grow the new land in from.
       this.revealFrom = this.paintStatic(growWorld(live.baseWorld, live.reveal.fromStage, live.world.growth.version, live.growth.history));
@@ -170,11 +208,14 @@ export class LiveRenderer {
     const { width, height, cls } = world.terrain;
     const layer = new PixelBuffer(width, height);
     paintTerrain(layer, world.terrain, palette, world.seed, { animatedWater: true, underlay: turtleUnderlay(world, { head: false, flippers: false }) });
-    // Static shadows of placed objects.
-    for (const p of world.objects) {
+    // The bare ground, kept for repainting a spot whose tree or rock is cleared (M10 phase B).
+    if (world === live.world) this.bare = layer.clone();
+    // Static shadows of placed objects (not of those cleared away).
+    world.objects.forEach((p, i) => {
+      if (world === live.world && live.absentObject(i)) return;
       const s = live.spriteOf(p);
       if (s.footRx > 0) this.paintShadow(layer, p.x, p.y, s.footRx, s.footRy, 0, 0, world);
-    }
+    });
     for (const b of world.bridges) {
       const half = Math.floor(b.width / 2);
       if (b.axis === 'h') for (let x = b.x0; x <= b.x1; x++) for (let y = b.y0 + half + 1; y <= b.y0 + half + 2; y++) if (cls[y * width + x] < T.GRASS_EDGE) layer.set(x, y, palette.shadowOnWater);
@@ -278,6 +319,11 @@ export class LiveRenderer {
 
     // ── Beyond the world's edge: the open sea, seamless with the world's own deep water (M10) ──
     this.openSea().paintBeyond(frame, ox, oy, o.animateWater ? time : 0);
+    // ── Cleared ground (M10 phase B): repaint the spots whose objects came or went ──
+    if (this.live.absentVersion !== this.absentSeen) {
+      this.absentSeen = this.live.absentVersion;
+      this.refreshGround();
+    }
     // ── Static copy, row by row ───────────────────────────────────────────
     const x0 = Math.max(0, ox);
     const x1 = Math.min(width, ox + viewW);
@@ -350,6 +396,8 @@ export class LiveRenderer {
       // New plants appear as the growing land reaches them.
       if (reveal && index >= reveal.from && index < reveal.to && reveal.order[p.y * width + p.x] > revealAt) continue;
       if (p.x < ox - margin || p.x > ox + viewW + margin || p.y < oy - margin || p.y > oy + viewH + margin) continue;
+      // Cleared ground (M10 phase B): a felled tree's, a broken rock's, a cleared bush's spot shows nothing.
+      if (live.absentObject(index)) continue;
       const sprite = live.objectSprite(index);
       const sway = (o.animateWind && sprite.swayRow !== undefined) || live.impulses.has(index) ? live.swayOf(index, p.x, p.kind, time) : 0;
       drawables.push({ y: p.y, x: p.x, sprite, sway, dy: 0 });
@@ -455,6 +503,22 @@ export class LiveRenderer {
         out.set(gx + 1, gy, c);
         out.set(gx, gy - 1, c);
         out.set(gx, gy + 1, c);
+      }
+    }
+    // ── What stands in the way of the house upgrade (M10 phase B): an orange arrow over each, while it is asked ──
+    if (time < live.upgradeHintUntil && !live.inside) {
+      const ink = hex('#ff8a3c');
+      const rim = hex('#2b2340');
+      const bob = Math.round(Math.sin(time * 5) * 1);
+      for (const i of live.upgradeObstacles) {
+        if (live.absentObject(i)) continue;
+        const p = world.objects[i];
+        const s = live.objectSprite(i);
+        const mx = p.x - ox;
+        const my = p.y - s.anchorY - 4 - oy + bob;
+        // A down arrow, 7 × 5, outlined.
+        const rows = ['ooooooo', 'o#####o', '.o###o.', '..o#o..', '...o...'];
+        rows.forEach((row, ry) => [...row].forEach((ch, rx) => ch !== '.' && out.set(mx - 3 + rx, my - 5 + ry, ch === '#' ? ink : rim)));
       }
     }
     if (reachable) {

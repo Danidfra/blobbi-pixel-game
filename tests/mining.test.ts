@@ -5,7 +5,7 @@ import { LiveRenderer, Camera, DEFAULT_LIVE_OPTIONS } from '../src/render/live-r
 import { ITEMS, toolSupports } from '../src/game/items';
 import { RECIPES, canCraft } from '../src/game/crafting';
 import { attachTool, STEEL, toolSprite } from '../src/game/equipment';
-import { HITS_TO_MINE, LARGE_ROCK_SIZE, RUBBLE_SECONDS, rockCondition, stoneYield } from '../src/game/rocks';
+import { HITS_TO_MINE, LARGE_ROCK_SIZE, RUBBLE_SECONDS, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, rockCondition, stoneYield } from '../src/game/rocks';
 import { RESPAWN_SECONDS } from '../src/game/resources';
 import { memoryStore, loadSave, saveKey, worldIdentity, SAVE_VERSION } from '../src/game/persistence';
 import { REST_POSE } from '../src/blobbi/sprite';
@@ -134,14 +134,16 @@ describe('mining large rocks', () => {
     expect(live.bubble?.text).toContain('rubble');
   });
 
-  it('refuses small rocks, needs the pickaxe (the axe does not mine), and respects the stone stack limit', () => {
+  it('clears small rocks with the pickaxe (a stone, and the ground), needs the pickaxe (the axe does not mine), and respects the stone stack limit', () => {
     const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
     live.brain.enabled = false;
-    faceRock(live, false);
+    const small = faceRock(live, false);
     withPickaxe(live);
     swingOnce(live);
+    // M10 phase B: a small rock is cleared in one swing (no rubble, no mining state).
     expect(live.rocks.size).toBe(0);
-    expect(live.bubble?.text).toBe('too small to mine');
+    expect(live.bubble?.text).toBe('cleared  +1 stone');
+    expect(live.absentObject(small)).toBe(true);
     const index = faceRock(live, true);
     live.inventory.add(ITEMS.axe.id, 1);
     live.equip(ITEMS.axe.id);
@@ -155,9 +157,14 @@ describe('mining large rocks', () => {
     expect(live.bubble?.text).toBe('stones full');
   });
 
-  it('becomes whole again after RUBBLE_SECONDS of world time and can be mined again', () => {
+  it('a rock broken before M10 phase B keeps its old timeline: rubble, then whole after RUBBLE_SECONDS', () => {
     expect(rockCondition({ hits: 0, minedAt: 10 }, 10 + RUBBLE_SECONDS - 1).phase).toBe('rubble');
     expect(rockCondition({ hits: 0, minedAt: 10 }, 10 + RUBBLE_SECONDS)).toEqual({ phase: 'whole', remaining: 0 });
+  });
+
+  it('M10 phase B: rubble, then clear ground, then the same rock surfaces again if its spot is free; and can be mined again', () => {
+    expect(rockCondition({ hits: 0, minedAt: 10, reformAt: null }, 10 + RUBBLE_CLEAR_SECONDS - 1).phase).toBe('rubble');
+    expect(rockCondition({ hits: 0, minedAt: 10, reformAt: null }, 10 + RUBBLE_CLEAR_SECONDS + 1).phase).toBe('cleared');
     const live = new LiveWorld(generateTurtleWorld('turtle-1'), 'blobbi-9', 16);
     live.brain.enabled = false;
     const index = faceRock(live);
@@ -165,11 +172,19 @@ describe('mining large rocks', () => {
     withPickaxe(live);
     for (let i = 0; i < HITS_TO_MINE; i++) swingOnce(live);
     expect(live.rockAt(index).phase).toBe('rubble');
-    run(live, RUBBLE_SECONDS * 60 + 30);
+    run(live, (RUBBLE_CLEAR_SECONDS + 2) * 60);
+    expect(live.rockAt(index).phase).toBe('cleared');
+    expect(live.collision.isBlocked(rock.x, rock.y)).toBe(false);
+    // Step away so the spot is free, and wait for it.
+    live.blobbi.x = live.world.hubs[0].x;
+    live.blobbi.y = live.world.hubs[0].y;
+    run(live, (ROCK_RETURN_SECONDS + 10) * 60);
     expect(live.rockAt(index).phase).toBe('whole');
+    expect(live.collision.isBlocked(rock.x, rock.y)).toBe(true);
     expect(live.objectSprite(index)).toBe(live.spriteOf(rock));
     const before = live.inventory.count(ITEMS.stone.id);
     live.resources = [];
+    faceRock(live);
     for (let i = 0; i < HITS_TO_MINE; i++) swingOnce(live);
     expect(live.inventory.count(ITEMS.stone.id)).toBe(Math.min(ITEMS.stone.stack, before + stoneYield(rock.seed, rock.size)));
     expect(live.stats.mined).toBe(2);
@@ -292,13 +307,13 @@ describe('autonomy and mining', () => {
   });
 });
 
-describe('small rocks answer every press (M3.2 regression)', () => {
+describe('small rocks answer every press (M3.2 regression; M10 phase B: the pickaxe clears them)', () => {
   /** Read through a call, so TypeScript does not narrow the bubble to the null we just assigned. */
   const bubbleText = (live: LiveWorld) => live.bubble?.text;
   /** A display frame shorter than the 1/60 s step: the clock runs no step on it. */
   const shortFrame = 1 / 120;
 
-  it('a press on a frame with no simulation step is kept for the next step: "too small to mine"', () => {
+  it('a press on a frame with no simulation step is kept for the next step: the clearing swing', () => {
     const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
     live.brain.enabled = false;
     faceRock(live, false);
@@ -306,32 +321,27 @@ describe('small rocks answer every press (M3.2 regression)', () => {
     live.bubble = null;
     expect(live.update(shortFrame, { ...IDLE_INPUT, interact: true })).toBe(0);
     expect(live.update(shortFrame, IDLE_INPUT)).toBe(1);
-    expect(bubbleText(live)).toBe('too small to mine');
-    expect(live.swing).toBeNull();
+    expect(live.swing?.action).toBe('clear');
     expect(live.rocks.size).toBe(0);
-    // Consumed once: the following steps do not repeat it.
-    live.bubble = null;
-    for (let i = 0; i < 6; i++) live.update(shortFrame, IDLE_INPUT);
-    expect(live.bubble).toBeNull();
+    // Consumed once: the swing lands once, the following steps do not repeat it.
+    for (let i = 0; i < 120; i++) live.update(shortFrame, IDLE_INPUT);
+    expect(bubbleText(live)).toBe('cleared  +1 stone');
+    expect(live.inventory.count(ITEMS.stone.id)).toBe(1);
   });
 
-  it('at 120 and 144 Hz every press on a small rock gets the feedback', () => {
+  it('at 120 and 144 Hz a press on a small rock always gets its swing', () => {
     for (const hz of [120, 144]) {
       const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
       live.brain.enabled = false;
       faceRock(live, false);
       withPickaxe(live);
-      for (let press = 0; press < 20; press++) {
-        live.bubble = null;
-        live.update(1 / hz, { ...IDLE_INPUT, interact: true });
-        for (let f = 0; f < 3; f++) live.update(1 / hz, IDLE_INPUT);
-        expect(bubbleText(live), `${hz} Hz press ${press}`).toBe('too small to mine');
-        for (let f = 0; f < 120; f++) live.update(1 / hz, IDLE_INPUT);
-      }
+      live.update(1 / hz, { ...IDLE_INPUT, interact: true });
+      for (let f = 0; f < 3; f++) live.update(1 / hz, IDLE_INPUT);
+      expect(live.swing?.action, `${hz} Hz`).toBe('clear');
     }
   });
 
-  it('walking into a small rock from any side and pressing E says it is too small, with dust and no swing', () => {
+  it('walking into a small rock from any side and pressing E clears it, with dust', () => {
     let checked = 0;
     for (const seed of ['turtle-0', 'turtle-1', 'turtle-2']) {
       const base = generateTurtleWorld(seed);
@@ -350,12 +360,13 @@ describe('small rocks answer every press (M3.2 regression)', () => {
           run(live, 60, { [dir]: true });
           if (live.facingObject()?.index !== i) continue; // walked past it or stopped by something else
           live.resources = [];
-          const particles = live.particles.particles.length;
           live.bubble = null;
           run(live, 1, { interact: true });
-          expect(bubbleText(live)).toBe('too small to mine');
-          expect(live.swing).toBeNull();
-          expect(live.particles.particles.length).toBeGreaterThan(particles);
+          expect(live.swing?.action).toBe('clear');
+          for (let f = 0; f < 60 && !live.absentObject(i); f++) run(live, 1);
+          expect(bubbleText(live)).toBe('cleared  +1 stone');
+          expect(live.absentObject(i)).toBe(true);
+          expect(live.particles.particles.some((p) => p.kind === 'dust')).toBe(true);
           checked++;
         }
       }
@@ -371,8 +382,9 @@ describe('small rocks answer every press (M3.2 regression)', () => {
     live.resources = [{ ...live.allResources.find((n) => n.kind === 'stone')!, x: live.blobbi.x + 2, y: live.blobbi.y }];
     run(live, 1, { interact: true });
     expect(live.inventory.count(ITEMS.stone.id)).toBe(1);
+    expect(live.swing).toBeNull();
     run(live, 1, { interact: true });
-    expect(bubbleText(live)).toBe('too small to mine');
+    expect(live.swing?.action).toBe('clear');
   });
 
   it('large rocks are unchanged: still four landed swings at 120 Hz, one swing per press', () => {

@@ -19,7 +19,12 @@ export class CollisionMap {
     this.blocked = new Uint8Array(width * height);
   }
 
-  static fromWorld(world: WorldDescription, spriteOf: (p: Placement) => Sprite, extra: Placement[] = []): CollisionMap {
+  /**
+   * `absent` (M10 phase B): world objects (by index) that are not there now — a felled tree's cleared ground, a
+   * broken rock, a cleared bush — whose ground is free. Terrain is permanent; natural resources occupy it only while
+   * they stand.
+   */
+  static fromWorld(world: WorldDescription, spriteOf: (p: Placement) => Sprite, extra: Placement[] = [], absent?: (index: number) => boolean): CollisionMap {
     const { width, height, cls, elevation } = world.terrain;
     const map = new CollisionMap(width, height);
     for (let i = 0; i < cls.length; i++) map.blocked[i] = WALKABLE.has(cls[i]) ? 0 : 1;
@@ -41,8 +46,11 @@ export class CollisionMap {
       if (b.axis === 'h') for (let y = b.y0 - half + 1; y <= b.y0 + half - 1; y++) for (let x = b.x0; x <= b.x1; x++) map.unblock(x, y);
       else for (let x = b.x0 - half + 1; x <= b.x0 + half - 1; x++) for (let y = b.y0; y <= b.y1; y++) map.unblock(x, y);
     }
-    for (const p of [...world.objects, ...extra]) {
+    const all = [...world.objects, ...extra];
+    for (let k = 0; k < all.length; k++) {
+      const p = all[k];
       if (!SOLID_KINDS.has(p.kind)) continue;
+      if (absent && k < world.objects.length && absent(k)) continue;
       const s = spriteOf(p);
       if (s.footRx <= 1 && s.footRy <= 1) continue; // seedlings are stepped over
       map.blockEllipse(p.x, p.y, s.footRx, Math.max(1, s.footRy), p.kind === 'house');

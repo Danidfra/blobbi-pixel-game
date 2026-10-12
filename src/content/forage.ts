@@ -5,8 +5,13 @@
 import type { ItemDefinition } from '../game/items';
 
 export interface ForageContent {
-  kind: 'fibre' | 'mushroom' | 'berry' | 'herb' | 'shell';
+  kind: 'fibre' | 'mushroom' | 'berry' | 'herb' | 'shell' | 'driftwood';
   item: ItemDefinition;
+  /**
+   * Not placed when the world is generated (M10 phase B): the live world puts these nodes down itself, when
+   * they are needed (driftwood: only while the island is short of standing trees). Its item is registered elsewhere.
+   */
+  dynamic?: boolean;
   /** Where nodes appear (see `generateResources`). */
   near: 'grass-tuft' | 'tree-shade' | 'bush' | 'meadow' | 'beach';
   respawnSeconds: number;
@@ -55,5 +60,16 @@ export const FORAGE_CONTENT: readonly ForageContent[] = [
     item: { id: 'blobbi-pixel:resource:shell', label: 'sea shell', plural: 'sea shells', category: 'resource', stack: 30, description: 'A pale spiral shell from the shore of the shell. Crafty things need these.', icon: { rows: ['..sS.', '.sSps', 'sSpps', 'sppps', '.sss.'], colours: { s: '#f4d8c8', S: '#ffffff', p: '#e8a0a0' } } },
     sprites: [['.sS', 'sps', '.s.'], ['sS.', 'pps', '.ss']],
     colours: { s: '#f4d8c8', S: '#ffffff', p: '#e8a0a0' },
+  },
+  {
+    // Driftwood (M10 phase B): wood washed up on the shore, the fallback that keeps wood within reach when building
+    // has left the island with few trees (`MIN_STANDING_TREES`, src/game/clearing.ts).
+    kind: 'driftwood',
+    near: 'beach',
+    respawnSeconds: 240,
+    dynamic: true,
+    item: { id: 'blobbi-pixel:material:wood', label: 'wood', plural: 'wood', category: 'material', stack: 40, description: 'Sturdy logs.' },
+    sprites: [['.......', '..lLLl.', '.lLccLl', 'llLLlll', '.......'], ['.......', '.lLLl..', 'lLccLLl', '.lllLLl', '.......']],
+    colours: { l: '#8a7a68', L: '#b8a890', c: '#d8ccb4' },
   },
 ];

@@ -1,8 +1,9 @@
 /**
- * TREES AS A RESOURCE. A grown tree takes a few axe hits, then it is a stump that yields wood; after a while
- * the stump becomes a seedling and the tree regrows through the existing growth stages into the same tree
- * it was (its seed never changes). State is kept per placement index in world time (simulated seconds,
- * persisted), never in frames, so a reload continues exactly where the regrowth was.
+ * TREES AS A RESOURCE. A grown tree takes a few axe hits, then it is a stump that yields wood; then its ground is
+ * clear (M10 phase B: walkable and buildable); after a while, if the spot is still free, a seedling comes up and
+ * the tree regrows through the existing growth stages into the same tree it was (its seed never changes). State
+ * is kept per placement index in world time (simulated seconds, persisted), never in frames, so a reload
+ * continues exactly where the regrowth was.
  */
 import { stream } from '../core/rng';
 import { PixelBuffer, type Sprite } from '../core/pixel';
@@ -15,15 +16,23 @@ export const HITS_TO_FELL = 3;
 export const STUMP_SECONDS = 20;
 /** Seconds of world time from seedling to a grown, harvestable tree again. */
 export const REGROW_SECONDS = 240;
+/** M10 phase B: seconds the ground stays clear after the stump before the seedling may come up (`clearing.ts`). */
+export const TREE_RETURN_SECONDS = 600;
 
 export interface TreeState {
   /** Axe hits taken since the last regrowth (reset on felling). */
   hits: number;
   /** World time of the felling, or null while the tree stands. */
   harvestedAt: number | null;
+  /**
+   * M10 phase B: world time the seedling came up (the regrowth began), or null while its ground is clear and the
+   * tree waits for the spot to be free (`src/game/clearing.ts`). Absent: felled before phase B, so the old
+   * schedule (the seedling right after the stump) applies.
+   */
+  regrowAt?: number | null;
 }
 
-export type TreePhase = 'grown' | 'chopping' | 'stump' | 'regrowing';
+export type TreePhase = 'grown' | 'chopping' | 'stump' | 'cleared' | 'regrowing';
 
 export interface TreeCondition {
   phase: TreePhase;
@@ -36,11 +45,15 @@ export interface TreeCondition {
 export function treeCondition(state: TreeState | undefined, worldTime: number): TreeCondition {
   if (!state || state.harvestedAt === null) return { phase: state && state.hits > 0 ? 'chopping' : 'grown', growth: 1, remaining: 0 };
   const since = Math.max(0, worldTime - state.harvestedAt);
-  if (since < STUMP_SECONDS) return { phase: 'stump', growth: 1, remaining: STUMP_SECONDS + REGROW_SECONDS - since };
-  const growth = Math.min(1, (since - STUMP_SECONDS) / REGROW_SECONDS);
+  // (A tree felled since M10 phase B also has its clear-ground wait ahead of it.)
+  if (since < STUMP_SECONDS) return { phase: 'stump', growth: 1, remaining: STUMP_SECONDS + (state.regrowAt === undefined ? 0 : TREE_RETURN_SECONDS) + REGROW_SECONDS - since };
+  const regrowAt = state.regrowAt === undefined ? state.harvestedAt + STUMP_SECONDS : state.regrowAt;
+  // Cleared ground: the tree comes back only when its spot is free (remaining is the earliest it may try).
+  if (regrowAt === null) return { phase: 'cleared', growth: 0, remaining: Math.max(0, STUMP_SECONDS + TREE_RETURN_SECONDS - since) + REGROW_SECONDS };
+  const growth = Math.min(1, Math.max(0, worldTime - regrowAt) / REGROW_SECONDS);
   if (growth >= 1) return { phase: 'grown', growth: 1, remaining: 0 };
   // Quantized like planted trees, so sprites are reused.
-  return { phase: 'regrowing', growth: Math.max(0.02, Math.round(growth * 24) / 24), remaining: STUMP_SECONDS + REGROW_SECONDS - since };
+  return { phase: 'regrowing', growth: Math.max(0.02, Math.round(growth * 24) / 24), remaining: REGROW_SECONDS - (worldTime - regrowAt) };
 }
 
 /** Wood a tree yields when felled: bigger trees give more, the seed decides the odd extra log. */

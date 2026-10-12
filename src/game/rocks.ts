@@ -1,7 +1,8 @@
 /**
  * LARGE ROCKS AS A RESOURCE. A large world rock takes a few pickaxe hits, then it is a pile of rubble that
- * yields stones; after a while of world time the rock is whole again (the same rock: its seed, size and
- * footprint never change, so collision and navigation never change either). State is per placement index in
+ * yields stones; then (M10 phase B) its ground is clear — walkable and buildable — until, if the spot is still
+ * free, the same rock surfaces there again (its seed, size and footprint never change). Rocks broken before
+ * phase B keep the old timeline: rubble that blocks, then whole. State is per placement index in
  * persisted world time, like trees.
  */
 import { stream } from '../core/rng';
@@ -12,16 +13,24 @@ import type { WorldPalette } from '../core/palette';
 export const LARGE_ROCK_SIZE = 14;
 /** Pickaxe hits to break a large rock. */
 export const HITS_TO_MINE = 4;
-/** Seconds of world time a mined rock stays rubble before it is whole again. */
+/** Seconds of world time a rock broken before M10 phase B stays rubble before it is whole again. */
 export const RUBBLE_SECONDS = 300;
+/** M10 phase B: seconds the rubble lies there before its ground is clear, then before the rock may surface again. */
+export const RUBBLE_CLEAR_SECONDS = 20;
+export const ROCK_RETURN_SECONDS = 900;
 
 export interface RockState {
   hits: number;
   /** World time of the breaking, or null while the rock is whole. */
   minedAt: number | null;
+  /**
+   * M10 phase B: world time the rock surfaced again, or null while its ground is clear and it waits for the spot
+   * to be free (`src/game/clearing.ts`). Absent: broken before phase B (the old rubble timeline applies).
+   */
+  reformAt?: number | null;
 }
 
-export type RockPhase = 'whole' | 'mining' | 'rubble';
+export type RockPhase = 'whole' | 'mining' | 'rubble' | 'cleared';
 
 export interface RockCondition {
   phase: RockPhase;
@@ -32,8 +41,11 @@ export interface RockCondition {
 export function rockCondition(state: RockState | undefined, worldTime: number): RockCondition {
   if (!state || state.minedAt === null) return { phase: state && state.hits > 0 ? 'mining' : 'whole', remaining: 0 };
   const since = Math.max(0, worldTime - state.minedAt);
-  if (since >= RUBBLE_SECONDS) return { phase: 'whole', remaining: 0 };
-  return { phase: 'rubble', remaining: RUBBLE_SECONDS - since };
+  // Before phase B: rubble for RUBBLE_SECONDS, then whole.
+  if (state.reformAt === undefined) return since >= RUBBLE_SECONDS ? { phase: 'whole', remaining: 0 } : { phase: 'rubble', remaining: RUBBLE_SECONDS - since };
+  if (since < RUBBLE_CLEAR_SECONDS) return { phase: 'rubble', remaining: RUBBLE_CLEAR_SECONDS + ROCK_RETURN_SECONDS - since };
+  if (state.reformAt === null || worldTime < state.reformAt) return { phase: 'cleared', remaining: Math.max(0, RUBBLE_CLEAR_SECONDS + ROCK_RETURN_SECONDS - since) };
+  return { phase: 'whole', remaining: 0 };
 }
 
 export const isLargeRock = (size: number): boolean => size >= LARGE_ROCK_SIZE;

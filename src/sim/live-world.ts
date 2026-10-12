@@ -28,14 +28,16 @@ import { sourceFromSeed, type BlobbiSource } from '../blobbi/source';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
 import { Brain, NavGrid } from './brain';
-import { BASIC_KINDS, generateResources, isShore, REACH, RESOURCE_ITEM, RESOURCE_LABEL, type ResourceNode } from '../game/resources';
+import { BASIC_KINDS, generateResources, isShore, REACH, RESOURCE_ITEM, RESOURCE_LABEL, type ResourceKind, type ResourceNode } from '../game/resources';
 import { Inventory } from '../game/inventory';
 import { loadSave, storeSave, clearSave, worldIdentity, newGrowthSave, newTutorialSave, INTRO_SEEN, SAVE_VERSION, WORLD_OWNER, type GrowthSave, type IntroSave, type IntroState, type KeyValueStore, type TreeSaveState, type TutorialSave } from '../game/persistence';
 import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } from '../game/items';
 import { canCraft, craft, type Recipe } from '../game/crafting';
-import { HITS_TO_FELL, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
+import { HITS_TO_FELL, STUMP_SECONDS, TREE_RETURN_SECONDS, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
 import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
-import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, type RockCondition, type RockState } from '../game/rocks';
+import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, type RockCondition, type RockState } from '../game/rocks';
+import type { BoatState } from '../game/canoe';
+import { clearableKind, CLEAR_YIELD, RETURN_SECONDS, RETRY_SECONDS, MIN_STANDING_TREES, type ClearState } from '../game/clearing';
 import { RESPAWN_SECONDS } from '../game/resources';
 import type { RockSaveState } from '../game/persistence';
 import { houseLevelInfo, MAX_HOUSE_LEVEL, type HouseLevel } from '../content/houses';
@@ -145,7 +147,7 @@ export const SWING = { raise: 0.1, hit: 0.18, end: 0.32 } as const;
 
 export interface Swing {
   /** What the swing does when it lands: chop a tree (axe), mine a rock (pickaxe) or till the soil (hoe). */
-  action: 'chop' | 'mine' | 'till';
+  action: 'chop' | 'mine' | 'till' | 'clear';
   start: number;
   /** The tree's or rock's placement index (-1 when tilling). */
   index: number;
@@ -547,7 +549,7 @@ export class LiveWorld {
       for (const [k, v] of Object.entries(save.rocks)) {
         const index = Number(k);
         const o = world.objects[index];
-        if (o && o.kind === 'rock' && isLargeRock(o.size)) this.rocks.set(index, { hits: v.hits, minedAt: v.minedAt });
+        if (o && o.kind === 'rock' && isLargeRock(o.size)) this.rocks.set(index, { hits: v.hits, minedAt: v.minedAt, ...(v.reformAt !== undefined ? { reformAt: v.reformAt } : {}) });
       }
       this.timeOffset = save.worldTime;
       // Buildings before the inventory: finished storage crates add stack room the saved inventory may be using.
@@ -563,7 +565,22 @@ export class LiveWorld {
       this.inventory = Inventory.fromSnapshot(save.inventory, this.stackFor);
       for (const [k, v] of Object.entries(save.trees)) {
         const index = Number(k);
-        if (index >= 0 && index < world.objects.length && world.objects[index].kind === 'tree') this.trees.set(index, { hits: v.hits, harvestedAt: v.harvestedAt });
+        if (index >= 0 && index < world.objects.length && world.objects[index].kind === 'tree') this.trees.set(index, { hits: v.hits, harvestedAt: v.harvestedAt, ...(v.regrowAt !== undefined ? { regrowAt: v.regrowAt } : {}) });
+      }
+      // M10 phase B: cleared bushes, small rocks, natural stumps and mushrooms (only objects that can be cleared).
+      for (const [k, v] of Object.entries(save.cleared)) {
+        const index = Number(k);
+        const o = world.objects[index];
+        const kind = o && clearableKind(o);
+        if (kind && kind !== 'tree' && kind !== 'rock') this.cleared.set(index, { at: v.at, returnedAt: v.returnedAt });
+      }
+      for (const id of save.caught) this.caught.add(id);
+      if (save.boat) this.boat = { x: save.boat.x + origin.x, y: save.boat.y + origin.y, heading: save.boat.heading, vx: 0, vy: 0, aboard: save.boat.aboard };
+      // Cleared ground is free: collision and navigation as the island is now.
+      this.absentKey = this.absentNow();
+      if (this.absentKey) {
+        this.absentVersion++;
+        this.rebuildIsland();
       }
       if (save.equipped && isTool(save.equipped) && this.inventory.count(save.equipped) > 0) this.equipped = save.equipped;
       for (const p of save.plots) {
@@ -896,6 +913,8 @@ export class LiveWorld {
    * Bring collected nodes back once their respawn time has passed, when their spot is still free (not under a
    * building, not under the Blobbi's feet). Checked once a second; deterministic in world time.
    */
+  private clearingTimer = 0;
+
   private stepRespawn(dt: number): void {
     this.respawnTimer -= dt;
     if (this.respawnTimer > 0 || this.collectedAt.size === 0) return;
@@ -918,6 +937,201 @@ export class LiveWorld {
     // Keep generation order, so the nearest-node tie-break never depends on respawn order.
     this.resources = this.allResources.filter((n) => !this.collected.has(n.id));
     this.save();
+  }
+
+  // ─── Clearing land (M10 phase B): terrain is permanent, resources occupy it while they stand ─────
+
+  /** The canoe, once launched (M10 phase B; saved): moored or paddling, with the Blobbi aboard or not. */
+  boat: BoatState | null = null;
+
+  /** Fish species ever caught (item ids; saved): the collection log (M10 phase B). */
+  readonly caught = new Set<string>();
+
+  /** Bushes, small rocks and natural stumps or mushrooms cleared by the player (saved). */
+  readonly cleared = new Map<number, ClearState>();
+  /** World time each waiting resource last looked at its spot. */
+  private readonly returnTried = new Map<number, number>();
+  /** Which objects were absent when collision was last built (a change rebuilds it). */
+  private absentKey = '';
+
+  /** Whether world object `index` is not there now: its ground is clear (walkable, buildable). */
+  absentObject(index: number): boolean {
+    const p = this.world.objects[index];
+    if (!p) return false;
+    if (p.kind === 'tree' && this.trees.has(index)) return this.treeAt(index).phase === 'cleared';
+    if (p.kind === 'rock' && this.rocks.has(index)) return this.rockAt(index).phase === 'cleared';
+    const c = this.cleared.get(index);
+    return !!c && c.returnedAt === null;
+  }
+
+  /** The island's collision with every absent object's ground free. */
+  private islandCollisionNow(): CollisionMap {
+    return CollisionMap.fromWorld(this.world, (p) => this.spriteOf(p), [], (i) => this.absentObject(i));
+  }
+
+  /** The objects absent now (only those with a state can be), in index order. */
+  absentIndices(): number[] {
+    const out: number[] = [];
+    for (const i of this.trees.keys()) if (this.absentObject(i)) out.push(i);
+    for (const i of this.rocks.keys()) if (this.absentObject(i)) out.push(i);
+    for (const i of this.cleared.keys()) if (this.absentObject(i)) out.push(i);
+    return out.sort((a, b) => a - b);
+  }
+
+  /** Bumped whenever the set of absent objects changes (renderers repaint the ground there). */
+  absentVersion = 0;
+
+  private absentNow(): string {
+    return this.absentIndices().join(',');
+  }
+
+  /** Swing at a bush, a small rock, a natural stump or mushroom to clear it (the tool's own swing). */
+  private startClear(index: number): boolean {
+    const time = this.clock.time;
+    if (this.swing) return true;
+    this.swing = { action: 'clear', start: time, index, landed: false };
+    this.blobbi.animator.react('excited', time, SWING.end, 0);
+    return true;
+  }
+
+  /** The swing lands: the thing is cleared, what it gives goes into the bag, its ground is free. */
+  private landClear(index: number): void {
+    const o = this.world.objects[index];
+    const kind = o && clearableKind(o);
+    if (!kind || kind === 'tree' || kind === 'rock' || this.absentObject(index)) return;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const sprite = this.objectSprite(index);
+    const palette = paletteFor(this.world.options.palette);
+    this.cleared.set(index, { at: this.worldTime, returnedAt: null });
+    const gave: string[] = [];
+    for (const y of CLEAR_YIELD[kind]) {
+      const got = this.inventory.add(y.item, y.quantity);
+      if (got) gave.push(`+${got} ${itemLabel(y.item)}`);
+    }
+    const stone = kind === 'small-rock';
+    for (let i = 0; i < 6; i++) this.particles.dust(o.x + this.particles.rng.range(-sprite.footRx, sprite.footRx), o.y - this.particles.rng.range(0, 4), stone ? (i % 2 ? palette.stone.light : palette.stone.mid) : i % 2 ? palette.wood.light : palette.foliage[0].mid);
+    if (!stone) for (let i = 0; i < 4; i++) this.particles.leaf(o.x + this.particles.rng.range(-4, 4), o.y - sprite.anchorY + 2, palette.foliage[0].mid);
+    this.sound(stone ? 'mine' : 'chop');
+    this.stats.chops++;
+    this.bubble = { text: gave.length ? `cleared  ${gave.join(' ')}` : 'cleared', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    b.animator.react('happy', time, 0.8, 2);
+    this.absentKey = this.absentNow();
+    this.absentVersion++;
+    this.rebuildIsland();
+    this.save();
+  }
+
+  /**
+   * Is the ground of object `index` free for it to come back? Not under a building, path, rug or furniture
+   * outdoors, a doorway, a farm plot (or its crop), a planted tree, the Blobbi or the moored canoe; and coming back
+   * must not cut the hub or a building off from the rest of the island.
+   */
+  private spotFreeFor(index: number): boolean {
+    const o = this.world.objects[index];
+    const s = this.spriteOf(o);
+    const rx = Math.max(1, s.footRx);
+    const ry = Math.max(1, s.footRy);
+    const rect = { x0: o.x - rx - 1, y0: o.y - ry - 1, x1: o.x + rx + 1, y1: o.y + ry + 1 };
+    const hit = (r: { x0: number; y0: number; x1: number; y1: number }) => r.x0 <= rect.x1 && r.x1 >= rect.x0 && r.y0 <= rect.y1 && r.y1 >= rect.y0;
+    for (const bd of this.buildings) {
+      const f = footOf(bd);
+      if (hit({ x0: bd.x - f.footRx - 1, y0: bd.y - f.footRy - 1, x1: bd.x + f.footRx + 1, y1: bd.y + f.footRy + 1 })) return false;
+      const door = bd.kind === 'shelter' ? doorwayRect(bd) : null;
+      if (door && hit(door)) return false;
+    }
+    for (const plot of this.plots) if (hit(this.plotRect(plot))) return false;
+    for (const t of this.planted) if (hit({ x0: t.placement.x - 3, y0: t.placement.y - 2, x1: t.placement.x + 3, y1: t.placement.y + 2 })) return false;
+    const b = this.blobbi;
+    if (!this.inside && hit({ x0: b.x - b.footRx - 2, y0: b.y - b.footRy - 2, x1: b.x + b.footRx + 2, y1: b.y + b.footRy + 2 })) return false;
+    if (this.boat && hit({ x0: this.boat.x - 9, y0: this.boat.y - 9, x1: this.boat.x + 9, y1: this.boat.y + 9 })) return false;
+    // Never closing the way to the hub or a door.
+    if (SOLID_KINDS.has(o.kind) && this.cutsOffPath(rect)) return false;
+    return true;
+  }
+
+  /**
+   * Every few seconds of world time: phases that free or take ground rebuild collision; resources whose time has
+   * come return to their spot if it is free, or keep waiting (they never move). Deterministic in world time.
+   */
+  private stepClearing(): void {
+    const now = this.worldTime;
+    let returned = false;
+    const due = (i: number, earliest: number) => {
+      if (now < earliest) return false;
+      const tried = this.returnTried.get(i);
+      if (tried !== undefined && now - tried < RETRY_SECONDS) return false;
+      this.returnTried.set(i, now);
+      return this.spotFreeFor(i);
+    };
+    for (const [i, st] of this.trees) {
+      if (st.harvestedAt === null || st.regrowAt !== null || this.treeAt(i).phase !== 'cleared') continue;
+      if (due(i, st.harvestedAt + STUMP_SECONDS + TREE_RETURN_SECONDS)) {
+        st.regrowAt = now;
+        returned = true;
+      }
+    }
+    for (const [i, st] of this.rocks) {
+      if (st.minedAt === null || st.reformAt !== null || this.rockAt(i).phase !== 'cleared') continue;
+      if (due(i, st.minedAt + RUBBLE_CLEAR_SECONDS + ROCK_RETURN_SECONDS)) {
+        st.reformAt = now;
+        st.hits = 0;
+        returned = true;
+      }
+    }
+    for (const [i, st] of this.cleared) {
+      const o = this.world.objects[i];
+      const wait = RETURN_SECONDS[clearableKind(o) ?? 'stump'];
+      if (st.returnedAt !== null || wait === null) continue;
+      if (due(i, st.at + wait)) {
+        // Back as it was: the record goes (an untouched object again).
+        this.cleared.delete(i);
+        returned = true;
+      }
+    }
+    const key = this.absentNow();
+    if (key !== this.absentKey || returned) {
+      if (key !== this.absentKey) this.absentVersion++;
+      this.absentKey = key;
+      this.rebuildIsland();
+      if (returned) this.save();
+    }
+  }
+
+  /** Grown trees standing now (felled, cleared or regrowing ones do not count). */
+  standingTrees(): number {
+    let n = 0;
+    this.world.objects.forEach((o, i) => {
+      if (o.kind === 'tree' && this.treeAt(i).phase !== 'cleared' && this.treeAt(i).phase !== 'stump' && this.treeAt(i).phase !== 'regrowing') n++;
+    });
+    return n;
+  }
+
+  /** Driftwood on the shore spots (ids `drift:<n>`), placed while the island is short of trees. */
+  private driftwood: ResourceNode[] | null = null;
+
+  /**
+   * The wood fallback: while fewer than `MIN_STANDING_TREES` trees stand, driftwood washes up on the shore spots
+   * (one per spot, back `RESPAWN_SECONDS.driftwood` after being picked up), so wood can always be found.
+   */
+  private stepDriftwood(): void {
+    this.driftwood ??= this.shoreSpots.map((p, k) => ({ id: `drift:${k}`, kind: 'driftwood' as ResourceKind, x: p.x, y: p.y + 2, variant: k % 2, source: -1 }));
+    const scarce = this.standingTrees() < MIN_STANDING_TREES;
+    const now = this.worldTime;
+    let changed = false;
+    for (const node of this.driftwood) {
+      const lying = this.resources.includes(node);
+      if (!scarce || lying) continue;
+      const at = this.collectedAt.get(node.id);
+      if (at !== undefined && now - at < RESPAWN_SECONDS.driftwood) continue;
+      if (!this.collision.canStand(node.x, node.y, 2, 1)) continue;
+      if (this.buildings.some((r) => Math.abs(r.x - node.x) <= footOf(r).footRx + 1 && Math.abs(r.y - node.y) <= footOf(r).footRy + 1)) continue;
+      this.collectedAt.delete(node.id);
+      this.collected.delete(node.id);
+      this.resources.push(node);
+      changed = true;
+    }
+    if (changed) this.save();
   }
 
   // ─── Tools and crafting: the player's actions only ───────────────────────
@@ -1001,7 +1215,11 @@ export class LiveWorld {
     if (this.denied('gather')) return false;
     if (!this.equipped || !toolSupports(this.equipped, 'chop')) return false;
     const target = this.facingObject();
-    if (!target || target.placement.kind !== 'tree' || target.index >= this.world.objects.length) return false;
+    if (!target || target.index >= this.world.objects.length) return false;
+    // M10 phase B: the axe also clears a bush, or a natural stump or mushroom, freeing its ground.
+    const kind = clearableKind(target.placement);
+    if (kind === 'bush' || kind === 'stump' || kind === 'mushroom') return this.startClear(target.index);
+    if (target.placement.kind !== 'tree') return false;
     const time = this.clock.time;
     const b = this.blobbi;
     const { index, placement: o, sprite } = target;
@@ -1031,14 +1249,8 @@ export class LiveWorld {
     const time = this.clock.time;
     const b = this.blobbi;
     const { index, placement: o, sprite } = target;
-    if (!isLargeRock(o.size)) {
-      // No swing (nothing to mine), but a clear answer: the bubble, a puff of dust on the rock and a small shrug.
-      this.bubble = { text: 'too small to mine', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
-      const palette = paletteFor(this.world.options.palette);
-      for (let i = 0; i < 3; i++) this.particles.dust(o.x + this.particles.rng.range(-1, 1), o.y - sprite.anchorY + 1, palette.stone.light);
-      b.animator.react('surprised', time, 0.6, 1);
-      return true;
-    }
+    // M10 phase B: a small rock is not mined (no rubble, no ore) but cleared in one swing: a stone, and its ground.
+    if (!isLargeRock(o.size)) return this.startClear(index);
     const condition = this.rockAt(index);
     if (condition.phase === 'rubble') {
       this.bubble = { text: `rubble. whole again in ${Math.ceil(condition.remaining / 60)} min`, until: time + 1.8, x: o.x, y: o.y - sprite.anchorY - 2 };
@@ -1063,6 +1275,7 @@ export class LiveWorld {
     if (state.minedAt !== null) {
       state.minedAt = null;
       state.hits = 0;
+      delete state.reformAt;
     }
     state.hits++;
     this.rocks.set(index, state);
@@ -1080,6 +1293,8 @@ export class LiveWorld {
     }
     state.hits = 0;
     state.minedAt = this.worldTime;
+    // M10 phase B: after the rubble its ground is clear until the rock may surface again (src/game/clearing.ts).
+    state.reformAt = null;
     this.stats.mined++;
     this.tally.mined++;
     const stones = stoneYield(o.seed, o.size);
@@ -1102,7 +1317,7 @@ export class LiveWorld {
     const o = this.world.objects[index];
     const sprite = this.objectSprite(index);
     const condition = this.treeAt(index);
-    if (condition.phase === 'stump' || condition.phase === 'regrowing') return;
+    if (condition.phase === 'stump' || condition.phase === 'regrowing' || condition.phase === 'cleared') return;
     const state = this.trees.get(index) ?? { hits: 0, harvestedAt: null };
     state.hits++;
     this.trees.set(index, state);
@@ -1124,8 +1339,10 @@ export class LiveWorld {
       return;
     }
     // Felled: a stump from now, wood into the bag (what fits), the rest of the tree's canopy comes down as leaves.
+    // M10 phase B: then clear ground, until the seedling may come up on a free spot (src/game/clearing.ts).
     state.hits = 0;
     state.harvestedAt = this.worldTime;
+    state.regrowAt = null;
     this.stats.felled++;
     this.tally.felled++;
     const wood = woodYield(o.seed, o.size);
@@ -2754,7 +2971,12 @@ export class LiveWorld {
       this.rebuildRoom();
       return;
     }
-    this.islandCollision = CollisionMap.fromWorld(this.world, (p) => this.spriteOf(p));
+    this.rebuildIsland();
+  }
+
+  /** The island's collision and navigation from scratch: terrain, the objects that stand now, planted trees, buildings. */
+  private rebuildIsland(): void {
+    this.islandCollision = this.islandCollisionNow();
     for (const t of this.planted) if (t.solid) {
       const sp = this.spriteOf(t.placement, this.growthOf(t));
       this.islandCollision.blockEllipse(t.placement.x, t.placement.y, sp.footRx, Math.max(1, sp.footRy));
@@ -2978,39 +3200,152 @@ export class LiveWorld {
    * under it is fine (an upgrade grows over its own garden), loose sticks and stones are cleared away.
    */
   private upgradeFit(house: Building, level: number): { ok: boolean; reason: string | null } {
-    const next = { ...house, level };
+    this.upgradeObstacles = [];
+    const fit = this.fitAt(house, house.x, house.y, level);
+    if (fit.fixed) {
+      // The land itself (or a building, a plot) is in the way: clearing will not help, a move will.
+      const dir = this.roomierDirection(house, level);
+      return { ok: false, reason: `the bigger house does not fit here: ${fit.fixed}. Move the house (M)${dir ? `: there is room ${dir}` : ' to a roomier spot'}.` };
+    }
+    this.upgradeObstacles = fit.blockers;
+    // The world marks them while the HOME panel says so, and a few seconds after.
+    if (fit.blockers.length) this.upgradeHintUntil = this.clock.time + 4;
+    if (fit.blockers.length || fit.planted) return { ok: false, reason: this.clearAdvice(house, fit.blockers, fit.planted) };
+    return { ok: true, reason: null };
+  }
+
+  /**
+   * Would `house` at level `level` fit with its centre at (x, y)? `fixed`: why not, when clearing cannot help (the
+   * map's edge, ground that is not flat grass, a slope, the high ground's edge, a building, a plot); otherwise the
+   * world objects (`blockers`) and planted trees in the way, all of which can be cleared or moved.
+   */
+  private fitAt(house: Building, x: number, y: number, level: number): { fixed: string | null; blockers: number[]; planted: number } {
+    const next = { ...house, x, y, level };
     const foot = footOf(next);
-    const no = (why: string) => ({ ok: false, reason: `the bigger house does not fit here: ${why} (move it, or clear around it)` });
+    const out = (fixed: string) => ({ fixed, blockers: [] as number[], planted: 0 });
     for (const b of this.buildings) {
       if (b === house) continue;
+      // Paths and rugs lie flat: the bigger house may stand over them (as documented in HOUSING.md).
+      if (BUILDINGS[b.kind].layer === 'floor') continue;
       const d = footOf(b);
       const gap = Math.max(BUILDINGS.shelter.gap, BUILDINGS[b.kind].gap);
-      if (Math.abs(b.x - house.x) < foot.footRx + d.footRx + gap && Math.abs(b.y - house.y) < foot.footRy + d.footRy + gap) return no(`too close to the ${BUILDINGS[b.kind].label}`);
+      if (Math.abs(b.x - x) < foot.footRx + d.footRx + gap && Math.abs(b.y - y) < foot.footRy + d.footRy + gap) return out(`too close to the ${BUILDINGS[b.kind].label}`);
     }
     const rect = footprintRect(next);
     for (const p of this.plots) {
       const o = this.origin;
       const x0 = p.gx * PLOT_GRID + o.x;
       const y0 = p.gy * PLOT_GRID + o.y;
-      if (x0 <= rect.x1 + 2 && x0 + PLOT_GRID - 1 >= rect.x0 - 2 && y0 <= rect.y1 + 2 && y0 + PLOT_GRID - 1 >= rect.y0 - 2) return no('a farm plot is there');
+      if (x0 <= rect.x1 + 2 && x0 + PLOT_GRID - 1 >= rect.x0 - 2 && y0 <= rect.y1 + 2 && y0 + PLOT_GRID - 1 >= rect.y0 - 2) return out('a farm plot is there');
     }
     const { width, height, cls, elevation } = this.world.terrain;
-    const level0 = elevation[Math.round(house.y) * width + Math.round(house.x)];
-    const map = (this.baseCollisionForUpgrade ??= CollisionMap.fromWorld(this.world, (p) => this.spriteOf(p)));
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    if (cx < 0 || cy < 0 || cx >= width || cy >= height) return out(PROBLEM_TEXT.edge);
+    const level0 = elevation[cy * width + cx];
+    // The objects standing now (cleared ground is free: M10 phase B).
+    if (this.upgradeMapVersion !== this.absentVersion) this.baseCollisionForUpgrade = null;
+    this.upgradeMapVersion = this.absentVersion;
+    const map = (this.baseCollisionForUpgrade ??= CollisionMap.fromWorld(this.world, (p) => this.spriteOf(p), [], (i) => this.absentObject(i)));
     const door = doorwayRect(next)!;
-    for (const r of [{ x0: rect.x0 - 1, y0: rect.y0 - 1, x1: rect.x1 + 1, y1: rect.y1 + 1 }, door])
-      for (let y = r.y0; y <= r.y1; y++)
-        for (let x = r.x0; x <= r.x1; x++) {
-          if (x < 0 || y < 0 || x >= width || y >= height) return no(PROBLEM_TEXT.edge);
-          const i = y * width + x;
-          if (!WALKABLE.has(cls[i]) || cls[i] === T.RIM || cls[i] === T.SKIN) return no(PROBLEM_TEXT.ground);
-          if (elevation[i] !== level0) return no('the ground is not level');
-          if (map.blocked[i]) {
-            const what = this.world.objects.find((o) => SOLID_KINDS.has(o.kind) && Math.abs(o.x - x) <= this.spriteOf(o).footRx + 1 && Math.abs(o.y - y) <= this.spriteOf(o).footRy + 1);
-            return no(what ? `a ${what.kind === 'decor' ? 'stone or stump' : what.kind} is in the way` : 'the ground there is not clear (water, a slope or a tree)');
-          }
+    const areas = [{ x0: rect.x0 - 1, y0: rect.y0 - 1, x1: rect.x1 + 1, y1: rect.y1 + 1 }, door];
+    // Every object in the way, not just the first: the player is told all of what to clear.
+    const blockers = new Set<number>();
+    for (const r of areas)
+      for (let py = r.y0; py <= r.y1; py++)
+        for (let px = r.x0; px <= r.x1; px++) {
+          if (px < 0 || py < 0 || px >= width || py >= height) return out(PROBLEM_TEXT.edge);
+          const i = py * width + px;
+          if (!WALKABLE.has(cls[i]) || cls[i] === T.RIM || cls[i] === T.SKIN) return out(PROBLEM_TEXT.ground);
+          if (elevation[i] !== level0) return out('the ground is not level');
+          if (!map.blocked[i]) continue;
+          const at = this.world.objects.findIndex((o, k) => SOLID_KINDS.has(o.kind) && !this.absentObject(k) && Math.abs(o.x - px) <= this.spriteOf(o).footRx + 1 && Math.abs(o.y - py) <= this.spriteOf(o).footRy + 1);
+          if (at >= 0) blockers.add(at);
+          // Nothing standing there: the edge of the high ground (it can only be crossed where a path climbs it).
+          else return out(level0 ? 'it would reach the edge of the high ground' : 'the ground there is not clear (water or a slope)');
         }
-    return { ok: true, reason: null };
+    // Planted trees that have taken root are in the way too.
+    const planted = this.planted.filter((t) => t.solid && areas.some((r) => t.placement.x >= r.x0 - 2 && t.placement.x <= r.x1 + 2 && t.placement.y >= r.y0 - 2 && t.placement.y <= r.y1 + 2)).length;
+    return { fixed: null, blockers: [...blockers].sort((a, b) => a - b), planted };
+  }
+
+  /**
+   * Where a move would give the bigger house room: the nearest spot (searched outward in rings) where it fits once
+   * natural things are cleared, as a direction ("to the north-east, about 40 steps away"); null if none nearby.
+   * Only advice: nothing moves until the player moves the house.
+   */
+  private roomierDirection(house: Building, level: number): string | null {
+    const key = `${this.structureVersion}|${this.absentVersion}|${house.x},${house.y}|${level}`;
+    if (this.roomierCache?.key === key) return this.roomierCache.text;
+    let text: string | null = null;
+    search: for (let r = 8; r <= 200; r += 6)
+      for (let k = 0; k < 24; k++) {
+        const a = (k / 24) * Math.PI * 2;
+        const x = Math.round(house.x + Math.cos(a) * r);
+        const y = Math.round(house.y + Math.sin(a) * r * 0.75);
+        const fit = this.fitAt(house, x, y, level);
+        if (fit.fixed || fit.blockers.some((i) => !clearableKind(this.world.objects[i]))) continue;
+        const ns = y < house.y - r * 0.3 ? 'north' : y > house.y + r * 0.3 ? 'south' : '';
+        const ew = x > house.x + r * 0.3 ? 'east' : x < house.x - r * 0.3 ? 'west' : '';
+        const d = Math.hypot(x - house.x, y - house.y);
+        const way = ns && ew ? `${ns}-${ew}` : ns || ew;
+        text = d <= 24 ? `a little to the ${way}` : `to the ${way}, about ${Math.round(d / 4)} steps away`;
+        break search;
+      }
+    this.roomierCache = { key, text };
+    return text;
+  }
+  private roomierCache: { key: string; text: string | null } | null = null;
+
+  /** World objects in the way of the next house upgrade, last checked (the world marks them until `upgradeHintUntil`). */
+  upgradeObstacles: number[] = [];
+  upgradeHintUntil = -1;
+  private upgradeMapVersion = -1;
+
+  /**
+   * What to clear for the bigger house, in words a player can act on: "Clear the two trees and the small rock
+   * behind your house (axe, pickaxe) to make room." Things that cannot be cleared (a sign, a well) are named with
+   * the other way out: moving the house.
+   */
+  private clearAdvice(house: Building, indices: number[], planted: number): string {
+    const words = ['no', 'the', 'the two', 'the three', 'the four', 'the five', 'the six'];
+    const count = (n: number, one: string, many: string) => `${n < words.length ? words[n] : n} ${n === 1 ? one : many}`;
+    const groups = new Map<string, { n: number; one: string; many: string; tool: string | null }>();
+    const add = (key: string, one: string, many: string, tool: string | null) => {
+      const g = groups.get(key) ?? { n: 0, one, many, tool };
+      g.n++;
+      groups.set(key, g);
+    };
+    let sx = 0;
+    let sy = 0;
+    for (const i of indices) {
+      const o = this.world.objects[i];
+      sx += o.x - house.x;
+      sy += o.y - house.y;
+      const kind = clearableKind(o);
+      if (kind === 'tree') add('tree', 'tree', 'trees', 'axe');
+      else if (kind === 'rock') add('rock', 'big rock', 'big rocks', 'pickaxe');
+      else if (kind === 'small-rock') add('small-rock', 'small rock', 'small rocks', 'pickaxe');
+      else if (kind === 'bush') add('bush', 'bush', 'bushes', 'axe');
+      else if (kind === 'stump' || kind === 'mushroom') add(kind, kind, `${kind}s`, 'axe');
+      else {
+        const k = o.kind === 'decor' ? ((o.variation as { kind?: string } | undefined)?.kind ?? 'decoration') : o.kind;
+        add(`fixed:${k}`, k, `${k}s`, null);
+      }
+    }
+    if (planted) for (let k = 0; k < planted; k++) add('planted', 'young tree you planted', 'young trees you planted', 'axe');
+    const n = indices.length + planted;
+    const where = n === 0 ? '' : Math.abs(sy) >= Math.abs(sx) ? (sy < 0 ? ' behind your house' : ' in front of your house') : sx < 0 ? ' to the left of your house' : ' to the right of your house';
+    const clearable = [...groups.entries()].filter(([k]) => !k.startsWith('fixed:'));
+    const fixed = [...groups.entries()].filter(([k]) => k.startsWith('fixed:'));
+    const list = (gs: typeof clearable) => {
+      const parts = gs.map(([, g]) => count(g.n, g.one, g.many));
+      return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+    };
+    const tools = [...new Set(clearable.map(([, g]) => g.tool).filter(Boolean))].join(', ');
+    if (!fixed.length) return `Clear ${list(clearable)}${where} to make room (${tools}).`;
+    const fixedText = `${list(fixed)}${where} cannot be cleared: move the house (M) to a roomier spot`;
+    return clearable.length ? `Clear ${list(clearable)} (${tools}); ${fixedText}.` : `${fixedText[0].toUpperCase()}${fixedText.slice(1)}.`;
   }
   private baseCollisionForUpgrade: CollisionMap | null = null;
 
@@ -3587,7 +3922,7 @@ export class LiveWorld {
   save(): void {
     if (!this.store) return;
     const trees: Record<string, TreeSaveState> = {};
-    for (const [index, t] of [...this.trees.entries()].sort((a, b) => a[0] - b[0])) if (t.hits > 0 || t.harvestedAt !== null) trees[String(index)] = { hits: t.hits, harvestedAt: t.harvestedAt };
+    for (const [index, t] of [...this.trees.entries()].sort((a, b) => a[0] - b[0])) if (t.hits > 0 || t.harvestedAt !== null) trees[String(index)] = { hits: t.hits, harvestedAt: t.harvestedAt, ...(t.regrowAt !== undefined ? { regrowAt: t.regrowAt } : {}) };
     const origin = this.origin;
     const record = (b: Building, dx = 0, dy = 0) => ({ id: b.id, kind: b.kind, x: b.x - dx, y: b.y - dy, placedAt: b.placedAt, seed: b.seed, ...(b.variant ? { variant: b.variant } : {}), ...(b.level ? { level: b.level } : {}), ...(b.look ? { look: { ...b.look } } : {}), ...(b.upgradedAt !== undefined ? { upgradedAt: b.upgradedAt } : {}) });
     // A record being moved is saved where it was picked up from, so a reload mid-move loses nothing.
@@ -3603,7 +3938,7 @@ export class LiveWorld {
     for (const [key, c] of [...this.containers.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) if (c.inventory.total() > 0) containers[key] = { capacity: c.capacity, items: c.inventory.entries() };
     const producers = Object.fromEntries([...this.producers.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)));
     const rocks: Record<string, RockSaveState> = {};
-    for (const [index, r] of [...this.rocks.entries()].sort((a, b) => a[0] - b[0])) if (r.hits > 0 || r.minedAt !== null) rocks[String(index)] = { hits: r.hits, minedAt: r.minedAt };
+    for (const [index, r] of [...this.rocks.entries()].sort((a, b) => a[0] - b[0])) if (r.hits > 0 || r.minedAt !== null) rocks[String(index)] = { hits: r.hits, minedAt: r.minedAt, ...(r.reformAt !== undefined ? { reformAt: r.reformAt } : {}) };
     const collected = [...this.collected].sort();
     const collectedAt: Record<string, number> = {};
     for (const id of collected) collectedAt[id] = this.collectedAt.get(id) ?? this.worldTime;
@@ -3637,6 +3972,10 @@ export class LiveWorld {
       name: this.islandName,
       intro: { ...this.intro },
       tutorial: { done: [...this.tutorial.done], skipped: this.tutorial.skipped },
+      cleared: Object.fromEntries([...this.cleared.entries()].sort((a, b) => a[0] - b[0]).map(([i, c]) => [String(i), { at: c.at, returnedAt: c.returnedAt }])),
+      // The canoe in the island frame (like buildings), whole pixels, at rest.
+      boat: this.boat ? { x: Math.round(this.boat.x) - origin.x, y: Math.round(this.boat.y) - origin.y, heading: this.boat.heading, aboard: this.boat.aboard } : null,
+      caught: [...this.caught].sort(),
     });
     this.lastAutosave = this.clock.time;
   }
@@ -3740,6 +4079,8 @@ export class LiveWorld {
     this.resources = [...this.allResources];
     this.pickups.length = 0;
     this.trees.clear();
+    this.cleared.clear();
+    this.absentKey = '';
     this.equipped = null;
     this.timeOffset = -this.clock.time;
     this.buildings.length = 0;
@@ -3932,6 +4273,13 @@ export class LiveWorld {
     if (this.interior && atDoor(b.x, b.y, this.roomLayout)) this.exitInterior();
     this.stepConstruction(dt);
     this.stepRespawn(dt);
+    // Every few seconds of world time: cleared land, returning resources, driftwood (M10 phase B).
+    this.clearingTimer -= dt;
+    if (this.clearingTimer <= 0 && !this.inside) {
+      this.clearingTimer = 1;
+      this.stepClearing();
+      this.stepDriftwood();
+    }
     this.stepFarm(dt);
     this.stepCare(dt);
     this.stepFishing();
@@ -3951,6 +4299,7 @@ export class LiveWorld {
         this.swing.landed = true;
         if (this.swing.action === 'mine') this.landMine(this.swing.index);
         else if (this.swing.action === 'till') this.landTill(this.swing.cell!);
+        else if (this.swing.action === 'clear') this.landClear(this.swing.index);
         else this.landChop(this.swing.index);
       }
       if (time >= this.swing.start + SWING.end) this.swing = null;
@@ -4047,6 +4396,7 @@ export class LiveWorld {
     for (let i = 0; i < all.length; i++) {
       const o = all[i];
       if (o.kind === 'grass' || o.kind === 'bridge') continue;
+      if (i < this.world.objects.length && this.absentObject(i)) continue; // cleared ground: nothing to face
       const sprite = i < this.world.objects.length ? this.objectSprite(i) : this.spriteOf(o, this.growthOf(this.planted[i - this.world.objects.length]));
       const dx = o.x - b.x;
       const dy = o.y - b.y;
