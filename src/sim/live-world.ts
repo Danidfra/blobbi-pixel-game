@@ -389,7 +389,7 @@ export class LiveWorld {
   private lastDecorationJoy = -Infinity;
   /** The identity the save record is keyed by. */
   readonly identity: string;
-  private readonly store: KeyValueStore | null;
+  private store: KeyValueStore | null;
   private readonly ambient: Rng;
   private readonly shallow: Int32Array;
   private readonly chimneys: { x: number; y: number }[] = [];
@@ -2996,6 +2996,11 @@ export class LiveWorld {
       generator: GENERATOR_VERSION,
     });
     this.lastAutosave = this.clock.time;
+  }
+
+  /** Stop writing this world's save (it was deleted): nothing this world does afterwards is stored. */
+  detachStore(): void {
+    this.store = null;
   }
 
   /** Forget this world's progress: every node is back and the inventory is empty. */

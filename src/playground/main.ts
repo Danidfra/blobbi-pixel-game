@@ -60,6 +60,7 @@ import { introPreviewWorld, isIntroSpecies } from '../cinematic/preview';
 import type { CarrierKind } from '../game/carrier';
 import { listWorlds, newWorldSeeds, resolveFrame, readIndex, touchIndex, worldName, WORLD_INDEX_KEY, hasSave, type WorldEntry } from '../game/worlds';
 import { worldIdentity } from '../game/persistence';
+import { ConfirmGate, CONFIRM_ARM_SECONDS, deleteWorld } from '../game/world-delete';
 import { blobbiIdentity } from '../blobbi/identity';
 import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT } from '../blobbi/canonical';
 import { buildNativeSprite } from '../blobbi/native-sprite';
@@ -247,7 +248,11 @@ app.innerHTML = `
       <div id="building" class="stats"></div>
       <div class="row" id="build-buttons"></div>
       <div class="hint">B shows a preview in front of the Blobbi (green = fits, red = why not) and cycles through what you can build; E places it and the materials leave the bag; Esc cancels. Decorations unlock with goals. Everything keeps its place on the island across reloads.</div>
-      <div class="row"><button id="progress-reset">Reset resources &amp; inventory</button></div>
+      <div class="row"><button id="progress-reset">Delete this island's progress…</button></div>
+      <div id="reset-confirm" class="confirm hidden" role="alertdialog" aria-labelledby="reset-confirm-text">
+        <div class="hint" id="reset-confirm-text"></div>
+        <div class="row"><button id="reset-cancel" class="primary">Cancel</button><button id="reset-delete" class="danger" disabled>Delete</button></div>
+      </div>
       <div class="hint">Sticks lie under trees, stones by rocks and on the forest floor, seeds by bushes and flowers. Collected resources and the inventory persist per world in this browser (versioned, keyed by seed, turtle, variant and size). Autonomy never collects.</div>
       <div id="dev-tools"></div>
     </section>
@@ -623,6 +628,16 @@ const title = new TitleScreen({
     beginPlay();
   },
   settings: () => gameUI.open('settings'),
+  deleteWorld: (w) => {
+    const ls = localStore();
+    if (!ls) return;
+    deleteWorld(ls, w.identity);
+    // The deleted island may be the one behind the title: it must never write its save again.
+    if (live && live.identity === w.identity) {
+      live.detachStore();
+      startLive();
+    }
+  },
   preview: (kind, time) => {
     // Each species' picture once per animation step (the title redraws every frame).
     const step = Math.floor(time * 4);
@@ -637,6 +652,10 @@ const title = new TitleScreen({
 });
 const titlePictures = new Map<string, PixelBuffer>();
 title.onSound = (n) => gameUI.onSound?.(n);
+/** The name players see for an island. */
+function islandLabel(identity: string): string {
+  return worldName(identity);
+}
 /** A world for other seeds, without touching the playground's state (identity checks for a new world). */
 function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
   const keep = state.turtleSeed;
@@ -1321,8 +1340,29 @@ $('care-rest').addEventListener('click', () => {
   showCare();
   view.focus();
 });
+// Deleting progress always asks first, names the island, and ignores the Delete button for a moment after asking
+// (so a double click or a repeated tap on the first button can never also confirm).
+const resetGate = new ConfirmGate<string>();
 $('progress-reset').addEventListener('click', () => {
-  live?.resetProgress();
+  if (!live || live.visitor) return;
+  resetGate.open(live.identity, performance.now() / 1000);
+  $('reset-confirm-text').textContent = `Delete all progress on ${islandLabel(live.identity)} (${live.species})? Its bag, buildings, farm, house and quests are erased from this browser. This cannot be undone.`;
+  $('reset-confirm').classList.remove('hidden');
+  $('reset-delete').toggleAttribute('disabled', true);
+  setTimeout(() => $('reset-delete').toggleAttribute('disabled', !resetGate.pending), CONFIRM_ARM_SECONDS * 1000 + 20);
+  $('reset-cancel').focus();
+});
+$('reset-cancel').addEventListener('click', () => {
+  resetGate.cancel();
+  $('reset-confirm').classList.add('hidden');
+  view.focus();
+});
+$('reset-delete').addEventListener('click', () => {
+  const identity = resetGate.confirm(performance.now() / 1000);
+  if (!identity) return;
+  $('reset-confirm').classList.add('hidden');
+  // Only the island the question named, and only if it is still the one loaded.
+  if (live && live.identity === identity) live.resetProgress();
   showInventory();
   view.focus();
 });

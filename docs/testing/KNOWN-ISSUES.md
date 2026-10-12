@@ -8,7 +8,6 @@ nicety).
 
 | ID | Severity | Area | Issue | Where | Suggested fix |
 |---|---|---|---|---|---|
-| KI-01 | High | Saves | The sidebar button "Reset resources & inventory" (`#progress-reset`) deletes the current world's save immediately, with no confirmation. It is in the production build too. | `index.html`, `src/playground/main.ts` (`progress-reset`), `LiveWorld.resetProgress` | Ask for confirmation, or keep it on the dev server only. |
 | KI-02 | High | Saves | A save with a newer schema than the code (version > 9) is ignored when loading (`loadSave` returns null), the world starts fresh, and the next autosave overwrites it. Only matters when going back to older code. | `src/game/persistence.ts` (`loadSave`) | Open such a world read-only, as an unknown growth version already does. |
 | KI-03 | Medium | Saves (disclosure) | During M6 development the pre-existing `seed=blobbi` world on the dev server at port 5199 was opened in Play mode, so its save was most likely migrated to schema 8 (the Carrier bond started fresh; nothing else changes in that migration). It has since loaded under schema 9 too if played again. | browser localStorage on `localhost:5199` | Check that world by hand; there is no backup. |
 | KI-04 | Medium | Content | Several lore notes (carriers, keepers, carrier-stone, where-to, restoring, treasure, carving) speak of the turtle, also on manta and whale worlds; two of the Carrier's hum lines mention its shell (`HUM_LINES`). | `src/content/lore.ts`, `src/game/carrier.ts` | Species-aware note and hum text. |
@@ -34,6 +33,14 @@ nicety).
 | KI-25 | Low | Turtle | The lab's default world (a link without `variant`, seed `blobbi`) and the dev tools' test worlds stay on Variant B; only NEW ISLAND and the intro preview make Variant S turtles, by design (existing dev saves keep working). A player who starts from the bare lab link therefore gets the old, larger island. | `src/carrier/types.ts` (`DEFAULT_SHELL_VARIANT`, `NEW_WORLD_SHELL_VARIANT`), `src/playground/main.ts` | Switch the lab default to Variant S once the M4–M7 validation on Variant B worlds is done. |
 | KI-26 | Low | Manta | When a wing is raised (wing phase above about 0.5) its tip is drawn with a flat vertical face up to about 27 world px tall instead of a point: the tip vertex moves toward the viewer between its two neighbouring outline points and the outline is a Catmull-Rom spline through the tip with only four straight pieces per segment, so one straight piece stands vertical at the tip. The body is complete (no pixel is clipped: the whole animated extent, x 41–983 of the 1024 px canvas, is drawn and framed), and the face is the same in play as in the cinematic. Not changed by the cinematic session: the same outline at rest defines the still disc, the terrain's skin and the sea's bands, so a change would alter every manta world's terrain. | `src/carriers/manta.ts` (`outline`, `smoothClosed(pts, 4)`) | A sharp vertex at the tip, or finer subdivision there, as a versioned generation change (or applied only beyond the still disc, keeping the rest outline byte-identical). |
 | KI-18 | Low | Growth | A whale world grown to stage 3 before 2026-10-11 keeps growth version 1, so its mushroom grove may stay partly walled off by trees (only new growth uses version 2). | `src/world/growth.ts` (`GROWTH_VERSIONS`) | Reset growth on that test world, or add an opt-in upgrade of a save's growth version. |
+
+## Fixed in M8 (2026-10-11): deleting a world asks first
+
+- **KI-01** (High): the sidebar's progress-reset button deleted the world's save immediately. It is now "Delete this
+  island's progress…": it opens a confirmation that names the island and its Carrier, starts with Cancel focused, and
+  keeps Delete disabled for 0.6 s (`ConfirmGate`, `src/game/world-delete.ts`), so a double click cannot confirm.
+  MY ISLANDS on the title can now delete a world too, through the same gate on a page of its own (KEEP IT is the
+  default answer). Tests: `tests/world-delete.test.ts`. Manual: SAVE-DEL-01 … 03 (NOT TESTED).
 
 ## Fixed in M8 phase 0 (the playable whale)
 

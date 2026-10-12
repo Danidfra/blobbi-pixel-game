@@ -3,8 +3,10 @@
  * (world selection), NEW ISLAND, SETTINGS and ABOUT. Keyboard (arrows, Enter, Escape), mouse and touch all work;
  * every page uses the same cards and buttons as the menus.
  *
- * Safety: NEW ISLAND always makes a world that has no save (see `newWorldSeeds`), so it can never overwrite one;
- * ISLANDS only opens worlds. Nothing here deletes anything.
+ * Safety: NEW ISLAND always makes a world that has no save (see `newWorldSeeds`), so it can never overwrite one.
+ * ISLANDS opens worlds; deleting one (its row's DELETE, or X / Delete on the keyboard) always asks first on a page
+ * of its own that names the island, starts on KEEP IT, and accepts DELETE only after a short pause
+ * (`ConfirmGate`), so a double click or a repeated tap can never delete by accident.
  */
 import { PixelBuffer } from '../core/pixel';
 import { Gfx, UI, textWidth, type Hit } from './gfx';
@@ -12,8 +14,9 @@ import { DESIGN, card } from './hud';
 import { drawTinyText } from '../render/live-render';
 import type { WorldEntry } from '../game/worlds';
 import type { CarrierKind } from '../game/carrier';
+import { ConfirmGate } from '../game/world-delete';
 
-export type TitlePage = 'main' | 'islands' | 'about' | 'new';
+export type TitlePage = 'main' | 'islands' | 'about' | 'new' | 'delete';
 
 export interface TitleActions {
   /** Saved worlds, most recent first. */
@@ -24,6 +27,8 @@ export interface TitleActions {
   openWorld(w: WorldEntry): void;
   newWorld(kind: CarrierKind): void;
   settings(): void;
+  /** Permanently delete a saved world (only ever called after the confirmation page). */
+  deleteWorld?(w: WorldEntry): void;
   /** A small picture of a species (96×64) for the NEW ISLAND page; optional. */
   preview?(kind: CarrierKind, time: number): PixelBuffer | null;
 }
@@ -40,10 +45,14 @@ export class TitleScreen {
   private hits: Hit[] = [];
   /** The selection sound hook. */
   onSound: ((name: string) => void) | null = null;
+  /** The island waiting for a delete confirmation. */
+  readonly confirm = new ConfirmGate<WorldEntry>();
+  /** Real seconds (the last render's time): the confirmation's arming clock. */
+  private now = 0;
 
   constructor(private readonly actions: TitleActions) {}
 
-  private items(): { label: string; detail?: string; kind?: CarrierKind; run: () => void }[] {
+  private items(): { label: string; detail?: string; kind?: CarrierKind; world?: WorldEntry; danger?: boolean; run: () => void }[] {
     const a = this.actions;
     if (this.page === 'main') {
       const cur = a.current();
@@ -57,8 +66,15 @@ export class TitleScreen {
       ];
     }
     if (this.page === 'islands') {
-      const list = a.worlds().map((w) => ({ label: w.name.toUpperCase(), detail: `${w.params.kind === 'manta' ? 'MANTA' : w.params.kind === 'whale' ? 'WHALE' : 'TURTLE'}  DAY ${w.day}  ${w.quests} QUESTS  ${w.buildings} BUILT`, run: () => a.openWorld(w) }));
+      const list = a.worlds().map((w) => ({ label: w.name.toUpperCase(), detail: worldDetail(w), world: w, run: () => a.openWorld(w) }));
       return [...list, { label: 'BACK', run: () => this.go('main') }];
+    }
+    if (this.page === 'delete') {
+      const w = this.confirm.subject;
+      return [
+        { label: 'KEEP IT', detail: 'GO BACK TO YOUR ISLANDS', run: () => this.cancelDelete() },
+        { label: 'DELETE FOREVER', detail: w ? `ERASE ${w.name.toUpperCase()}` : '', danger: true, run: () => this.confirmDelete() },
+      ];
     }
     if (this.page === 'new')
       return [
@@ -76,6 +92,30 @@ export class TitleScreen {
     this.scroll = 0;
   }
 
+  /** Ask before deleting a saved world (nothing is deleted here). */
+  askDelete(w: WorldEntry): void {
+    if (!this.actions.deleteWorld) return;
+    this.confirm.open(w, this.now);
+    this.page = 'delete';
+    this.index = 0; // KEEP IT is the default answer
+  }
+
+  private cancelDelete(): void {
+    this.confirm.cancel();
+    this.go('islands');
+  }
+
+  /** The DELETE FOREVER answer: acts only once the question has been on screen for a moment. */
+  private confirmDelete(): void {
+    const w = this.confirm.confirm(this.now);
+    if (!w) {
+      this.onSound?.('ui-deny');
+      return;
+    }
+    this.actions.deleteWorld?.(w);
+    this.go('islands');
+  }
+
   key(code: string): boolean {
     if (!this.active) return false;
     const items = this.items();
@@ -86,11 +126,20 @@ export class TitleScreen {
       items[this.index]?.run();
       return true;
     } else if (code === 'Escape' || code === 'Backspace') {
-      if (this.page !== 'main') {
+      if (this.page === 'delete') {
+        this.onSound?.('ui-close');
+        this.cancelDelete();
+      } else if (this.page !== 'main') {
         this.onSound?.('ui-close');
         this.go('main');
       }
       return true;
+    } else if ((code === 'KeyX' || code === 'Delete') && this.page === 'islands') {
+      const w = items[this.index]?.world;
+      if (w) this.askDelete(w);
+      return true;
+    } else if ((code === 'ArrowLeft' || code === 'ArrowRight' || code === 'KeyA' || code === 'KeyD') && this.page === 'delete') {
+      this.index = 1 - this.index;
     } else return true; // the title owns the keyboard
     this.onSound?.('ui-select');
     return true;
@@ -117,6 +166,7 @@ export class TitleScreen {
   /** Draw over the frame (the island behind is dimmed towards the night sky). */
   render(screen: PixelBuffer, time: number): void {
     if (!this.active) return;
+    this.now = time;
     const d = screen.data;
     for (let i = 0; i < d.length; i++) {
       const c = d[i];
@@ -160,7 +210,7 @@ export class TitleScreen {
     const pictured = this.page === 'new' && !!this.actions.preview;
     const px = pictured ? 18 : Math.floor((W - panelW) / 2);
     let y = 56;
-    const heading = this.page === 'islands' ? 'YOUR ISLANDS' : this.page === 'new' ? 'NEW ISLAND' : this.page === 'about' ? 'ABOUT' : '';
+    const heading = this.page === 'islands' ? 'YOUR ISLANDS' : this.page === 'new' ? 'NEW ISLAND' : this.page === 'about' ? 'ABOUT' : this.page === 'delete' ? 'DELETE THIS ISLAND?' : '';
     if (heading) {
       g.text(heading, px, y, UI.accent);
       y += 9;
@@ -172,6 +222,13 @@ export class TitleScreen {
     if (this.page === 'new') {
       y += g.para('A new Carrier, a new island, a fresh start. Islands you already played are kept: return to them from ISLANDS.', px, y, panelW, UI.muted) + 6;
     }
+    if (this.page === 'delete' && this.confirm.subject) {
+      const w = this.confirm.subject;
+      g.text(w.name.toUpperCase(), px, y, UI.ink);
+      g.text(worldDetail(w), px, y + 8, UI.muted);
+      y += 17;
+      y += g.para('Its island, buildings, bag and progress are erased from this browser. This cannot be undone.', px, y, panelW, UI.bad) + 5;
+    }
     if (this.page === 'islands' && items.length === 1) {
       y += g.para('No saved islands yet. START or NEW ISLAND makes one.', px, y, panelW, UI.muted) + 6;
     }
@@ -179,17 +236,25 @@ export class TitleScreen {
       const i = k + this.scroll;
       const selected = i === this.index;
       const h = it.detail ? 18 : 11;
-      const c = card(panelW, h, selected ? DESIGN.accent : undefined);
+      // The delete answer waits, greyed, until the question has been read for a moment.
+      const waiting = !!it.danger && !this.confirm.armed(time);
+      const c = card(panelW, h, selected ? (it.danger ? UI.bad : DESIGN.accent) : undefined);
       if (selected) c.fillRect(1, 1, panelW - 2, h - 2, DESIGN.cardHi);
       g.buf.blit(c, px, y);
       // A non-colour selection mark too.
       if (selected) for (let k2 = 0; k2 < 3; k2++) g.buf.fillRect(px + 4 + k2, y + 3 + k2, 1, 5 - 2 * k2, UI.accent);
-      g.text(it.label, px + 11, y + 3, selected ? UI.accent : UI.ink);
+      g.text(it.label, px + 11, y + 3, waiting ? UI.line : it.danger ? UI.bad : selected ? UI.accent : UI.ink);
       if (it.detail) g.text(it.detail.slice(0, 44), px + 11, y + 10, UI.muted);
       g.hit(px, y, panelW, h, () => {
         this.index = i;
         it.run();
       });
+      // Each saved island has its own small DELETE button (it only asks).
+      const w = it.world;
+      if (w && this.actions.deleteWorld) {
+        const bw = textWidth('DELETE') + 6;
+        g.button('DELETE', px + panelW - bw - 3, y + 3, () => this.askDelete(w), { w: bw });
+      }
       y += h + 2;
     });
     const kind = items[this.index]?.kind;
@@ -204,7 +269,12 @@ export class TitleScreen {
     }
     if (this.scroll > 0) g.text('MORE', px + panelW + 3, 66, UI.muted);
     if (this.scroll + rows < items.length) g.text('MORE', px + panelW + 3, y - 8, UI.muted);
-    const foot = 'ARROWS AND ENTER, OR CLICK. ESC GOES BACK.';
+    const foot = this.page === 'islands' ? 'ENTER OPENS. X DELETES (IT ASKS FIRST). ESC GOES BACK.' : 'ARROWS AND ENTER, OR CLICK. ESC GOES BACK.';
     g.text(foot, Math.floor((W - textWidth(foot)) / 2), H - 9, UI.muted);
   }
+}
+
+/** One line about a saved island: its Carrier, its day, quests and buildings. */
+export function worldDetail(w: WorldEntry): string {
+  return `${w.params.kind === 'manta' ? 'MANTA' : w.params.kind === 'whale' ? 'WHALE' : 'TURTLE'}  DAY ${w.day}  ${w.quests} QUESTS  ${w.buildings} BUILT`;
 }

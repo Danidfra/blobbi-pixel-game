@@ -85,6 +85,10 @@ and never writes.
 - Never open a player's world in a dev build on an origin whose storage holds a save you must not touch: opening a
   world migrates and autosaves its record. Use the dev tools' **Test world** or a separate port.
 - New worlds (title NEW ISLAND, dev "Make visit test worlds") never reuse an identity that already has a save.
-- Only one thing deletes a save: the playground sidebar's progress-reset button in the Play panel
-  (`#progress-reset` → `LiveWorld.resetProgress`). It is in production builds too and acts **without a confirmation**
-  (see [known issues](../testing/KNOWN-ISSUES.md)).
+- Two things delete a save, and both ask first (`ConfirmGate` in `src/game/world-delete.ts`: the question names the
+  island, and its confirming answer is refused for 0.6 s after it appears):
+  - the playground sidebar's "Delete this island's progress…" (`#progress-reset` → confirmation →
+    `LiveWorld.resetProgress`);
+  - MY ISLANDS on the title (a row's DELETE, or X / Delete) → the DELETE THIS ISLAND? page → `deleteWorld`, which
+    removes that world's save and its entries in `blobbi-pixel-lab:worlds` and `blobbi-pixel-lab:owners`, nothing
+    else. If it was the world behind the title, that world stops writing (`LiveWorld.detachStore`).

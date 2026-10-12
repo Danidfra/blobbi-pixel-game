@@ -238,6 +238,9 @@ refuses them (GROW-09).
 | SAVE-02 | An M3/M4 save (schema ≤ 5) | Load. | Loads; earned goals complete with notices in the first frames. | NOT TESTED | |
 | SAVE-03 | An M6 save (schema 8) | Load. | Stage 0, everything in place. | NOT TESTED | |
 | SAVE-04 | A schema-7 save | Load. | The Carrier bond starts fresh; everything else as before. | NOT TESTED | |
+| SAVE-DEL-01 | Play tab, a played world | Sidebar: "Delete this island's progress…", then double-click quickly where the button was. | A confirmation names the island and its Carrier; Cancel has focus; Delete stays greyed for about half a second; the double click deletes nothing. Cancel closes it with the world untouched. | NOT TESTED | M8 (KI-01) |
+| SAVE-DEL-02 | Two saved islands | Title → ISLANDS → a row's DELETE (or X). Press Enter at once; then choose DELETE FOREVER after a second. | A DELETE THIS ISLAND? page names it; Enter at once keeps it (KEEP IT is selected); DELETE FOREVER is grey for a moment, then erases only that island; the other is untouched. | NOT TESTED | M8 |
+| SAVE-DEL-03 | Touch device, two saved islands | ISLANDS → DELETE, then tap twice fast in the same place. | The second tap lands on the question, not on a delete; nothing is erased without a deliberate later tap on DELETE FOREVER. | NOT TESTED | M8 |
 
 ## Camera and regressions M1–M3 (CAM, REG)
 

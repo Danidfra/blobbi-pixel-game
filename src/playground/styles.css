@@ -334,3 +334,21 @@ canvas.preview {
 #build-buttons {
   flex-wrap: wrap;
 }
+
+/* A destructive answer: red, and visibly inert while it waits to be armed. */
+button.danger {
+  background: #5a2a2a;
+  border-color: #ff8a7a;
+  color: #ffe4de;
+}
+button.danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.confirm {
+  border: 1px solid #ff8a7a;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0 8px;
+  background: #2a1d22;
+}
