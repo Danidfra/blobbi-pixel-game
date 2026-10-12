@@ -3,15 +3,17 @@
 This is the entry point for the documentation. The **code is the source of truth**: where a document and the code
 disagree, the code wins and the document is the bug ([maintenance rules](#maintenance-rules)).
 
-**Project state (2026-10-11):** M1–M3 are committed. M4–M7 are **IMPLEMENTED — AWAITING MANUAL VALIDATION**: 409/409
-automated tests pass, and no manual test has been run by a person yet.
+**Project state (2026-10-11):** M1–M3 are committed on `master`. M4–M7 are committed on `develop` as an unvalidated
+checkpoint; M8 phase 0 (the playable whale) and the M8 intro cinematic are uncommitted on top of it. All are
+**IMPLEMENTED — AWAITING MANUAL VALIDATION**: 466/466 automated tests pass, and no manual test has been run by a
+person yet.
 
 ## Status labels
 
 | Label | Meaning |
 |---|---|
 | **IMPLEMENTED** | In the code and covered by automated tests. |
-| **PROTOTYPE** | In the code but deliberately partial (for example local-only visiting, or the whale preview). |
+| **PROTOTYPE** | In the code but deliberately partial (for example local-only visiting). |
 | **DESIGNED ONLY** | Written down as a design; no code. |
 | **PLANNED** | On the roadmap; no design yet. |
 | **NOT TESTED** | No person has run the manual test. Automated tests never count as manual approval. |
@@ -23,6 +25,7 @@ automated tests pass, and no manual test has been run by a person yet.
 - [World lore](game-design/WORLD-LORE.md): Keepers, Carriers, the notes.
 - [Content catalogue](game-design/CONTENT-CATALOG.md): generated from the content data (`scripts/content-catalog.ts`).
 - [Audio design](game-design/AUDIO-DESIGN.md).
+- [Cinematic direction](game-design/CINEMATIC-DIRECTION.md): the opening, scene by scene and species by species.
 
 ## Architecture
 - [System overview](architecture/SYSTEM-OVERVIEW.md): modules, data flow, the frame.
@@ -47,6 +50,7 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 | [Audio](specifications/AUDIO.md) | IMPLEMENTED · NOT TESTED |
 | [World growth](specifications/WORLD-GROWTH.md) | IMPLEMENTED · NOT TESTED |
 | [World visiting](specifications/WORLD-VISITING.md) | PROTOTYPE (local only) · NOT TESTED |
+| [Intro cinematic](specifications/INTRO-CINEMATIC.md) | IMPLEMENTED (dev preview only; not in the start flow; reworked after the first review, with the turtle's small start) · NOT TESTED |
 
 ## Testing
 - [Manual test plan](testing/MANUAL-TEST-PLAN.md): every test with an ID; all NOT TESTED.
@@ -54,7 +58,7 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 - Automated: `npm run check` (typecheck, vitest, build).
 
 ## Milestones
-- [Milestones](milestones/README.md): M0–M7 summaries and approval status.
+- [Milestones](milestones/README.md): M0–M7, M8 phase 0 and the M8 intro cinematic: summaries and approval status.
 - [Archived reports and development logs](milestones/reports/), unchanged.
 - [Roadmap](../ROADMAP.md).
 

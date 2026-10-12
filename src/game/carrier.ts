@@ -54,7 +54,7 @@ export function carrierFromSave(raw: unknown): CarrierState {
   c.offeredDay = n(r.offeredDay);
   c.restedDay = n(r.restedDay);
   c.breathDay = n(r.breathDay);
-  c.observations = Array.isArray(r.observations) ? r.observations.filter((x): x is string => typeof x === 'string' && [...OBSERVATIONS, ...MANTA_OBSERVATIONS].some((o) => o.id === x)) : [];
+  c.observations = Array.isArray(r.observations) ? r.observations.filter((x): x is string => typeof x === 'string' && [...OBSERVATIONS, ...MANTA_OBSERVATIONS, ...WHALE_OBSERVATIONS].some((o) => o.id === x)) : [];
   c.likesFound = Array.isArray(r.likesFound) ? r.likesFound.filter((x): x is string => typeof x === 'string') : [];
   if (r.counts && typeof r.counts === 'object') for (const k of Object.keys(c.counts) as (keyof CarrierState['counts'])[]) c.counts[k] = n((r.counts as Record<string, unknown>)[k]);
   return c;
@@ -95,11 +95,26 @@ export const MANTA_OBSERVATIONS: readonly Observation[] = [
   { id: 'manta-circles', text: 'it drifts in wide circles', note: 'The stars move in a slow circle overhead: the Carrier swims in rounds while it rests.', when: 'night' },
 ];
 
+/** What one notices about a whale Carrier (M8 phase 0): its own body, its own habits. */
+export const WHALE_OBSERVATIONS: readonly Observation[] = [
+  { id: 'whale-spout', text: 'a spout of mist, up ahead!', note: 'Every so often the Carrier breathes out through two blowholes in front of the island: a puff of mist, then a soft rain of drops.' },
+  { id: 'whale-song', text: 'a song, deep under the ridge', note: 'Sometimes the Carrier sings. The song is so low the whole ridge hums with it, and Blobbi hums back.' },
+  { id: 'whale-fins', text: 'long fins, like slow wings', note: 'Two very long fins reach out from the shoulders, knobbly along the front, and sway as the Carrier swims.' },
+  { id: 'whale-flukes', text: 'the great tail rises... and sinks', note: 'Far behind the island the flukes lift out of the water and sink again, slow as a sleeper\'s breath.' },
+  { id: 'whale-barnacles', text: 'barnacles on its nose', note: 'The Carrier\'s head is crusted with barnacles and little knobs. Blobbi thinks they are its freckles.', when: 'day' },
+  { id: 'whale-eye', text: 'an eye, as big as a door', note: 'Down at the side of the head an eye opens, looks at Blobbi for a long moment, and blinks.' },
+  { id: 'whale-knuckles', text: 'little knuckles down its back', note: 'Behind the island the spine has a row of bumps, like knuckles. The ridge path ends just before them.' },
+  { id: 'whale-stars', text: 'it swims straight, by the stars', note: 'At night the Carrier never turns. It travels far and straight, as if it knew the stars by heart.', when: 'night' },
+];
+
+/** The Carrier species that make worlds (the turtle, the manta and, since M8 phase 0, the whale). */
+export type CarrierKind = 'turtle' | 'manta' | 'whale';
+
 /** The observations for a Carrier's species. */
-export const observationsFor = (species: 'turtle' | 'manta' = 'turtle'): readonly Observation[] => (species === 'manta' ? MANTA_OBSERVATIONS : OBSERVATIONS);
+export const observationsFor = (species: CarrierKind = 'turtle'): readonly Observation[] => (species === 'manta' ? MANTA_OBSERVATIONS : species === 'whale' ? WHALE_OBSERVATIONS : OBSERVATIONS);
 
 /** The next observation to make now (in order, skipping ones for another time of day), or null when all are made. */
-export function nextObservation(c: CarrierState, night: boolean, species: 'turtle' | 'manta' = 'turtle'): Observation | null {
+export function nextObservation(c: CarrierState, night: boolean, species: CarrierKind = 'turtle'): Observation | null {
   return observationsFor(species).find((o) => !c.observations.includes(o.id) && (!o.when || (o.when === 'night') === night)) ?? null;
 }
 

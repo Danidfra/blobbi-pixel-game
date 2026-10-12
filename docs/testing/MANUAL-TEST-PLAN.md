@@ -1,6 +1,6 @@
 # Manual test plan
 
-This plan brings together the manual checklists from the M4–M7 reports
+This plan brings together the manual checklists from the M4–M7 reports and M8 phase 0 (the playable whale)
 ([M4](../milestones/reports/REPORT-M4-LIVING-ISLAND.md) §11, [M5](../milestones/reports/REPORT-M5-LIVING-WORLD.md) §11,
 [M6](../milestones/reports/REPORT-M6-LIVING-ARCHIPELAGO.md) §7, [M7](../milestones/reports/REPORT-M7-LIVING-WORLDS.md) §8),
 adds regressions for M1–M3, and sorts everything by system.
@@ -28,6 +28,7 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 | TITLE-01 | Any | Open Play. Use arrows, Enter and Esc; open ISLANDS and ABOUT. | The title appears; every entry responds; Esc goes back. | NOT TESTED | |
 | TITLE-02 | At least one save | NEW ISLAND → A TURTLE ISLAND; confirm. | Asks first, then makes a new world; earlier islands remain listed in ISLANDS. | NOT TESTED | |
 | TITLE-03 | — | NEW ISLAND → A MANTA ISLAND. | A manta world starts; ISLANDS shows its species. | NOT TESTED | |
+| TITLE-05 | — | NEW ISLAND: move through the three entries. | Turtle, manta and whale each with a one-line description and an animated picture of that Carrier beside the list. | NOT TESTED | Scripted browser pass only |
 | TITLE-04 | A save | CONTINUE. | The Blobbi arrives by teleport (TELE-02). | NOT TESTED | |
 
 ## Gathering and tools (GATHER)
@@ -141,6 +142,40 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 | AUDIO-05 | — | Hide the tab, then show it. | Audio suspends and resumes. | NOT TESTED | |
 | AUDIO-06 | Manta world | Listen to ambience. | Manta chimes and glides instead of turtle calls. | NOT TESTED | |
 
+## Intro cinematic (INTRO)
+
+The cinematic is not in the start flow yet: every test uses the dev preview (dev tools → **Intro cinematic**, or
+`#mode=play&intro=<turtle|manta|whale>`), which plays on a preview world with no save. Frames for comparison:
+`examples/intro-cinematic/`.
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| INTRO-01 | Dev server | Dev tools → Intro cinematic → Turtle. Watch to the end without touching anything. | About 32 s: ocean, a shape beneath, the turtle surfacing dome first behind foam **with no island** (a whole plated shell, a speck of soil at its centre), a blink and a glance, a patch of soil that spreads into the island, trees and rocks sprouting as the camera pushes in, the Blobbi arriving by teleport, looking left and right, surprised at you, happy with "hello!", the two lines, then the title returns. No blur, no jitter, crisp pixels throughout. | NOT TESTED | Headless-Chrome pass only |
+| INTRO-02 | Dev server | Same for Manta. | The whole manta, **wing tips and whip included**, surfaces bare (disc first, then out along the beating wings); **under the water and while surfacing each wing is one unbroken shape from the disc to its tip** (no strip of open sea just outside the disc, no detached tip); the land forms on its disc and never on the wing tips; the sand beach appears with the land. | NOT TESTED | |
+| INTRO-03 | Dev server | Same for Whale. | A long shadow from the left, swimming east; snout first, back to the flukes, the grey back bare; its spout and blink during the Carrier or island scene; the island forms between the blowholes and the knuckles with its mossy fringe. About 33 s. | NOT TESTED | |
+| INTRO-04 | INTRO-01 | Watch the island form closely (turtle and whale). | A small patch of earth first, spreading organically (not a fade, not a rectangle), two more patches joining, soil turning to grass behind the edge; plants and rocks appear afterwards, sparkling in, not all at once. | NOT TESTED | |
+| INTRO-05 | INTRO-01 | Watch the arrival. | The Blobbi is not there until the island is complete; then the game's own teleport arrival (cluster above, falling pixels, shadow, bottom-to-top rebuild, eyes opening, a smile and hop); the camera has lifted a little toward the sky and settles. | NOT TESTED | |
+| INTRO-06 | INTRO-01 | Press any key at 3 s, then run again and click at 14 s, then run and tap (touch screen or device mode) at 20 s, then run and press Esc at 26 s. | Each ends the cinematic at once and returns to the title; nothing is stuck; the Blobbi is present on the complete island if play were to start. | NOT TESTED | Key, click and emulated touch checked headless |
+| INTRO-07 | Settings → reduced motion on (or the system preference) | Run any species. | About 19.5 s of cuts (the bare Carrier whole, its island forming, the gameplay framing), a one-second surfacing, a quick formation, the short teleport arrival, no hops, the same message. | NOT TESTED | |
+| INTRO-08 | Sound on, a key pressed before | Run the whale, then the turtle; listen. | Sea and wind, a call from beneath, splashes and a breath on surfacing, the whale's blow with its spout, a swell and chimes as the land forms, birds, the teleport's own sounds, the Blobbi's sounds, a brighter music at the hello, a chime with the message. Not loud. | NOT TESTED | Never heard by a person |
+| INTRO-09 | Sound off, or muted in SOUND | Run any species. | Silent; nothing breaks. | NOT TESTED | |
+| INTRO-10 | — | Resize the window (or rotate a device) during the ocean and during the formation. | The picture refits at once; the whole animal stays framed; the ending still lands on the exploration framing. | NOT TESTED | Resize checked headless |
+| INTRO-11 | A saved world open at the title | Run the preview; afterwards CONTINUE. | The player's own world is exactly as it was (position, bag, day, growth stage); ISLANDS lists no new world. | NOT TESTED | Store checked empty in tests |
+| INTRO-12 | A phone-sized window (about 360×640) | Run the manta. | The whole manta fits (a smaller reveal scale), the message steps down to a size that fits, the skip hint is visible. | NOT TESTED | |
+
+## The turtle's small start (TSTART)
+
+New turtle worlds use shell Variant S (a small island on a big shell); worlds made before keep theirs. Pictures:
+`examples/turtle-start/`.
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| TSTART-01 | — | Title → NEW ISLAND → A TURTLE ISLAND. Press Z to the overview. | A giant turtle carrying a small island at the centre of its shell: a wide ring of plates all round; the house, the pond and a few trees fit comfortably; the Blobbi is its usual size. | NOT TESTED | |
+| TSTART-02 | TSTART-01 | Play a few minutes: gather, craft an axe, build the shelter, till and plant. | Everything reachable; resources on the land; the shelter and plots place as before. | NOT TESTED | |
+| TSTART-03 | TSTART-01, dev tools | Growth → stage 1, 2, 3 (dev buttons on a test world, or play to them). | Noticeable new land at 1, more at 2, a large island at 3 that still leaves a ring of plates and the lip visible; the land spreads over the shell, never over the head or the flippers. | NOT TESTED | Numbers in `examples/turtle-start/README.md` |
+| TSTART-04 | A turtle world saved before this change | CONTINUE it; open ISLANDS. | Its island is exactly as before (Variant B), with its buildings and plots in place; the new world and the old one are listed as different islands. | NOT TESTED | Pinned in tests |
+| TSTART-05 | — | Compare with a new manta and a new whale world at stage 0. | All three start as a small island on a large animal; the turtle's is of the same order as the manta's. | NOT TESTED | |
+
 ## Teleport (TELE)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
@@ -154,12 +189,36 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
 |---|---|---|---|---|---|
 | GROW-01 | Test world | L. | Stage, progress, requirements, the next unlock, regions. | NOT TESTED | |
-| GROW-02 | Requirements not met | Try to grow. | Nothing grows; the reason is shown. | NOT TESTED | |
-| GROW-03 | Dev → Meet requirements | LET THE ISLAND GROW, confirm. | The land spreads from the coast, plants appear, the camera pulls back and returns, "The island grew". | NOT TESTED | Scripted browser pass only |
+| GROW-02 | Requirements not met | Press NOT READY YET with the mouse, then press Enter. | Nothing grows; the panel stays open and its footer says how many requirements are left and which; clicking an empty part of the panel never closes it, clicking outside does. | NOT TESTED | Fixed 2026-10-11 (the press used to close the panel silently); scripted browser pass only |
+| GROW-03 | Dev → Meet requirements (on a test world) | LET THE ISLAND GROW, confirm. | The land spreads from the coast, plants appear, the camera pulls back, the new land glows for a few seconds and fades, the camera returns, "The island grew". | NOT TESTED | Scripted browser pass only (turtle, manta, whale) |
 | GROW-04 | Grown | Walk each new region; gather; till and plant; build a fence. | All work; the map shows regions once visited. | NOT TESTED | |
 | GROW-05 | Grown | Reload. | Still grown; everything where it was. | NOT TESTED | |
 | GROW-06 | Variant 0 turtle | L. | Says it cannot grow. | NOT TESTED | |
 | GROW-07 | Manta world | Grow (dev tools). | Land grows toward the wings. | NOT TESTED | |
+| GROW-08 | Whale test world (dev tools → Whale) | Grow (dev tools). | Land grows along its back toward the tail (WHALE-10). | NOT TESTED | Scripted browser pass, stages 1–3 |
+| GROW-09 | A world from NEW ISLAND (not a test world) | Press a dev growth button. | Nothing grows; a notice on the game view says dev growth works on test worlds only. | NOT TESTED | Scripted browser pass only |
+| GROW-10 | Test world, stage 0 | Dev stage 3. | The reveal plays over all three stages' land; Dev stage 1 afterwards sets it back with a short message and no reveal. | NOT TESTED | |
+
+## Whale worlds (WHALE)
+
+Prerequisite for all: dev tools → **Whale** (a whale test world), or Title → NEW ISLAND → A WHALE ISLAND. The dev
+growth and requirement buttons (WHALE-10) work on the dev tools' Whale test world only: a whale from NEW ISLAND
+refuses them (GROW-09).
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| WHALE-01 | — | Z to the overview. | A whale lying east-west, head to the east: blunt barnacled head, long knobbly fins, knuckles near the tail, notched flukes; the island along its back with a mossy edge. It reads as a whale, not a turtle or a manta. | NOT TESTED | Rendered frames only (`examples/whale-world/`) |
+| WHALE-02 | — | Watch for a minute. | The fins sway and the flukes rise and sink slowly; every 11 s a spout of mist rises from the blowholes and falls; the eyes blink after it; the island never moves. | NOT TESTED | |
+| WHALE-03 | Sound on | Listen near the head. | A blow with each spout, a deep song now and then; no turtle calls. | NOT TESTED | Never heard by a person |
+| WHALE-04 | — | Walk the whole island; let autonomy run. | Walkable everywhere on the land and moss; never onto the skin or into the sea; the Blobbi lives there on its own. | NOT TESTED | |
+| WHALE-05 | — | Gather sticks, stones, forage and shells (on the mossy shore). | All work; every resource can be reached. | NOT TESTED | |
+| WHALE-06 | Materials | Craft tools; build a shelter, enter it, furnish it, store in a chest. | As on the turtle. | NOT TESTED | |
+| WHALE-07 | Hoe | Till, plant, water, harvest. | As on the turtle. | NOT TESTED | |
+| WHALE-08 | Quests | Follow chapter 1; find discoveries. | Quests advance; finds can be picked up. | NOT TESTED | See KI-14 |
+| WHALE-09 | Carrier Stone found | Listen at the island's front (by the head); open the Carrier panel; observe. | Whale observations (the spout, its song, the fins, …). | NOT TESTED | |
+| WHALE-10 | Dev → Whale, then Dev → Meet requirements | Grow to stages 1, 2 and 3 (LET THE ISLAND GROW). | Stage 1 lengthens the island aft; stage 2 spreads along both flanks behind the fins; stage 3 reaches further aft, and the whole mushroom grove can be walked to its tip. The head and the knuckles stay bare; buildings and plants never move. | NOT TESTED | Scripted browser pass, stages 1–3, walked to the tip |
+| WHALE-11 | A played whale world | Reload; also open it from ISLANDS. | Still a whale, same growth stage, same bag and buildings. | NOT TESTED | Scripted browser pass only |
+| WHALE-12 | — | Teleport (dev Depart/Arrive), each camera mode, day and night, rain, touch controls, visit a whale world (dev → Make visit test worlds). | All as on the other Carriers. | NOT TESTED | |
 
 ## Visiting (VISIT)
 
@@ -187,6 +246,7 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 | CAM-01 | — | Z through overview, exploration, close-up; the mouse wheel. | Each mode works; nothing in the world changes. | NOT TESTED | |
 | CAM-02 | Indoors | Each camera mode. | The Blobbi at native 12/24/48 px. | NOT TESTED | |
 | REG-01 | Turtle Variant B | Look at the head, flippers, shell. | Unchanged from M3.4. | NOT TESTED | |
+| REG-06 | Existing turtle and manta worlds | Load them after the whale work. | Exactly as before: same species, terrain, growth, resources and finds. | NOT TESTED | Automated: pinned in `tests/whale-world.test.ts` |
 | REG-02 | — | Look at the Blobbi. | The canonical V3 look. | NOT TESTED | M3.4 |
 | REG-03 | — | Walk at 2× and 4×. | Smooth, no jitter. | NOT TESTED | |
 | REG-04 | — | P: plant a tree. | The M1 sapling grows. | NOT TESTED | M1 |

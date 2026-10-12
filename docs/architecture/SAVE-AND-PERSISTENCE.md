@@ -13,6 +13,8 @@
 - One JSON record per **world identity**, under `blobbi-pixel-lab:save:v1:<identity>` in a key-value store
   (`localStorage` in the playground, a `Map` in tests). The `v1` in the key is the namespace, not the schema version.
 - The world identity is the generation inputs: `seed=…|kind=turtle|turtle=…|variant=…|WxH|scale=…|palette=…|density=…|islands=…`
+  (`variant` is the turtle's shell variant, 0–4: a turtle world made before 2026-10-11 keeps Variant B and regenerates
+  byte for byte; a new one is Variant S, the small start, under its own identity)
   for a turtle, `…|kind=manta|carrier=…|…` for a manta (`worldIdentity`). Anything that would regenerate a different
   world is a different save.
 - The record is the local world's (`owner: 'local-world'`), never a Blobbi's: choosing another Blobbi never changes

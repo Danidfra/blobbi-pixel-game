@@ -34,6 +34,8 @@ export function placeDiscoveries(world: WorldDescription, canStand: (x: number, 
     pond: (x, y) => (at(x, y) === T.GRASS || at(x, y) === T.GRASS_EDGE || at(x, y) === T.GRASS_PATCH) && nearPond(x, y),
   };
   const island = world.islands[0];
+  // (A whale's island is long: sample its true oval. Other worlds keep their original sampling, and their finds.)
+  const oval = world.creature?.species === 'whale' ? 2 / (1 + (island.aspect ?? 1)) : 1;
   const spots: DiscoverySpot[] = [];
   const clear = (x: number, y: number) => spots.every((s) => Math.hypot(s.x - x, s.y - y) > 28) && avoid.every((n) => Math.hypot(n.x - x, n.y - y) > 30);
   for (const d of DISCOVERY_CONTENT) {
@@ -44,8 +46,8 @@ export function placeDiscoveries(world: WorldDescription, canStand: (x: number, 
       for (let tries = 0; tries < 600 && !found; tries++) {
         const a = rng.range(0, Math.PI * 2);
         const r = island.radius * Math.sqrt(rng.range(0, 1.1));
-        const x = Math.round(island.cx + Math.cos(a) * r);
-        const y = Math.round(island.cy + Math.sin(a) * r * (island.aspect ?? 1));
+        const x = Math.round(island.cx + Math.cos(a) * r * oval);
+        const y = Math.round(island.cy + Math.sin(a) * r * (island.aspect ?? 1) * oval);
         if (x < 2 || y < 2 || x >= width - 2 || y >= height - 2) continue;
         if (test(x, y) && canStand(x, y) && reachable(x, y) && clear(x, y)) found = { x, y };
       }

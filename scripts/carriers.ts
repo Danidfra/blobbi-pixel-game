@@ -1,6 +1,7 @@
 /**
- * M6 WORLD CARRIER SPECIES (prototype previews): several seeds of each new species, their animation through a
- * cycle, and their islands at each growth stage (growth is shown here only; no world ever grows).
+ * WORLD CARRIER SPECIES previews (M6; the whale redrawn east-west in M8 phase 0): several seeds of each creature
+ * species, their animation through a cycle, and their islands at each preview growth stage (playable worlds grow
+ * by world/growth.ts; see scripts/whale-world.ts and scripts/manta-world.ts).
  *   npx tsx scripts/carriers.ts [outDir=examples/living-archipelago]
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -15,8 +16,9 @@ import { renderSpeciesPreview, SPECIES } from '../src/carriers/species';
 const outDir = process.argv[2] ?? 'examples/living-archipelago';
 mkdirSync(outDir, { recursive: true });
 const palette = paletteFor('cozy');
-const W = 240;
-const H = 320;
+// Each species in its own frame: the whale lies east-west (landscape), the manta is wide but faces the viewer.
+let W = 240;
+let H = 320;
 const label = (buf: PixelBuffer, text: string, x: number, y: number) => {
   buf.fillRect(x, y, text.length * 4 + 3, 9, hex('#1b1f2a'));
   drawTinyText(buf, text, x + 2, y + 2, hex('#f4efe4'));
@@ -31,6 +33,7 @@ const sheet = (cells: { buf: PixelBuffer; text: string }[], cols: number, scale 
 };
 
 for (const species of ['whale', 'manta'] as const) {
+  [W, H] = species === 'whale' ? [320, 240] : [240, 320];
   // Individuals: the same species, four seeds.
   const seeds = [0, 1, 2, 3].map((i) => `${species}-${i}`);
   writeFileSync(join(outDir, `carrier-${species}-individuals.png`), toPng(sheet(seeds.map((s, i) => ({ buf: renderSpeciesPreview(species, s, W, H, i * 1.3, palette), text: s.toUpperCase() })), 4)));

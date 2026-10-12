@@ -27,7 +27,7 @@ listed by id and title in the [content catalogue](CONTENT-CATALOG.md). **IMPLEME
 |---|---|
 | Turtle | The oldest turtles carry the oldest islands. A turtle never hurries, and never stops. |
 | Manta | No two mantas wear the same spots. Where a manta glides, the water is always clear. |
-| Whale (prototype) | On a whale everything is a long walk, and every walk ends at the sea. When it sings, the ridge hums. |
+| Whale | On a whale everything is a long walk, and every walk ends at the sea. When it sings, the ridge hums. |
 
 The Carrier observations (eight for the turtle, six for the manta) are listed in the content catalogue.
 

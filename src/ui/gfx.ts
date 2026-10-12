@@ -30,6 +30,8 @@ export interface Hit {
   action: (px: number, py: number) => void;
   /** A tooltip shown while the pointer rests on it. */
   tip?: string;
+  /** Takes the press without acting (the panel's own background): no sound, nothing happens. */
+  inert?: boolean;
 }
 
 /** Pixels a string takes in the tiny font. */
@@ -93,14 +95,18 @@ export class Gfx {
     this.hits.push({ x, y, w, h, action, ...(tip ? { tip } : {}) });
   }
 
-  /** A button; returns its width. Disabled buttons draw muted and do nothing. */
-  button(label: string, x: number, y: number, action: () => void, opts: { enabled?: boolean; primary?: boolean; w?: number } = {}): number {
+  /**
+   * A button; returns its width. Disabled buttons draw muted and never run `action`; a press on one runs
+   * `whyNot` when given (so the player is told why), and otherwise does nothing.
+   */
+  button(label: string, x: number, y: number, action: () => void, opts: { enabled?: boolean; primary?: boolean; w?: number; whyNot?: () => void } = {}): number {
     const enabled = opts.enabled ?? true;
     const w = opts.w ?? textWidth(label) + 8;
     const hover = enabled && this.hovered(x, y, w, 11);
     this.box(x, y, w, 11, opts.primary && enabled ? hex('#3b5a3a') : hover ? UI.slotHi : UI.slot, enabled ? (opts.primary ? UI.good : hover ? UI.muted : UI.line) : UI.slot);
     this.text(label, x + Math.round((w - textWidth(label)) / 2), y + 3, enabled ? UI.ink : UI.line);
     if (enabled) this.hit(x, y, w, 11, action);
+    else if (opts.whyNot) this.hit(x, y, w, 11, opts.whyNot);
     return w;
   }
 

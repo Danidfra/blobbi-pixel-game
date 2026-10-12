@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { generateTurtleWorld } from '../src/world/turtle-world';
-import { canGrow, growWorld, GROWTH_STAGES, MAX_GROWTH_STAGE } from '../src/world/growth';
+import { canGrow, growWorld, GROWTH_STAGES, GROWTH_VERSION, MAX_GROWTH_STAGE } from '../src/world/growth';
+import { generateMantaWorld } from '../src/carriers/manta-world';
+import { generateWhaleWorld } from '../src/carriers/whale-world';
 import { T, WALKABLE, isLandClass } from '../src/world/types';
 import { LiveWorld, IDLE_INPUT } from '../src/sim/live-world';
 import { memoryStore, saveKey, loadSave, SAVE_VERSION } from '../src/game/persistence';
@@ -22,7 +24,35 @@ describe('island growth: deterministic and versioned', () => {
     const again = growWorld(generateTurtleWorld('turtle-0'), 2);
     expect(sig(again.terrain.cls)).toBe(sig(stages[2].terrain.cls));
     expect(JSON.stringify(again.objects)).toBe(JSON.stringify(stages[2].objects));
-    expect(again.growth!.version).toBe(1);
+    expect(again.growth!.version).toBe(GROWTH_VERSION);
+  });
+
+  it('version 2 changes only the whale: turtle and manta grow exactly as in version 1', () => {
+    expect(GROWTH_VERSION).toBe(2);
+    for (const w of [generateTurtleWorld('turtle-0'), generateMantaWorld('manta-world-0')])
+      for (let s = 1; s <= 3; s++) {
+        const v1 = growWorld(w, s, 1);
+        const v2 = growWorld(w, s, 2);
+        expect(sig(v2.terrain.cls)).toBe(sig(v1.terrain.cls));
+        expect(JSON.stringify(v2.objects)).toBe(JSON.stringify(v1.objects));
+      }
+  });
+
+  it('a whale saved with version 1 is regrown exactly as version 1 (never silently changed)', () => {
+    const whale = generateWhaleWorld('whale-v1-save', { carrierSeed: 'whale-test' });
+    const store = memoryStore();
+    const live = new LiveWorld(whale, 'blobbi-9', 16, { store });
+    live.devSetGrowthStage(3);
+    const raw = JSON.parse(store.get(saveKey(live.identity))!);
+    raw.growth.version = 1;
+    store.set(saveKey(live.identity), JSON.stringify(raw));
+    const again = new LiveWorld(whale, 'blobbi-9', 16, { store });
+    expect(again.growthError).toBeNull();
+    expect(again.growth.version).toBe(1);
+    expect(JSON.stringify(again.world.objects)).toBe(JSON.stringify(growWorld(whale, 3, 1).objects));
+    // Version 2 differs for a whale (its plants and rocks keep a passage); the land itself is the same.
+    expect(JSON.stringify(growWorld(whale, 3, 2).objects)).not.toBe(JSON.stringify(growWorld(whale, 3, 1).objects));
+    expect(sig(growWorld(whale, 3, 2).terrain.cls)).toBe(sig(growWorld(whale, 3, 1).terrain.cls));
   });
 
   it('stage 0 is the base world itself; unknown versions are refused', () => {
@@ -216,7 +246,7 @@ describe('growth progression (earned, never accidental)', () => {
     expect(live.growIsland()).toBe(1);
     const raw = JSON.parse(store.get(saveKey(live.identity))!);
     expect(raw.version).toBe(SAVE_VERSION);
-    expect(raw.growth).toMatchObject({ stage: 1, version: 1 });
+    expect(raw.growth).toMatchObject({ stage: 1, version: GROWTH_VERSION });
     expect(raw.growth.history).toHaveLength(1);
     const again = new LiveWorld(base, 'blobbi-9', 16, { store });
     expect(again.world.growth!.stage).toBe(1);

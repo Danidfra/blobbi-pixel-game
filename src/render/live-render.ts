@@ -131,8 +131,8 @@ export class LiveRenderer {
     const { width, height, cls } = world.terrain;
     this.staticLayer = this.paintStatic(world);
     if (live.reveal && live.world.growth) {
-      // The island as it was a moment ago (the previous stage), to grow the new land in from.
-      this.revealFrom = this.paintStatic(growWorld(live.baseWorld, live.reveal.stage - 1, live.world.growth.version));
+      // The island as the player last saw it (the stage the reveal starts from), to grow the new land in from.
+      this.revealFrom = this.paintStatic(growWorld(live.baseWorld, live.reveal.fromStage, live.world.growth.version));
       this.revealTo = this.staticLayer.clone();
     }
     // Foam pixels and wave strokes, precomputed once.
@@ -230,8 +230,21 @@ export class LiveRenderer {
         this.staticLayer.data[i] = r.order[i] <= p ? this.revealTo.data[i] : this.revealFrom.data[i];
       }
       if (!r) {
-        this.staticLayer.data.set(this.revealTo.data);
-        this.revealFrom = this.revealTo = null;
+        // Then the new land glows and fades back to its own colours, so growth is noticed even where it is thin.
+        const glow = this.live.revealGlowLevel();
+        const lit = this.live.revealGlow?.pixels;
+        if (glow > 0 && lit) {
+          const a = 0.42 * glow;
+          for (let k = 0; k < lit.length; k++) {
+            const i = lit[k];
+            const c = this.revealTo.data[i];
+            const mix = (shift: number, to: number) => Math.round(((c >>> shift) & 0xff) * (1 - a) + to * a) << shift;
+            this.staticLayer.data[i] = ((c & 0xff000000) | mix(16, 0xc8) | mix(8, 0xff) | mix(0, 0xd8)) >>> 0;
+          }
+        } else {
+          this.staticLayer.data.set(this.revealTo.data);
+          this.revealFrom = this.revealTo = null;
+        }
       }
     }
 

@@ -264,6 +264,9 @@ export interface InteriorScene {
   particles: ParticleSystem;
 }
 
+/** How long newly grown land stays lit after its reveal (simulated seconds). */
+export const REVEAL_GLOW_SECONDS = 3.5;
+
 export interface LiveOptions {
   /** Where collected resources and the inventory persist; nothing persists without it. */
   store?: KeyValueStore | null;
@@ -1644,7 +1647,7 @@ export class LiveWorld {
   // ─── The Carrier as a companion (see game/carrier.ts) ─────────────────────
 
   /** The World Carrier's species. */
-  get species(): 'turtle' | 'manta' {
+  get species(): 'turtle' | 'manta' | 'whale' {
     return this.world.creature?.species ?? 'turtle';
   }
 
@@ -2735,23 +2738,26 @@ export class LiveWorld {
 
   /**
    * The growth reveal: just after the world was rebuilt at a new stage, the new land spreads out from the old coast
-   * over a few seconds (presentation only; the land is already there for the simulation).
+   * over a few seconds (presentation only; the land is already there for the simulation). `fromStage` is the stage
+   * the player last saw (one below by default; lower after a jump of several stages, so all of it is revealed).
    */
-  reveal: { start: number; duration: number; stage: number; order: Float32Array; pixels: Int32Array; from: number; to: number } | null = null;
+  reveal: { start: number; duration: number; stage: number; fromStage: number; order: Float32Array; pixels: Int32Array; from: number; to: number } | null = null;
 
-  /** Start the reveal of the current stage's new land (the playground calls it after a growth). */
-  startReveal(duration = 4.5): void {
+  /** Start the reveal of the land grown since `fromStage` (the playground calls it after a growth). */
+  startReveal(duration = 4.5, fromStage?: number): void {
     const g = this.world.growth;
     if (!g || g.stage < 1) return;
+    const before = Math.max(0, Math.min(g.stage - 1, fromStage ?? g.stage - 1));
+    const isNew = (b: number) => b > before && b <= g.stage;
     const { width, height } = this.world.terrain;
-    // Multi-source flood from the land that was there before this stage: the order the new land appears in.
+    // Multi-source flood from the land that was there before: the order the new land appears in.
     const born = g.bornAt;
     const order = new Float32Array(width * height).fill(-1);
     const pixels: number[] = [];
     const queue: number[] = [];
     const steps = new Int32Array(width * height).fill(-1);
     for (let i = 0; i < born.length; i++) {
-      if (born[i] !== g.stage) continue;
+      if (!isNew(born[i])) continue;
       pixels.push(i);
       const x = i % width;
       const y = (i / width) | 0;
@@ -2761,7 +2767,7 @@ export class LiveWorld {
         if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
         const j = yy * width + xx;
         const c = this.world.terrain.cls[j];
-        if (born[j] !== g.stage && WALKABLE.has(c) && steps[i] < 0) {
+        if (!isNew(born[j]) && WALKABLE.has(c) && steps[i] < 0) {
           steps[i] = 0;
           queue.push(i);
         }
@@ -2777,7 +2783,7 @@ export class LiveWorld {
         const yy = y + dy;
         if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
         const j = yy * width + xx;
-        if (born[j] === g.stage && steps[j] < 0) {
+        if (isNew(born[j]) && steps[j] < 0) {
           steps[j] = steps[i] + 1;
           max = Math.max(max, steps[j]);
           queue.push(j);
@@ -2785,11 +2791,21 @@ export class LiveWorld {
       }
     }
     for (const i of pixels) order[i] = steps[i] < 0 ? 1 : (steps[i] / max) * 0.92 + (((i * 2654435761) >>> 0) % 100) / 1250;
-    this.reveal = { start: this.clock.time, duration, stage: g.stage, order, pixels: Int32Array.from(pixels), from: g.objectsAt[g.stage - 1], to: g.objectsAt[g.stage] };
+    this.reveal = { start: this.clock.time, duration, stage: g.stage, fromStage: before, order, pixels: Int32Array.from(pixels), from: g.objectsAt[before], to: g.objectsAt[g.stage] };
     // The Carrier feels it: a slow blink and a glance, a happy Blobbi, and a chime.
     this.turtleAnim.blinkUntil = this.clock.time + 0.4;
     this.blobbi.animator.react('excited', this.clock.time, 2, 4);
     this.sound('grow');
+  }
+
+  /** After a reveal: the land it revealed, lit and fading out (presentation only; see LiveRenderer). */
+  revealGlow: { start: number; duration: number; pixels: Int32Array } | null = null;
+
+  /** 0 (gone) .. 1 (just revealed): how lit the newly grown land still is. */
+  revealGlowLevel(time = this.clock.time): number {
+    const g = this.revealGlow;
+    if (!g) return 0;
+    return Math.max(0, 1 - (time - g.start) / g.duration);
   }
 
   /** 0..1 through the reveal (1 when there is none). */
@@ -2816,6 +2832,8 @@ export class LiveWorld {
     }
     if (p >= 1) {
       this.reveal = null;
+      // The new land stays lit for a moment after it has spread, so it is seen even where it is a thin band.
+      this.revealGlow = { start: this.clock.time, duration: REVEAL_GLOW_SECONDS, pixels: r.pixels };
       this.blobbi.animator.react('happy', this.clock.time, 1.4, 3);
       this.notices.push({ heading: 'The island grew', title: this.world.growth ? `Stage ${this.world.growth.stage}` : 'New land', text: 'new land to explore: see the map (N)', until: (this.notices.at(-1)?.until ?? this.clock.time) + 4 });
     }

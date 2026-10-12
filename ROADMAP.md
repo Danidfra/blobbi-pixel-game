@@ -367,16 +367,64 @@ Images: `examples/living-worlds/` (`scripts/growth.ts`, `scripts/manta-world.ts`
 - [x] IMPLEMENTED: earned, non-punitive growth progression; growth panel;
       reveal with Carrier reaction, particles, camera and audio.
 - [x] IMPLEMENTED: a playable manta world (the second species), with its own
-      growth geometry. The whale stays a PROTOTYPE.
+      growth geometry. The whale stays a PROTOTYPE (made playable in M8 phase 0).
 - [x] IMPLEMENTED (local prototype): visiting another local world by teleport,
       read-only visitor permissions, return home; WORLDS discovery screen.
 - [x] Save schema 9 (growth, species, generator); migration never grows.
 - [ ] Manual validation (M4-M7 together); then commit.
 
-### M8 and beyond (not started)
+### M8 phase 0: the playable whale (implemented, uncommitted)
+
+Unfinished M7 work, done first in the M8 session.
+
+- [x] IMPLEMENTED: whale worlds (`generateWhaleWorld`, 1280x768): the whale lies
+      east-west, head east; island on its back between the blowholes and the
+      knuckles, a mossy fringe for a shore; fins and flukes animated, spout and
+      blink; its own observations, voice (song; a blow with each spout) and map
+      colour. Same systems as every world (no whale-specific engine).
+- [x] IMPLEMENTED: whale growth (aft, then both flanks, then further aft;
+      about +80-100 % land at stage 3); turtle and manta growth unchanged
+      byte for byte (pinned in tests).
+- [x] Title: NEW ISLAND offers turtle, manta and whale, each with a picture and
+      a line. Saves keep their species (schema 9 already had `species`).
+- [x] Tests (`tests/whale-world.test.ts`), images (`scripts/whale-world.ts`),
+      docs (WORLD-CARRIERS, WORLD-GROWTH, the test plan, known issues).
+- [ ] Manual validation (WHALE-01...12 in docs/testing/MANUAL-TEST-PLAN.md).
+
+### M8 cinematic: the species-aware intro (implemented, uncommitted)
+
+- [x] IMPLEMENTED: `src/cinematic/` — a reusable intro of about 32 s (19.5 s
+      with reduced motion) for the turtle, the manta and the whale on the
+      existing renderers, camera scales, teleport and audio engine: the ocean,
+      a shape beneath, a species-ordered surfacing behind foam of the BARE
+      animal, the island forming on its back from a first patch (soil, ground,
+      then life), the Blobbi arriving by the existing teleport, a look around,
+      a surprised notice and a happy hello, the message, a handoff into the
+      exploration camera's exact framing. Skip by key, click or tap; reduced
+      motion; safe cancel; no simulation step, no save touched. Reworked after
+      the first manual review (2026-10-11); the manta wing clipping fixed
+      (the reveal frames the whole animal).
+- [x] IMPLEMENTED: the turtle's small start, shell Variant S for NEW turtle
+      worlds (island ≈40 % of the shell, growing to ≈64 % by stage 3; Variants
+      0–3 and every existing world byte-identical, pinned in
+      `tests/turtle-start.test.ts`; images `scripts/turtle-start.ts`).
+- [x] Dev preview (dev tools → Intro cinematic; `#mode=play&intro=whale`),
+      frames (`scripts/intro-cinematic.ts` → `examples/intro-cinematic/`),
+      tests (`tests/cinematic.test.ts`), docs (CINEMATIC-DIRECTION,
+      INTRO-CINEMATIC, M8-CINEMATIC, the test plan, known issues).
+- [ ] Integration into START / NEW ISLAND (a later session), then the
+      onboarding it hands over to.
+- [ ] Manual validation (INTRO-01...10 in docs/testing/MANUAL-TEST-PLAN.md).
+
+### M8: First steps and player experience (not started)
+
+The onboarding brief for this milestone has not been written into the repository yet;
+the intro cinematic above is its first piece.
+
+### Later (not started)
 
 Network visiting (world cards and presence, docs/architecture/NOSTR-MULTIPLAYER.md
-step 2 onward, each needing approval); a playable whale; biome quests; a
+step 2 onward, each needing approval); biome quests; a
 migrated turtle shell enlargement if wanted; house upgrades (`level`);
 furniture grid and rotation; seasons; chapter 3; shared expressions with the
 Standalone; baby and egg stages; multiple Blobbis.

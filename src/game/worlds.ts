@@ -16,9 +16,9 @@ export const WORLD_INDEX_KEY = 'blobbi-pixel-lab:worlds';
 
 export interface WorldParams {
   seed: string;
-  kind: 'island' | 'turtle' | 'manta';
+  kind: 'island' | 'turtle' | 'manta' | 'whale';
   turtleSeed?: string;
-  /** A creature carrier's seed (manta worlds). */
+  /** A creature carrier's seed (manta and whale worlds). */
   carrierSeed?: string;
   shellVariant?: number;
   width: number;
@@ -53,7 +53,7 @@ export function parseIdentity(identity: string): WorldParams | null {
   }
   const kind = fields.get('kind');
   const seed = fields.get('seed');
-  if (!seed || (kind !== 'island' && kind !== 'turtle' && kind !== 'manta') || !size) return null;
+  if (!seed || (kind !== 'island' && kind !== 'turtle' && kind !== 'manta' && kind !== 'whale') || !size) return null;
   const num = (k: string) => Number(fields.get(k));
   if (![num('scale'), num('density')].every(Number.isFinite)) return null;
   const islands = fields.get('islands');
@@ -61,7 +61,7 @@ export function parseIdentity(identity: string): WorldParams | null {
     seed,
     kind,
     ...(kind === 'turtle' ? { turtleSeed: fields.get('turtle') ?? seed, shellVariant: Number(fields.get('variant') ?? 0) } : {}),
-    ...(kind === 'manta' ? { carrierSeed: fields.get('carrier') ?? seed } : {}),
+    ...(kind === 'manta' || kind === 'whale' ? { carrierSeed: fields.get('carrier') ?? seed } : {}),
     width: size[0],
     height: size[1],
     scale: num('scale'),

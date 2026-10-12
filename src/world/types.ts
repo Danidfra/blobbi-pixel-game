@@ -24,7 +24,7 @@ export interface WorldOptions {
    */
   scale: number;
   /** `island` (phase 1-3 archipelagos), `turtle` (one shell carrying the land) or `manta` (M7: a Wing Carrier). */
-  kind: 'island' | 'turtle' | 'manta';
+  kind: 'island' | 'turtle' | 'manta' | 'whale';
   /** A creature carrier's own seed (manta worlds); the world seed when absent. */
   carrierSeed?: string;
   /** The turtle's own seed; the world seed when absent. */
@@ -203,7 +203,7 @@ export interface WorldDescription {
   objects: Placement[];
   stats: WorldStats;
   /** Present on a creature world (M7: the manta), the carrier's species, seed, head and anatomy. */
-  creature?: import('../carriers/manta-world').CreatureInfo;
+  creature?: import('../carriers/creature').CreatureInfo;
   /** Present on a grown world (M7, `world/growth.ts`): the stage, its regions and where they are. */
   growth?: import('./growth').WorldGrowth;
 }

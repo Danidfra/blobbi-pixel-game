@@ -45,11 +45,12 @@ function largestGenome(): TurtleGenome {
 
 /** Canvas size and the island frame's vertical offset for a variant (the same for every seed). */
 export function variantCanvas(variant: ShellVariant, frame: { width: number; height: number }, scale: number): { width: number; height: number; originY: number } {
-  const coverage = SHELL_VARIANTS[variant].coverage;
+  const { coverage, islandScale: s } = SHELL_VARIANTS[variant];
   if (coverage === null) return { width: frame.width, height: frame.height, originY: 0 };
   const genome = largestGenome();
   const ref = turtleAnatomy(genome, frame.width, frame.height, scale);
-  const k = shellGrowth(ref.rx, ref.ry, ref.rimWidth, coverage);
+  // The shell grows around the island the variant carries (the whole top, or Variant S's smaller one).
+  const k = s * shellGrowth(ref.rx * s, ref.ry * s, ref.rimWidth, coverage);
   const above = ref.ry * k * (1 + genome.facets + genome.squareness) + ref.rimWidth + ref.tail.length + 6;
   const originY = Math.max(0, Math.ceil((above - ref.cy) / CELL) * CELL);
   const grown = turtleAnatomy(genome, frame.width, frame.height, scale, { cx: ref.cx, cy: ref.cy + originY, rx: ref.rx * k, ry: ref.ry * k, ref });
@@ -60,11 +61,13 @@ export function variantCanvas(variant: ShellVariant, frame: { width: number; hei
 export function buildTurtleCarrier(turtleSeed: string, variant: ShellVariant, frame: { width: number; height: number }, scale: number, island: Island): WorldCarrier {
   const genome = generateTurtleGenome(turtleSeed);
   const ref = turtleAnatomy(genome, frame.width, frame.height, scale);
-  const coverage = SHELL_VARIANTS[variant].coverage;
+  const { coverage, islandScale: s } = SHELL_VARIANTS[variant];
   if (coverage === null) {
     return { species: 'turtle', seed: turtleSeed, variant, coverage: { target: null, measured: measureCoverage(ref, island) }, origin: { x: 0, y: 0 }, frame: { ...frame }, canvas: { ...frame }, growth: 1, turtle: ref };
   }
-  const k = shellGrowth(ref.rx, ref.ry, ref.rimWidth, coverage);
+  // `k` is the enlarged shell over the REFERENCE shell: the island's own shell top (the reference's top × s) grown
+  // to the coverage. Variants 1-3 (s = 1) are unchanged by this.
+  const k = s * shellGrowth(ref.rx * s, ref.ry * s, ref.rimWidth, coverage);
   const canvas = variantCanvas(variant, frame, scale);
   const turtle = turtleAnatomy(genome, canvas.width, canvas.height, scale, { cx: ref.cx, cy: ref.cy + canvas.originY, rx: ref.rx * k, ry: ref.ry * k, ref });
   const moved: Island = { ...island, cy: island.cy + canvas.originY };

@@ -41,11 +41,11 @@ describe('new Carrier species: deterministic, seed-based', () => {
 
 describe('genuinely different anatomy', () => {
   it('a whale is long, a manta is wide, a turtle is round', () => {
-    const wf = renderWhale(whaleAnatomy(generateWhaleGenome('w'), 240, 320), 0, pal);
+    const wf = renderWhale(whaleAnatomy(generateWhaleGenome('w'), 320, 240), 0, pal);
     const mf = renderManta(mantaAnatomy(generateMantaGenome('m'), 240, 320), 0, pal);
     const wb = box(wf.body);
     const mb = box(mf.body);
-    expect(wb.h / wb.w).toBeGreaterThan(1.4);
+    expect(wb.w / wb.h).toBeGreaterThan(1.4); // a whale lies east-west (M8 phase 0)
     expect(mb.w / mb.h).toBeGreaterThan(1.1);
     const t = generateTurtleWorld('turtle-0').turtle!;
     expect(t.ry / t.rx).toBeGreaterThan(0.8);
@@ -53,18 +53,18 @@ describe('genuinely different anatomy', () => {
     // Island shapes follow the body: long and narrow on the whale, wide and flat on the manta.
     const wi = box(wf.island.mask);
     const mi = box(mf.island.mask);
-    expect(wi.h).toBeGreaterThan(wi.w);
+    expect(wi.w).toBeGreaterThan(wi.h);
     expect(mi.w).toBeGreaterThan(mi.h);
   });
 
-  it('every island sits on its creature; heads face the viewer (south), tails behind (north)', () => {
-    const a = whaleAnatomy(generateWhaleGenome('w3'), 240, 320);
+  it('every island sits on its creature; the whale\'s head is east of its island, the manta\'s faces south', () => {
+    const a = whaleAnatomy(generateWhaleGenome('w3'), 320, 240);
     const wf = renderWhale(a, 0, pal);
     const wi = box(wf.island.mask);
     for (let y = wi.y; y < wi.y + wi.h; y++) for (let x = wi.x; x < wi.x + wi.w; x++) if (wf.island.mask.get(x, y)) expect(wf.body.get(x, y)).toBe(true);
-    expect(a.blowhole.y).toBeGreaterThan(wi.y + wi.h); // the spout is in front of the island
-    expect(a.ySnout).toBeGreaterThan(a.yTail);
-    expect(a.fluke.cy).toBeLessThan(a.yTail + 1);
+    expect(a.blowhole.x).toBeGreaterThan(wi.x + wi.w); // the spout is in front of the island
+    expect(a.xSnout).toBeGreaterThan(a.xTail);
+    expect(a.fluke.cx).toBeLessThan(a.xTail + 1);
     const m = mantaAnatomy(generateMantaGenome('m3'), 240, 320);
     const mf = renderManta(m, 0, pal);
     const mi = box(mf.island.mask);
@@ -77,7 +77,7 @@ describe('genuinely different anatomy', () => {
 
 describe('movement and animation', () => {
   it('the body moves; the island stays exactly where it is', () => {
-    const a = whaleAnatomy(generateWhaleGenome('w'), 240, 320);
+    const a = whaleAnatomy(generateWhaleGenome('w'), 320, 240);
     expect(whalePose(a, 0).fluke).not.toBeCloseTo(whalePose(a, 1.6).fluke, 2);
     const f0 = renderWhale(a, 0, pal);
     const f1 = renderWhale(a, 1.6, pal);
@@ -91,12 +91,12 @@ describe('movement and animation', () => {
   });
 });
 
-describe('growth geometry (designed, preview only)', () => {
+describe('growth geometry (previews; the playable worlds grow by world/growth.ts)', () => {
   it('the whale lengthens toward the tail, its front edge fixed; the manta widens', () => {
-    const w = islandGrowth('whale', 'w', 240, 320);
+    const w = islandGrowth('whale', 'w', 320, 240);
     for (let i = 1; i < 4; i++) {
-      expect(w[i].ry).toBeGreaterThan(w[i - 1].ry);
-      expect(w[i].cy + w[i].ry).toBeCloseTo(w[0].cy + w[0].ry, 5);
+      expect(w[i].rx).toBeGreaterThan(w[i - 1].rx);
+      expect(w[i].cx + w[i].rx).toBeCloseTo(w[0].cx + w[0].rx, 5);
     }
     const m = islandGrowth('manta', 'm', 240, 320);
     for (let i = 1; i < 4; i++) expect(m[i].rx).toBeGreaterThan(m[i - 1].rx);
@@ -105,7 +105,7 @@ describe('growth geometry (designed, preview only)', () => {
 });
 
 describe('species definitions and safety', () => {
-  it('every species has its personality, movement, island, growth, sounds and lore; the turtle and the manta are playable, the whale a prototype', () => {
+  it('every species has its personality, movement, island, growth, sounds and lore; all three are playable', () => {
     for (const def of Object.values(SPECIES)) {
       for (const k of ['personality', 'movement', 'environment', 'island', 'growth'] as const) expect(def[k].length).toBeGreaterThan(10);
       expect(SFX[def.sounds.call]).toBeDefined();
@@ -113,7 +113,7 @@ describe('species definitions and safety', () => {
       expect(def.lore.length).toBeGreaterThan(0);
     }
     expect(SPECIES.turtle.status).toBe('playable');
-    expect(SPECIES.whale.status).toBe('prototype');
+    expect(SPECIES.whale.status).toBe('playable');
     expect(SPECIES.manta.status).toBe('playable');
   });
 

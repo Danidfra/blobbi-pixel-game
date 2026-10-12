@@ -26,8 +26,16 @@ import { islandRadius } from './layout';
 import { bandsFor, islandDistance } from './terrain';
 import { T, type CoastFeature, type Island, type Placement, type WorldDescription } from './types';
 
-/** The growth generator's version. Bump it (and keep the old branch) whenever its output would change. */
-export const GROWTH_VERSION = 1;
+/**
+ * The growth generator's version. Bump it (and keep the old branch) whenever its output would change.
+ *  1  M7: turtle and manta growth; the first whale growth (M8 phase 0).
+ *  2  The whale's solid plants and rocks leave a Blobbi-wide passage between each other and to the coast, so its
+ *     narrow aft land is never walled off (v1 could fence off the tip of the stage-3 grove). Turtle and manta
+ *     worlds are identical in v1 and v2; a v1 save is still regrown exactly as v1.
+ */
+export const GROWTH_VERSION = 2;
+/** Every version this generator can reproduce. */
+export const GROWTH_VERSIONS: readonly number[] = [1, 2];
 export const MAX_GROWTH_STAGE = 3;
 
 export type BiomeId = 'meadow' | 'woodland' | 'rocky' | 'coastal' | 'mushroom';
@@ -149,6 +157,9 @@ export function planV1(base: WorldDescription): Plan {
   const lip = Math.max(2, Math.round(1.6 * scale));
   const keep = Math.round(2.5 * scale);
   const depth = a ? null : skinDepth(base);
+  // A whale's land grows only between its blowholes and its knuckles (the head and the tail ridge stay its own).
+  const whale = base.creature?.species === 'whale' ? base.creature : null;
+  const range = whale?.growRange;
   const backKeep = Math.round(6 * scale);
   // The allowed radius per angle: march out from the coast while the pixel is free carrier surface: on a turtle,
   // far enough from the shell's edge that a ring of plates (and the lip) stays visible; on a creature, far enough
@@ -156,7 +167,7 @@ export function planV1(base: WorldDescription): Plan {
   const allowed = (x: number, y: number) => {
     if (x < 0 || y < 0 || x >= width || y >= height) return false;
     const i = y * width + x;
-    if (!a) return cls[i] === T.SKIN && depth![i] >= backKeep;
+    if (!a) return cls[i] === T.SKIN && depth![i] >= backKeep && (!range || (x >= range.x0 && x <= range.x1));
     if (cls[i] !== T.RIM) return false;
     const dx = x + 0.5 - a.cx;
     const dy = y + 0.5 - a.cy;
@@ -169,7 +180,8 @@ export function planV1(base: WorldDescription): Plan {
     let r = r0 * 0.85;
     let last = r0;
     let seenRing = false;
-    for (; r < r0 * 1.6; r += 0.5) {
+    // (A whale's back runs far behind its island: its land may reach further.)
+    for (; r < r0 * (whale ? 2.8 : 1.6); r += 0.5) {
       const x = Math.floor(island.cx + Math.cos(ang) * r);
       const y = Math.floor(island.cy + Math.sin(ang) * r);
       if (allowed(x, y)) {
@@ -185,9 +197,15 @@ export function planV1(base: WorldDescription): Plan {
   const start = rng.range(0, TAU);
   // Species growth geometry: a turtle's land grows round its shell (lobes spread round the compass); a manta's
   // grows out along its wings (east and west), never toward its head or tail.
-  const bearings = base.creature
-    ? [0, Math.PI, -0.32, Math.PI + 0.32].map((b) => (b + rng.range(-0.08, 0.08) + TAU) % TAU)
-    : [0, 1, 2, 3].map((i) => (start + (i * TAU) / 4 + rng.range(-0.25, 0.25)) % TAU);
+  // A whale's grows the way it swims, toward its tail (west): first along the spine, then along both flanks behind
+  // the fins, and last the rest of the way aft.
+  const bearings = whale
+    ? [Math.PI, -Math.PI / 2 - 0.35, Math.PI / 2 + 0.35, Math.PI].map((b) => (b + rng.range(-0.06, 0.06) + TAU) % TAU)
+    : base.creature
+      ? [0, Math.PI, -0.32, Math.PI + 0.32].map((b) => (b + rng.range(-0.08, 0.08) + TAU) % TAU)
+      : [0, 1, 2, 3].map((i) => (start + (i * TAU) / 4 + rng.range(-0.25, 0.25)) % TAU);
+  // The share of the room left at its bearing each whale lobe takes (the first aft lobe leaves room for the last).
+  const whaleShare = [0.5, 1, 1, 1];
   const regions: GrowthRegion[] = [];
   const lobes: Lobe[] = [];
   let lobeIndex = 0;
@@ -204,7 +222,8 @@ export function planV1(base: WorldDescription): Plan {
       }
       const bearing = bearings[lobeIndex++ % bearings.length];
       regions.push({ id: `s${def.stage}-${biome}`, stage: def.stage, biome, bearing });
-      const width = rng.range(0.3, 0.38);
+      // A whale's lobes are broader: its land spreads along a long back, not round a dome.
+      const width = rng.range(0.3, 0.38) * (whale ? 1.6 : 1);
       // The largest size that keeps the lobe (with the edge wobble at its widest) inside the limit everywhere.
       let size = Infinity;
       const k0 = Math.round((bearing / TAU) * SAMPLES);
@@ -220,6 +239,15 @@ export function planV1(base: WorldDescription): Plan {
       // A creature's land may be cut by the limit (the cut becomes beach), so its lobe reaches the room at its own
       // bearing; a turtle's must fit everywhere (the shell's soil band follows the uncut coastline).
       if (!a) size = limit[k0 % SAMPLES] / (islandRadius(island, bearing) * (1 + ring[def.stage])) - 1;
+      // A whale's lobes share bearings: each takes its share of what the earlier lobes left at its bearing.
+      if (whale) {
+        let prior = 1;
+        for (const l of lobes) {
+          const d = wrap(bearing - l.angle) / l.width;
+          prior *= 1 + l.size * Math.exp(-d * d * 1.6);
+        }
+        size = (limit[k0 % SAMPLES] / (islandRadius(island, bearing) * (1 + ring[def.stage]) * prior) - 1) * whaleShare[lobeIndex - 1];
+      }
       lobes.push({ angle: bearing, width, size: Math.max(0, size * 1.02), kind: 'cape', region: regions.length - 1 });
     }
   }
@@ -239,7 +267,7 @@ function landAt(island: Island, plan: Plan, stage: number): Island {
  * a newer generator must not be "regrown" differently).
  */
 export function growWorld(base: WorldDescription, stage: number, version = GROWTH_VERSION): WorldDescription {
-  if (version !== 1) throw new Error(`unknown growth version ${version}`);
+  if (!GROWTH_VERSIONS.includes(version)) throw new Error(`unknown growth version ${version}`);
   if (stage <= 0 || !canGrow(base)) return base;
   stage = Math.min(MAX_GROWTH_STAGE, Math.floor(stage));
   const plan = planV1(base);
@@ -272,7 +300,8 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
     }
     return plan.regions.findIndex((g) => g.bearing === null);
   };
-  const reach = Math.max(island.radius * 1.6, 40);
+  // (A whale's land may reach much further along its back: see `planV1`.)
+  const reach = Math.max(island.radius * (base.creature?.species === 'whale' ? 3.4 : 1.6), 40);
   const x0 = Math.max(0, Math.floor(island.cx - reach * 1.3));
   const x1 = Math.min(width - 1, Math.ceil(island.cx + reach * 1.3));
   const y0 = Math.max(0, Math.floor(island.cy - reach * 1.3));
@@ -280,8 +309,10 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
   const free = freeClass(base);
   const beach = !!base.creature;
   const beachW = bandsFor(scale).sandNorth + 1;
-  // The old shore's bands that become inland: the grass edge (both), and a creature island's beach.
-  const seam = new Set<number>(beach ? [T.GRASS_EDGE, T.SAND, T.SAND_WET] : [T.GRASS_EDGE]);
+  // A creature island's shore: a manta's is a sandy beach, a whale's a mossy fringe.
+  const shore = base.creature?.species === 'whale' ? T.MOSS : T.SAND;
+  // The old shore's bands that become inland: the grass edge (both), and a creature island's shore.
+  const seam = new Set<number>(beach ? (shore === T.MOSS ? [T.GRASS_EDGE, T.MOSS] : [T.GRASS_EDGE, T.SAND, T.SAND_WET]) : [T.GRASS_EDGE]);
   const limitAt = (ang: number) => plan.limit[Math.round((((ang + TAU) % TAU) / TAU) * SAMPLES) % SAMPLES];
   /** The terrain at stage `s` (each stage computed on its own, so objects are placed on the terrain they grew in). */
   const terrainAt = (s: number) => {
@@ -314,9 +345,9 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
           const toShell = limitAt(ang) - rr;
           const edge = d > -B.grassEdge || toShell < B.grassEdge;
           const n = patchNoise.fbm(px, py, 2);
-          // A creature's island keeps a beach at its new shore, as its first shore had.
+          // A creature's island keeps its shore (beach or moss) at its new edge, as its first shore had.
           const sand = beach && (d > -beachW || toShell < beachW);
-          cls[i] = sand ? T.SAND : edge || (beach && (d > -beachW - B.grassEdge || toShell < beachW + B.grassEdge)) ? T.GRASS_EDGE : ground === T.MEADOW && n > 0.62 ? T.GRASS_PATCH : ground === T.GRAVEL && n < 0.38 ? T.GRASS : ground;
+          cls[i] = sand ? shore : edge || (beach && (d > -beachW - B.grassEdge || toShell < beachW + B.grassEdge)) ? T.GRASS_EDGE : ground === T.MEADOW && n > 0.62 ? T.GRASS_PATCH : ground === T.GRAVEL && n < 0.38 ? T.GRASS : ground;
           dist[i] = Math.max(d, -toShell);
           owner[i] = island.id;
         } else if (d <= -(beach ? beachW + B.grassEdge : B.grassEdge)) {
@@ -333,7 +364,7 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
   let final = terrainAt(1);
   for (let s = 1; s <= stage; s++) {
     if (s > 1) final = terrainAt(s);
-    newObjects.push(...regionObjects(base, plan, s, final.cls, final.dist, final.region, feet));
+    newObjects.push(...regionObjects(base, plan, s, final.cls, final.dist, final.region, feet, passageFor(base, version)));
     objectsAt.push(base.objects.length + newObjects.length);
   }
   const { cls, dist, owner, region, bornAt } = final;
@@ -362,8 +393,16 @@ interface Foot {
   soft: boolean;
 }
 
+/**
+ * The clear ground (world pixels) a solid grown object keeps to every other solid one and to the coast: 0 in v1
+ * (the plain margins), a Blobbi's width and a navigation cell for a whale from v2 (its land is long and narrow).
+ */
+function passageFor(base: WorldDescription, version: number): number {
+  return version >= 2 && base.creature?.species === 'whale' ? Math.round(10 * base.options.scale) : 0;
+}
+
 /** Plants and stones for one stage's regions, on that stage's terrain; `feet` carries earlier stages' footprints. */
-function regionObjects(base: WorldDescription, plan: Plan, stage: number, cls: Uint8Array, dist: Float32Array, region: Uint8Array, feet: Foot[]): Placement[] {
+function regionObjects(base: WorldDescription, plan: Plan, stage: number, cls: Uint8Array, dist: Float32Array, region: Uint8Array, feet: Foot[], passage = 0): Placement[] {
   const out: Placement[] = [];
   const palette = PALETTES[base.options.palette] ?? PALETTES.cozy;
   const S = base.options.scale;
@@ -392,10 +431,12 @@ function regionObjects(base: WorldDescription, plan: Plan, stage: number, cls: U
           const i = cells[rng.int(0, cells.length - 1)];
           const x = i % width;
           const y = Math.floor(i / width);
-          const depth = sprite.footRy + 2;
+          // (A solid object keeps `passage` clear to the coast and to other solid objects; see passageFor.)
+          const clear = soft ? 0 : passage;
+          const depth = sprite.footRy + 2 + clear;
           const pts = [[0, 0], [-sprite.footRx, 0], [sprite.footRx, 0], [0, -sprite.footRy], [0, sprite.footRy]];
           if (!pts.every(([dx, dy]) => ground(x + dx, y + dy, r, depth))) continue;
-          if (feet.some((f) => Math.abs(f.x - x) < f.rx + sprite.footRx + (f.soft || soft ? 1 : margin) && Math.abs(f.y - y) < f.ry + sprite.footRy + (f.soft || soft ? 1 : margin))) continue;
+          if (feet.some((f) => Math.abs(f.x - x) < f.rx + sprite.footRx + (f.soft || soft ? 1 : Math.max(margin, clear)) && Math.abs(f.y - y) < f.ry + sprite.footRy + (f.soft || soft ? 1 : Math.max(margin, clear)))) continue;
           feet.push({ x, y, rx: sprite.footRx, ry: sprite.footRy, soft });
           out.push({ kind, layer, seed, size, x, y, island: 0, variation });
           break;

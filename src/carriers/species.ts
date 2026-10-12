@@ -1,13 +1,16 @@
 /**
- * WORLD CARRIER SPECIES: what each kind of Carrier is, beyond its pixels. The turtle (M1) and the manta (M7,
- * `carriers/manta-world.ts`) are playable; the whale is a PROTOTYPE (deterministic generation and an animated
- * preview, not a playable world: see docs/architecture/WORLD-CARRIERS.md).
+ * WORLD CARRIER SPECIES: what each kind of Carrier is, beyond its pixels. All three are playable: the turtle (M1),
+ * the manta (M7, `carriers/manta-world.ts`) and the whale (M8 phase 0, `carriers/whale-world.ts`). See
+ * docs/architecture/WORLD-CARRIERS.md.
  */
 import type { PixelBuffer } from '../core/pixel';
 import type { WorldPalette } from '../core/palette';
 import type { CarrierSpecies } from '../game/archipelago';
 import { generateWhaleGenome, renderWhale, whaleAnatomy, whaleIslandAt } from './whale';
 import { generateMantaGenome, mantaAnatomy, mantaIslandAt, renderManta } from './manta';
+import { PixelBuffer as Buffer } from '../core/pixel';
+import { paintSea, paintWake } from './common';
+import { generateTurtleGenome, renderTurtleBody, turtleAnatomy } from '../turtle/turtle';
 
 export interface SpeciesDef {
   id: CarrierSpecies;
@@ -40,12 +43,12 @@ export const SPECIES: Record<CarrierSpecies, SpeciesDef> = {
   whale: {
     id: 'whale',
     name: 'Ridge Carrier (whale)',
-    status: 'prototype',
+    status: 'playable',
     personality: 'Gentle, deep-voiced, sings; travels far and straight.',
-    movement: 'A slow wave through the body to the flukes; the long fins sway; it spouts every few breaths.',
+    movement: 'A slow wave through the body to the flukes; the long fins sway; it spouts every few breaths and blinks after.',
     environment: 'Cool deep water and long migrations; surfaces to breathe.',
-    island: 'A long, narrow ridge meadow along the spine, a path down its length; the spout is a landmark in front of it.',
-    growth: 'The island lengthens toward the tail (about +12% length per stage), never toward the blowholes.',
+    island: 'A ridge meadow along the spine with a mossy fringe, paths fore and aft; the spout is a landmark in front of it.',
+    growth: 'The island lengthens toward the tail and spreads along both flanks behind the fins (world/growth.ts), never toward the blowholes: about +80–100% land at stage 3.',
     sounds: { call: 'whale-song', ambient: 'whale-blow' },
     lore: ['On a whale, everything is a long walk, and every walk ends at the sea.', 'When it sings, the whole ridge hums underfoot.'],
   },
@@ -77,4 +80,35 @@ export function islandGrowth(species: 'whale' | 'manta', seed: string, w: number
   }
   const a = mantaAnatomy(generateMantaGenome(seed), w, h);
   return [0, 1, 2, 3].map((s) => mantaIslandAt(a, s));
+}
+
+/** What the title screen says about each species when making a new island. */
+export const SPECIES_BLURB: Record<CarrierSpecies, string> = {
+  turtle: 'ROUND, ON A GREAT SHELL',
+  manta: 'WIDE AND FLAT, WITH BEACHES',
+  whale: 'LONG, ON A SINGING GIANT',
+};
+
+/**
+ * A small picture of a species for menus (`w`×`h`, at time `t`): the animal on its sea, island and all. The turtle
+ * is drawn from its own body renderer (its shell's top as a little island); the others from their previews.
+ */
+export function speciesThumbnail(species: CarrierSpecies, seed: string, w: number, h: number, t: number, palette: WorldPalette): PixelBuffer {
+  if (species !== 'turtle') return renderSpeciesPreview(species, seed, w, h, t, palette);
+  const out = new Buffer(w, h);
+  paintSea(out, palette, seed, t);
+  const a = turtleAnatomy(generateTurtleGenome(seed), w, h, 0.4);
+  const body = renderTurtleBody(a);
+  const layer = new Buffer(w, h);
+  for (const f of body.flippers) layer.blit(f.buffer, f.x, f.y);
+  layer.blit(body.buffer, 0, 0);
+  layer.blit(body.head.buffer, body.head.x, body.head.y);
+  const mask = layer.opaqueMask();
+  paintWake(out, mask, palette, `${seed}|wake`);
+  out.blit(layer, 0, 0);
+  // The island on the shell: grass with a darker edge.
+  const isle = new Buffer(w, h);
+  isle.fillEllipse(a.cx, a.cy, a.rx * 0.78, a.ry * 0.74, palette.grass.mid);
+  out.blit(isle, 0, 0);
+  return out;
 }

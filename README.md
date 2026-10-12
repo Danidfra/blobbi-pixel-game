@@ -1,12 +1,13 @@
 # blobbi-pixel-lab
 
 A fully procedural, living top-down pixel-art game prototype for the Blobbi ecosystem. Islands grow on the back of a
-World Carrier (a turtle, or since M7 a manta); a canonical pixel **Blobbi** lives there; the player gathers, crafts,
+World Carrier (a turtle, a manta or a whale); a canonical pixel **Blobbi** lives there; the player gathers, crafts,
 farms, builds a home, cooks, follows quests, listens to the Carrier, grows the island and visits other islands. Every
 pixel is generated from a seed: no sprite packs, no downloaded or AI-generated raster assets.
 
-It is a research prototype, not a package. **M1–M3 are committed; M4–M7 are implemented but await manual
-validation** (see [milestones](docs/milestones/README.md)).
+It is a research prototype, not a package. **M1–M3 are committed; M4–M7 and the playable whale (M8 phase 0)
+are implemented but await manual validation**, as are the intro cinematic (dev preview only) and the turtle's small
+start for new worlds (see [milestones](docs/milestones/README.md)).
 
 ## Quick start
 

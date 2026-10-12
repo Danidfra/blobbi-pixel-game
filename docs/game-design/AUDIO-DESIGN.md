@@ -44,7 +44,7 @@ ambient decisions ─┘     moodFor / ambientMix     buses: sfx · ui · ambien
 | Life | bird, cricket, owl, splash |
 | Teleport | gather, dissolve, whoosh, gone, incoming, rebuild, arrived, cancelled, reversed |
 | Island growth (M7) | grow (a swell and chimes; starts the special mood) |
-| Other species | manta-call, manta-glide (played on manta worlds since M7); whale-song, whale-blow (prototype preview only) |
+| Other species | manta-call, manta-glide (played on manta worlds since M7); whale-song (its call) and whale-blow (heard with each spout) on whale worlds since M8 phase 0 |
 
 Tests check that every effect has at most 10 voices, peak gain ≤ 0.2, attack > 0, length ≤ 3.5 s and pitches in
 20–8000 Hz. They also check that every hook the world emits has an effect.

@@ -28,7 +28,9 @@ The turtle pipeline: turtle genome → anatomy → the shell's top as an `Island
 distance → classes, elevation, paths) → beach bands become the shell RIM, head/neck/flippers/tail become SKIN, the
 sea wraps the animal → hubs, a pond, meadows, paths (prow, pond, overlook, house) → `placeObjects` (houses, fences,
 decor, groves, bushes, rocks, flowers, tufts) → ground dressing. Variants 1–3 generate the same island in its own
-frame (Variant 0) and embed it into a larger carrier canvas (`src/carrier/turtle-carrier.ts`).
+frame (Variant 0) and embed it into a larger carrier canvas (`src/carrier/turtle-carrier.ts`). Variant S (new
+turtle worlds since 2026-10-11) runs the same pipeline on a shell top shrunk to 72 % at the same centre of the same
+frame (`generateTurtleBase`), then fits the shell around that smaller island to about 40 % coverage.
 
 The manta pipeline reuses the same terrain, path and placement code: the island is an oval fitted inside the manta's
 still core with a sand beach; the core is SKIN (drawn from the body); the sea bands hug the core; the wing tips and
@@ -73,8 +75,9 @@ grove (MOSS). See [World growth](../specifications/WORLD-GROWTH.md).
 
 | Version | Where | Meaning |
 |---|---|---|
-| `GROWTH_VERSION = 1` | `src/world/growth.ts`, saved in `growth.version` and each history entry | the growth generator; a change to its output needs a new version and keeping the old branch |
+| `GROWTH_VERSION = 2` (reproduces 1 and 2) | `src/world/growth.ts`, saved in `growth.version` and each history entry | the growth generator; a change to its output needs a new version and keeping the old branch (v2 changed only the whale's object spacing) |
 | `GENERATOR_VERSION = 'm6.0'` | `src/game/archipelago.ts`, saved as `generator` | the base world generator, for `CarrierRef` keys and compatibility records |
+| shell variant (`variant=` in the identity) | `src/carrier/types.ts` | which turtle shell and island a world was made with; Variants 0–3 are pinned byte-identical (`tests/turtle-start.test.ts`), Variant S is the small start for new worlds |
 | `SAVE_VERSION = 9` | `src/game/persistence.ts` | the save schema |
 
 Pinned visual hashes (`tests/__snapshots__/`) catch any unintended change to existing generation.

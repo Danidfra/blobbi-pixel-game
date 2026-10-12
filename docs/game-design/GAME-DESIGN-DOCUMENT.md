@@ -54,11 +54,12 @@ lives on its own after five seconds (wander, look at things, rest, go home to sl
 moods and expressions from the kit's own V3 drawing. It holds tools in its hand, reacts to everything it does, and
 teleports in and out of worlds. It never takes or changes anything on its own: autonomy is cosmetic.
 
-## 5. World Carriers — turtle and manta IMPLEMENTED, whale PROTOTYPE
+## 5. World Carriers — turtle, manta and whale IMPLEMENTED
 
-The island rests on a giant creature. The **turtle** (default) carries a round island on its shell; the **manta**
-(M7) carries a wide, flat island with beaches on its back and beats its wing tips; the **whale** exists as an
-animated preview only. The player can listen to, greet, observe, offer to and rest beside the Carrier; island
+The island rests on a giant creature. The **turtle** (default) carries a round island on its shell (new turtle worlds
+start with a small one at the shell's centre and grow over the plates, since the M8 cinematic session); the **manta**
+(M7) carries a wide, flat island with beaches on its back and beats its wing tips; the **whale** (M8 phase 0) lies east-west
+and carries a long ridge meadow with a mossy edge along its back, swaying its long fins and spouting now and then. The player can listen to, greet, observe, offer to and rest beside the Carrier; island
 harmony (non-punitive) grows with care. See [World Carriers](../architecture/WORLD-CARRIERS.md).
 
 ## 6. Systems at a glance

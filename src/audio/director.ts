@@ -12,6 +12,7 @@ import type { LiveWorld } from '../sim/live-world';
 import type { AudioEngine, Bed } from './engine';
 import type { Mood } from './music';
 import { SFX } from './sfx';
+import { whalePose } from '../carriers/whale';
 
 export interface Listening {
   inside: boolean;
@@ -76,6 +77,13 @@ export function ambientMix(l: Listening, reduced = false): AmbientMix {
 }
 
 /** How long a special moment holds the music (seconds). */
+/** Each Carrier species' voice: its call now and then, and the sound of its breath under everything. */
+export const CARRIER_VOICES: Record<string, { call: string; breath: string }> = {
+  turtle: { call: 'carrier-call', breath: 'carrier-breath' },
+  manta: { call: 'manta-call', breath: 'manta-glide' },
+  whale: { call: 'whale-song', breath: 'whale-blow' },
+};
+
 export const SPECIAL_SECONDS = 22;
 /** Seconds a new mood must hold before the music changes. */
 export const MOOD_HOLD = 3;
@@ -86,6 +94,8 @@ export class GameAudio {
   private specialUntil = -1;
   private clock = 0;
   private nextBreath = 0;
+  /** The whale's spout last update (-1 between breaths), to hear each one start. */
+  private lastSpout = -1;
   /** The last listening state (dev inspector). */
   last: Listening | null = null;
   lastMood: Mood | null = null;
@@ -146,12 +156,19 @@ export class GameAudio {
     maybe(mix.crickets, 'cricket');
     maybe(mix.owl, 'owl');
     maybe(mix.splash, 'splash');
-    // The Carrier's own voice: a turtle's call, or a manta's chime and the hush of its glide.
-    const manta = live.species === 'manta';
-    maybe(mix.call, manta ? 'manta-call' : 'carrier-call', l.inside ? 0.4 : 1);
-    if (this.clock >= this.nextBreath) {
+    // The Carrier's own voice: a turtle's call, a manta's chime and the hush of its glide, or a whale's song and
+    // the blow of its breath.
+    const voice = CARRIER_VOICES[live.species] ?? CARRIER_VOICES.turtle;
+    maybe(mix.call, voice.call, l.inside ? 0.4 : 1);
+    const creature = live.world.creature;
+    if (creature?.species === 'whale') {
+      // A whale's breath is heard when it is seen: the blow sounds as the spout leaves the blowholes.
+      const spout = whalePose(creature.anatomy, live.clock.time).spout;
+      if (spout >= 0 && this.lastSpout < 0) e.play(voice.breath, { gain: l.inside ? 0.4 : 1 });
+      this.lastSpout = spout;
+    } else if (this.clock >= this.nextBreath) {
       this.nextBreath = this.clock + 1 / mix.breath;
-      e.play(manta ? 'manta-glide' : 'carrier-breath', { gain: l.inside ? 0.4 : 1 });
+      e.play(voice.breath, { gain: l.inside ? 0.4 : 1 });
     }
     // A new mood must hold for a moment before the music follows (walking past a secret is not a scene change);
     // a special moment and going indoors are immediate.

@@ -162,6 +162,7 @@ export class GameUI {
     for (let i = this.hits.length - 1; i >= 0; i--) {
       const h = this.hits[i];
       if (sx >= h.x && sy >= h.y && sx < h.x + h.w && sy < h.y + h.h) {
+        if (h.inert) return true;
         this.onSound?.('ui-select');
         const o = this.panelOrigin;
         h.action(Math.floor((sx - o.x) / o.scale), Math.floor((sy - o.y) / o.scale));
@@ -218,6 +219,9 @@ export class GameUI {
     const g = new Gfx(PANEL_W, PANEL_H);
     if (this.pointerAt) g.hover = { x: Math.floor((this.pointerAt.x - ox0) / scale), y: Math.floor((this.pointerAt.y - oy0) / scale) };
     g.buf.blit(card(PANEL_W, PANEL_H), 0, 0);
+    // The panel's own background takes presses first-registered (so lowest priority): a press inside the panel that
+    // misses every control (a disabled button, a gap) does nothing, and only a press outside the panel closes it.
+    g.hits.push({ x: 0, y: 0, w: PANEL_W, h: PANEL_H, action: () => {}, inert: true });
     g.box(1, 1, PANEL_W - 2, 11, UI.title, null);
     g.buf.fillRect(1, 12, PANEL_W - 2, 1, UI.line);
     const title = this.screen.title(this).toUpperCase();

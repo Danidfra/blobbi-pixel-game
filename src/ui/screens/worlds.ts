@@ -107,7 +107,7 @@ export class WorldsScreen implements Screen {
       const sel = i === this.index;
       g.box(x, ry, lw, 16, sel ? UI.slotHi : UI.panel, sel ? UI.accent : null);
       g.text(ref.name.toUpperCase(), x + 3, ry + 2, sel ? UI.accent : UI.ink);
-      const species = ref.params.kind === 'manta' ? 'MANTA' : 'TURTLE';
+      const species = ref.params.kind === 'manta' ? 'MANTA' : ref.params.kind === 'whale' ? 'WHALE' : 'TURTLE';
       const owner = ref.owner === hooks.player() ? 'YOURS' : ref.owner ? 'ANOTHER PLAYER' : 'THIS BROWSER';
       g.text(`${species}  STAGE ${hooks.stageOf(ref)}  ${owner}`, x + 3, ry + 9, UI.muted);
       g.hit(x, ry, lw, 16, () => (this.index === i ? this.act(ui) : (this.index = i)), 'visit');

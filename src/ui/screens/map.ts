@@ -58,8 +58,8 @@ export function mapImage(world: WorldDescription, w: number, h: number): PixelBu
   const colours = new Map<number, Color>();
   const colour = (c: number) => colours.get(c) ?? colours.set(c, hex(TERRAIN[c] ?? '#22406c')).get(c)!;
   out.fill(colour(T.DEEP));
-  // A creature's body is its own colour (a manta is dark slate, not a turtle's green).
-  if (world.creature) colours.set(T.SKIN, hex('#3a4458'));
+  // A creature's body is its own colour (a manta is dark slate, a whale blue-grey, not a turtle's green).
+  if (world.creature) colours.set(T.SKIN, hex(world.creature.species === 'whale' ? '#56677d' : '#3a4458'));
   for (let my = 0; my < h; my++)
     for (let mx = 0; mx < w; mx++) {
       const p = m.toWorld(mx + 0.5, my + 0.5);

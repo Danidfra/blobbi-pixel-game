@@ -166,7 +166,7 @@ function companionFromSave(raw: unknown): WorldSave['companion'] {
 /** Everything that decides which world this is: seed, kind, turtle, shell variant, canvas and scale. */
 export function worldIdentity(world: WorldDescription): string {
   const o = world.options;
-  const turtle = o.kind === 'turtle' ? `|turtle=${world.carrier?.seed ?? o.turtleSeed ?? world.seed}|variant=${world.carrier?.variant ?? o.shellVariant ?? 0}` : o.kind === 'manta' ? `|carrier=${world.creature?.seed ?? o.carrierSeed ?? world.seed}` : '';
+  const turtle = o.kind === 'turtle' ? `|turtle=${world.carrier?.seed ?? o.turtleSeed ?? world.seed}|variant=${world.carrier?.variant ?? o.shellVariant ?? 0}` : o.kind === 'manta' || o.kind === 'whale' ? `|carrier=${world.creature?.seed ?? o.carrierSeed ?? world.seed}` : '';
   return `seed=${world.seed}|kind=${o.kind}${turtle}|${o.width}x${o.height}|scale=${o.scale}|palette=${o.palette}|density=${o.density}|islands=${o.islands}`;
 }
 

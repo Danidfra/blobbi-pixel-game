@@ -17,6 +17,7 @@ import type { Expression } from '../blobbi/pose';
 import { SPECIES, renderSpeciesPreview } from '../carriers/species';
 import { generateTurtleWorld } from '../world/turtle-world';
 import { generateMantaWorld } from '../carriers/manta-world';
+import { generateWhaleWorld } from '../carriers/whale-world';
 import { LiveWorld } from '../sim/live-world';
 import { localStore, saveKey, worldIdentity } from '../game/persistence';
 import { findBuildSpot } from './scripted-play';
@@ -44,16 +45,24 @@ export interface DevHooks {
   getLive: () => LiveWorld | null;
   refresh: () => void;
   /** Switch the playground to a separate test world (never the player's own save). */
-  openTestWorld: () => void;
+  /** Switch to a test world (of a Carrier species, or the current kind). */
+  openTestWorld: (kind?: 'turtle' | 'manta' | 'whale') => void;
   /** Rebuild the live world from its save (after a growth stage change), optionally playing the reveal. */
   rebuildWorld?: (reveal: boolean) => void;
+  /** A short message on the game canvas (where the player is looking), for a refused dev action. */
+  say?: (text: string) => void;
+  /** Play the intro cinematic on a throwaway preview world of a species (never the player's own save). */
+  previewIntro?: (kind: 'turtle' | 'manta' | 'whale', reduced: boolean) => void;
 }
+
+/** The dev growth buttons act only on a test world (its seed says so): a player's island never grows by a dev button. */
+export const devGrowthAllowed = (seed: string): boolean => /test/.test(seed);
 
 export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
   const { getLive, refresh } = hooks;
   host.innerHTML = `
     <h2>Dev tools <small>(dev server only)</small></h2>
-    <div class="row"><button data-dev="test-world">Test world</button></div>
+    <div class="row"><button data-dev="test-world">Test world</button><button data-dev="test-world-turtle">Turtle</button><button data-dev="test-world-manta">Manta</button><button data-dev="test-world-whale">Whale</button></div>
     <div class="row"><button data-dev="time-60">+1 min</button><button data-dev="time-600">+10 min</button><button data-dev="time-hour">+1 h</button><button data-dev="time-dawn">Morning</button></div>
     <div class="row"><button data-dev="kit-basics">Materials</button><button data-dev="kit-seeds">Seeds</button><button data-dev="kit-food">Food</button></div>
     <div class="row"><button data-dev="kit-tools">All tools</button><button data-dev="kit-furniture">Furniture</button><button data-dev="unlock">Unlock all</button></div>
@@ -70,9 +79,11 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     <pre id="dev-world-info" class="stats" style="display:none"></pre>
     <h3>Visiting <small>(local prototype)</small></h3>
     <div class="row"><button data-dev="vi-make">Make visit test worlds</button><button data-dev="vi-go">Visit next</button><button data-dev="vi-home">Return home</button></div>
-    <h3>Carrier species <small>(prototype preview)</small></h3>
+    <h3>Intro cinematic <small>(preview world, nothing saved)</small></h3>
+    <div class="row"><button data-dev="intro-turtle">Turtle</button><button data-dev="intro-manta">Manta</button><button data-dev="intro-whale">Whale</button><label class="check"><input id="dev-intro-reduced" type="checkbox" /> reduced motion</label></div>
+    <h3>Carrier species <small>(preview)</small></h3>
     <div class="row"><button data-dev="sp-whale">Whale</button><button data-dev="sp-manta">Manta</button><button data-dev="sp-seed">New seed</button><button data-dev="sp-stage">Growth stage</button><button data-dev="sp-stop">Stop</button></div>
-    <canvas id="dev-species" width="240" height="320" style="display:none;width:240px;image-rendering:pixelated"></canvas>
+    <canvas id="dev-species" width="320" height="240" style="display:none;width:320px;image-rendering:pixelated"></canvas>
     <div id="dev-species-info" class="hint"></div>
     <div class="hint">Use the test world for experiments: it has its own save. Time skips move crops, regrowth, construction, day and night and requests (needs only change while the game runs). Unlock all completes every quest without granting its items.</div>
     <div id="dev-inspect" class="stats"></div>`;
@@ -82,6 +93,14 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     const action = button?.dataset.dev ?? '';
     if (action === 'test-world') {
       hooks.openTestWorld();
+      return;
+    }
+    if (action.startsWith('intro-')) {
+      hooks.previewIntro?.(action.slice(6) as 'turtle' | 'manta' | 'whale', (host.querySelector('#dev-intro-reduced') as HTMLInputElement | null)?.checked ?? false);
+      return;
+    }
+    if (action.startsWith('test-world-')) {
+      hooks.openTestWorld(action.slice(11) as 'turtle' | 'manta' | 'whale');
       return;
     }
     if (action.startsWith('vi-')) {
@@ -143,7 +162,7 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
       const store = localStore();
       if (!store) return;
       const made: string[] = [];
-      for (const w of [generateTurtleWorld('visit-test-turtle', { turtleSeed: 'turtle-5' }), generateMantaWorld('visit-test-manta')]) {
+      for (const w of [generateTurtleWorld('visit-test-turtle', { turtleSeed: 'turtle-5' }), generateMantaWorld('visit-test-manta'), generateWhaleWorld('visit-test-whale')]) {
         const id = worldIdentity(w);
         if (store.get(saveKey(id))) continue; // already there: leave it exactly as it is
         const l = new LiveWorld(w, 'blobbi-1', 16, { store });
@@ -187,9 +206,12 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
       ].join('\n');
       return;
     }
-    if (!/test/.test(live.world.seed)) {
+    if (!devGrowthAllowed(live.world.seed)) {
+      // Refused (a player's island is never grown by a dev button): say so where the player is looking, not only here.
+      const why = 'Growth tools work on a test world only: press "Whale" (or "Turtle", "Manta", "Test world") at the top of the dev tools first. Your own island grows from the growth panel (L).';
       worldInfo.style.display = 'block';
-      worldInfo.textContent = 'Growth tools work on a test world only: press "Test world" first (your island is never grown by a dev button).';
+      worldInfo.textContent = why;
+      hooks.say?.('dev growth works on test worlds only: dev tools > Whale / Turtle / Manta');
       return;
     }
     if (what === 'ready') {
@@ -207,9 +229,10 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     }
     const stage = what === 'reset' ? 0 : Number(what);
     live.devSetGrowthStage(stage);
-    hooks.rebuildWorld?.(false);
+    // A higher stage plays the reveal (from the stage on screen) like a real growth, so the new land is noticed.
+    hooks.rebuildWorld?.(true);
   };
-  // Species preview: an animated canvas of a prototype Carrier (never a world; nothing is saved).
+  // Species preview: an animated canvas of a Carrier species (never a world; nothing is saved).
   const preview = { species: 'whale' as 'whale' | 'manta', seed: 0, stage: 0, timer: 0 as ReturnType<typeof setInterval> | 0, t: 0 };
   const speciesCanvas = host.querySelector<HTMLCanvasElement>('#dev-species')!;
   const speciesInfo = host.querySelector<HTMLElement>('#dev-species-info')!;
@@ -231,8 +254,8 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     const ctx = speciesCanvas.getContext('2d')!;
     preview.timer = setInterval(() => {
       preview.t += 0.2;
-      const buf = renderSpeciesPreview(preview.species, `${preview.species}-${preview.seed}`, 240, 320, preview.t, paletteFor('cozy'), preview.stage);
-      const img = ctx.createImageData(240, 320);
+      const buf = renderSpeciesPreview(preview.species, `${preview.species}-${preview.seed}`, 320, 240, preview.t, paletteFor('cozy'), preview.stage);
+      const img = ctx.createImageData(320, 240);
       new Uint32Array(img.data.buffer).set(buf.data);
       ctx.putImageData(img, 0, 0);
     }, 200);

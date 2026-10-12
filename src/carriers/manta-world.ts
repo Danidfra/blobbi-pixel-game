@@ -22,71 +22,11 @@ import { Occupancy, placeObjects } from '../world/placement';
 import { dressGroundTurtle, paintMeadows } from '../world/turtle-world';
 import { T, type Island, type Path, type Placement, type TerrainMap, type WorldDescription, type WorldOptions } from '../world/types';
 import { generateMantaGenome, mantaAnatomy, mantaBody, MANTA_CORE, type MantaAnatomy } from './manta';
+import { insideDistance, outsideDistance, type CreatureInfo } from './creature';
 
 export const DEFAULT_MANTA_OPTIONS: WorldOptions = { width: 1024, height: 768, palette: 'cozy', islands: 1, density: 1, scale: 1.6, kind: 'manta' };
 
-/** What a creature world records about its carrier (the turtle has `world.turtle` instead). */
-export interface CreatureInfo {
-  species: 'manta';
-  seed: string;
-  /** The head's centre (the shore in front of it is where one listens). */
-  head: { cx: number; cy: number };
-  anatomy: MantaAnatomy;
-}
-
-/** Steps from each pixel to the nearest pixel outside `mask` (4-neighbour flood; 0 outside). */
-function insideDistance(mask: Mask, w: number, h: number): Int32Array {
-  const d = new Int32Array(w * h).fill(-1);
-  const queue: number[] = [];
-  for (let i = 0; i < w * h; i++)
-    if (!mask.get(i % w, (i / w) | 0)) {
-      d[i] = 0;
-      queue.push(i);
-    }
-  for (let q = 0; q < queue.length; q++) {
-    const i = queue[q];
-    const x = i % w;
-    const y = (i / w) | 0;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const xx = x + dx;
-      const yy = y + dy;
-      if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-      const j = yy * w + xx;
-      if (d[j] < 0) {
-        d[j] = d[i] + 1;
-        queue.push(j);
-      }
-    }
-  }
-  return d;
-}
-
-/** Steps from each pixel outside `mask` to the mask (for the sea's bands). */
-function outsideDistance(mask: Mask, w: number, h: number): Int32Array {
-  const d = new Int32Array(w * h).fill(-1);
-  const queue: number[] = [];
-  for (let i = 0; i < w * h; i++)
-    if (mask.get(i % w, (i / w) | 0)) {
-      d[i] = 0;
-      queue.push(i);
-    }
-  for (let q = 0; q < queue.length; q++) {
-    const i = queue[q];
-    const x = i % w;
-    const y = (i / w) | 0;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-      const xx = x + dx;
-      const yy = y + dy;
-      if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-      const j = yy * w + xx;
-      if (d[j] < 0) {
-        d[j] = d[i] + (dx && dy ? 1.4 : 1);
-        queue.push(j);
-      }
-    }
-  }
-  return d;
-}
+export type { CreatureInfo } from './creature';
 
 /** The manta's still core at rest: the disc within |u| ≤ MANTA_CORE, plus the horns (the whip moves). */
 export function mantaCore(a: MantaAnatomy): Mask {

@@ -8,13 +8,25 @@ import { BIOMES, GROWTH_STAGES } from '../../world/growth';
 import { Gfx, UI } from '../gfx';
 import { hex } from '../../core/color';
 import { isConfirm, type GameUI, type Screen } from '../game-ui';
+import type { GrowthReadiness } from '../../game/growth-progress';
+
+/** What a press on the growth button says while the island is not ready: how many needs are left, and the first. */
+export function notReadyMessage(r: GrowthReadiness): string {
+  const left = r.requirements.filter((q) => q.have < q.need);
+  if (r.blocked || !left.length) return 'not ready yet: see what the island still needs';
+  const q = left[0];
+  return `not ready yet: ${left.length} still needed, e.g. ${q.label.toLowerCase()} ${Math.min(q.have, q.need)}/${q.need}`;
+}
 
 export class GrowthScreen implements Screen {
   readonly id = 'growth' as const;
   /** The confirmation step before growing. */
   confirming = false;
-  /** Called to grow (the playground rebuilds the world and plays the reveal). */
-  onGrow: (() => void) | null = null;
+  /**
+   * Called to grow (the playground rebuilds the world and plays the reveal). Returns false when the island did not
+   * grow (the caller has said why with `ui.say`), and the panel then stays open so the reason can be read.
+   */
+  onGrow: (() => boolean) | null = null;
 
   title(ui: GameUI): string {
     return `Island growth  stage ${ui.live!.growth.stage} of 3`;
@@ -27,7 +39,7 @@ export class GrowthScreen implements Screen {
   private grow(ui: GameUI): void {
     const r = ui.live!.growthReadiness();
     if (!r.ready) {
-      ui.say('not ready yet: see what the island still needs', false);
+      ui.say(notReadyMessage(r), false);
       return;
     }
     if (!this.confirming) {
@@ -35,9 +47,8 @@ export class GrowthScreen implements Screen {
       return;
     }
     this.confirming = false;
-    if (this.onGrow) this.onGrow();
-    else ui.live!.growIsland();
-    ui.close();
+    const grown = this.onGrow ? this.onGrow() : ui.live!.growIsland() !== null;
+    if (grown) ui.close();
   }
 
   key(code: string, _shift: boolean, ui: GameUI): boolean {
@@ -81,7 +92,8 @@ export class GrowthScreen implements Screen {
       g.text(r.unlocks.join(' + ').toUpperCase().slice(0, 34), x + 36, cy, UI.ink);
       cy += 11;
       const label = this.confirming ? 'SURE? ENTER TO GROW' : r.ready ? 'LET THE ISLAND GROW' : 'NOT READY YET';
-      g.button(label, x, cy, () => this.grow(ui), { w: lw, primary: r.ready, enabled: r.ready });
+      // Not ready: the button stays muted, and a press says what is still missing (never closes the panel).
+      g.button(label, x, cy, () => this.grow(ui), { w: lw, primary: r.ready, enabled: r.ready, whyNot: () => this.grow(ui) });
       cy += 14;
       g.para('Nothing grows by itself and nothing is lost by waiting: the island only grows when you choose. Existing land, buildings and crops never move.', x, cy, lw, UI.muted, 4);
     }
@@ -92,7 +104,7 @@ export class GrowthScreen implements Screen {
     g.text('GROWN LAND', rx, ry, UI.accent);
     ry += 9;
     const grown = live.world.growth;
-    if (!grown) g.para('None yet. The island is as it was born. Growth adds new regions over the shell: meadows, groves, stones, shore and moss.', rx, ry, rw, UI.muted, 5);
+    if (!grown) ry += g.para('None yet. The island is as it was born. Growth adds new land round it: meadows, groves, stones, shore and moss.', rx, ry, rw, UI.muted, 5);
     else
       for (const reg of grown.regions) {
         const place = live.places.find((p) => p.id === `region:${reg.id}`);

@@ -10,7 +10,7 @@
  */
 import { generateWorld } from '../world/generate';
 import { generateTurtleWorld, DEFAULT_TURTLE_OPTIONS } from '../world/turtle-world';
-import { SHELL_VARIANTS, DEFAULT_SHELL_VARIANT, isShellVariant, type ShellVariant } from '../carrier/types';
+import { SHELL_VARIANTS, DEFAULT_SHELL_VARIANT, NEW_WORLD_SHELL_VARIANT, isShellVariant, type ShellVariant } from '../carrier/types';
 import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/compose';
 import { auditWorld } from '../render/audit';
 import type { WorldDescription, WorldOptions } from '../world/types';
@@ -45,13 +45,19 @@ import { SettingsScreen } from '../ui/screens/settings';
 import { CarrierScreen } from '../ui/screens/carrier';
 import { MapScreen } from '../ui/screens/map';
 import { GrowthScreen } from '../ui/screens/growth';
+import { growLiveIsland, rebuildFromSave as rebuildLive } from '../sim/regrow';
 import { WorldsScreen } from '../ui/screens/worlds';
 import { LocalVisitTransport, VisitSession, localPlayerId, OWNERS_KEY, type WorldRef } from '../game/visiting';
 import { AudioEngine, DEFAULT_AUDIO } from '../audio/engine';
 import { GameAudio } from '../audio/director';
 import { TitleScreen } from '../ui/title';
 import { generateMantaWorld } from '../carriers/manta-world';
+import { generateWhaleWorld } from '../carriers/whale-world';
+import { speciesThumbnail } from '../carriers/species';
 import { TouchControls } from '../ui/touch';
+import { IntroCinematic, type IntroResult } from '../cinematic/intro';
+import { introPreviewWorld, isIntroSpecies } from '../cinematic/preview';
+import type { CarrierKind } from '../game/carrier';
 import { listWorlds, newWorldSeeds, resolveFrame, readIndex, touchIndex, worldName, WORLD_INDEX_KEY, hasSave, type WorldEntry } from '../game/worlds';
 import { worldIdentity } from '../game/persistence';
 import { blobbiIdentity } from '../blobbi/identity';
@@ -116,7 +122,7 @@ const startupBlobbi: { source: BlobbiSource; message: string; error: boolean } =
 
 const state: State = {
   seed: params.get('seed') ?? 'blobbi',
-  options: { ...DEFAULT_WORLD_OPTIONS, kind: (params.get('kind') as 'island' | 'turtle' | 'manta') ?? 'turtle' },
+  options: { ...DEFAULT_WORLD_OPTIONS, kind: (params.get('kind') as 'island' | 'turtle' | 'manta' | 'whale') ?? 'turtle' },
   render: { ...DEFAULT_RENDER_OPTIONS },
   live: { ...DEFAULT_LIVE_OPTIONS },
   zoom: 2,
@@ -168,11 +174,11 @@ app.innerHTML = `
         <button id="randomize">Randomize</button>
         <button id="regenerate" class="primary">Regenerate</button>
       </div>
-      <label>World <select id="world-kind"><option value="turtle">turtle (M1)</option><option value="island">islands (phases 1-3)</option><option value="manta">manta (M7)</option></select></label>
+      <label>World <select id="world-kind"><option value="turtle">turtle (M1)</option><option value="island">islands (phases 1-3)</option><option value="manta">manta (M7)</option><option value="whale">whale (M8)</option></select></label>
       <label>Turtle seed <input id="turtle-seed" type="text" spellcheck="false" /></label>
       <div class="row"><button id="turtle-random">Random turtle</button></div>
       <label>Shell variant <select id="shell-variant"></select></label>
-      <div class="hint">World Carrier shell variants: B (70%) is the default; 0 is the M1 turtle unchanged; A and C enlarge the visible shell to ≈60/80% island coverage. Island, collision, navigation and the Blobbi are identical in all four.</div>
+      <div class="hint">World Carrier shell variants: B (70%) is the lab's default and what existing worlds keep; 0 is the M1 turtle unchanged; A and C enlarge the visible shell to ≈60/80% island coverage (island, collision, navigation and the Blobbi identical in all four). S (≈40%) is a smaller starting island on a shell with room to grow: what NEW ISLAND makes.</div>
       <label>Islands <select id="islands"><option value="0">auto (2–4)</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
       <label>Palette <select id="palette"></select></label>
       <label>Density <input id="density" type="range" min="0.4" max="1.8" step="0.1" /><span id="density-value"></span></label>
@@ -351,8 +357,9 @@ function saveHash(): void {
 
 /** The world for the current options: a turtle carrying the land, or the phase 1-3 archipelago. */
 function makeWorld(seed: string): WorldDescription {
-  // A manta world has its own canvas (the manta needs the room): only the look options carry over.
+  // A creature world has its own canvas (the manta and the whale need the room): only the look options carry over.
   if (state.options.kind === 'manta') return generateMantaWorld(seed, { palette: state.options.palette, density: state.options.density, scale: state.options.scale, carrierSeed: state.turtleSeed });
+  if (state.options.kind === 'whale') return generateWhaleWorld(seed, { palette: state.options.palette, density: state.options.density, scale: state.options.scale, carrierSeed: state.turtleSeed });
   if (state.options.kind === 'turtle') return generateTurtleWorld(seed, { ...state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant, width: state.options.width, height: Math.max(state.options.height, DEFAULT_TURTLE_OPTIONS.height) });
   return generateWorld(seed, state.options);
 }
@@ -574,7 +581,7 @@ function openWorldParams(w: WorldEntry): boolean {
   const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant };
   state.seed = p.seed;
   state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands };
-  if (p.kind === 'manta') state.turtleSeed = p.carrierSeed ?? p.seed;
+  if (p.kind === 'manta' || p.kind === 'whale') state.turtleSeed = p.carrierSeed ?? p.seed;
   if (p.kind === 'turtle') {
     state.turtleSeed = p.turtleSeed ?? p.seed;
     if (isShellVariant(p.shellVariant ?? 0)) state.shellVariant = p.shellVariant as ShellVariant;
@@ -605,6 +612,8 @@ const title = new TitleScreen({
   },
   newWorld: (kind) => {
     state.options = { ...state.options, kind };
+    // A new turtle starts small (Variant S); worlds made before keep the variant in their identity.
+    if (kind === 'turtle') state.shellVariant = NEW_WORLD_SHELL_VARIANT;
     const identityOf = (seed: string, turtleSeed: string) => worldIdentity(makeWorldFor(seed, turtleSeed));
     const { seed, turtleSeed } = newWorldSeeds(() => randomSeed('world'), identityOf, (id) => hasSave(id, storeGet));
     state.seed = seed;
@@ -614,7 +623,19 @@ const title = new TitleScreen({
     beginPlay();
   },
   settings: () => gameUI.open('settings'),
+  preview: (kind, time) => {
+    // Each species' picture once per animation step (the title redraws every frame).
+    const step = Math.floor(time * 4);
+    const key = `${kind}|${step % 48}`;
+    let pic = titlePictures.get(key);
+    if (!pic) {
+      pic = speciesThumbnail(kind, `${kind}-title`, 96, 64, (step % 48) / 4, paletteFor('cozy'));
+      titlePictures.set(key, pic);
+    }
+    return pic;
+  },
 });
+const titlePictures = new Map<string, PixelBuffer>();
 title.onSound = (n) => gameUI.onSound?.(n);
 /** A world for other seeds, without touching the playground's state (identity checks for a new world). */
 function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
@@ -646,37 +667,35 @@ queueMicrotask(readSafeArea);
 /**
  * Grow the island (the player chose to, at the growth panel): the stage is saved, the world is rebuilt from the save
  * exactly as a reload would, the Blobbi stays where it stood, and the new land is revealed while the camera pulls
- * back to show the whole island (not with reduced motion).
+ * back to show the whole island (not with reduced motion). The steps are `sim/regrow.ts` (tested end to end).
  */
-function regrow(): void {
-  if (!live || !world) return;
-  if (live.interior) {
-    gameUI.say('step outside first: the island grows around you', false);
-    return;
+function regrow(): boolean {
+  if (!live || !world) return false;
+  const r = growLiveIsland(live, { base: live.baseWorld, blobbi: state.blobbi, blobbiSize: state.blobbiSize, store: localStore() });
+  if (!r.grown) {
+    gameUI.say(r.reason, false);
+    return false;
   }
-  if (live.growIsland() === null) return;
-  rebuildFromSave(true);
+  adoptRebuilt(r.live);
+  return true;
 }
 
-/** Rebuild the live world from its save (after growth, or a dev stage change), keeping the Blobbi where it is. */
+/** Rebuild the live world from its save (after a dev stage change), keeping the Blobbi where it is. */
 function rebuildFromSave(reveal: boolean): void {
   if (!live || !world) return;
-  const at = { x: live.blobbi.x, y: live.blobbi.y };
-  const inside = !!live.interior;
-  const sounds = [...live.sounds];
-  live.save();
-  live = new LiveWorld(world, state.blobbi, state.blobbiSize, { store: localStore() });
-  // The Blobbi stays where it stood (land never disappears, so the spot is still ground).
-  if (!inside && live.collision.canStand(at.x, at.y, live.blobbi.footRx, live.blobbi.footRy)) {
-    live.blobbi.x = at.x;
-    live.blobbi.y = at.y;
-  }
-  live.clock.speed = state.speed;
-  live.sounds.push(...sounds);
-  if (reveal) live.startReveal();
+  const before = live.world.growth?.stage ?? 0;
+  adoptRebuilt(rebuildLive(live, { base: live.baseWorld, blobbi: state.blobbi, blobbiSize: state.blobbiSize, store: localStore(), reveal }));
+  const after = live!.world.growth?.stage ?? 0;
+  if (after < before) gameUI.say(`growth set back to stage ${after} (dev)`, true);
+}
+
+/** Show a rebuilt world: new renderers, and the camera pulls back to the whole island while new land is revealed. */
+function adoptRebuilt(next: LiveWorld): void {
+  live = next;
   liveRenderer = new LiveRenderer(live);
   viewRenderer = new ViewRenderer(live, liveRenderer);
-  if (reveal && !gameUI.settings.reducedMotion && viewCamera.mode !== 'overview') {
+  bounds = worldBounds(live.world);
+  if (live.reveal && !gameUI.settings.reducedMotion && viewCamera.mode !== 'overview') {
     revealCameraReturn = viewCamera.mode;
     viewCamera.setMode('overview');
   }
@@ -712,7 +731,7 @@ function worldFor(ref: WorldRef): WorldDescription {
     const p = ref.params;
     state.seed = p.seed;
     state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands };
-    if (p.kind === 'manta') state.turtleSeed = p.carrierSeed ?? p.seed;
+    if (p.kind === 'manta' || p.kind === 'whale') state.turtleSeed = p.carrierSeed ?? p.seed;
     if (p.kind === 'turtle') {
       state.turtleSeed = p.turtleSeed ?? p.seed;
       if (isShellVariant(p.shellVariant ?? 0)) state.shellVariant = p.shellVariant as ShellVariant;
@@ -792,10 +811,60 @@ let revealCameraReturn: CameraModeId | null = null;
 
 function stopLive(): void {
   gameAudio.silence();
+  endIntroPreview();
   live = null;
   liveRenderer = null;
   viewRenderer = null;
   liveCanvas = null;
+}
+
+// ─── The intro cinematic, previewed (dev): its own throwaway world, never the player's save ───────────
+/** The cinematic playing over the view, if any (a preview; the production flow does not start it yet). */
+let intro: IntroCinematic | null = null;
+let introResult: IntroResult | null = null;
+/**
+ * Play the intro on a preview world of a species. The preview world has no store (nothing is read or written),
+ * the player's own live world is left exactly as it is, and the title screen returns when the cinematic ends.
+ */
+function startIntroPreview(kind: CarrierKind, reduced = gameUI.settings.reducedMotion): void {
+  endIntroPreview();
+  const previewLive = new LiveWorld(introPreviewWorld(kind), state.blobbi, state.blobbiSize, { store: null });
+  const previewRenderer = new LiveRenderer(previewLive);
+  const previewView = new ViewRenderer(previewLive, previewRenderer);
+  intro = new IntroCinematic(
+    { live: previewLive, renderer: previewRenderer, view: previewView },
+    {
+      reducedMotion: reduced,
+      audio: gameUI.settings.sound ? audioEngine : null,
+      renderOptions: state.live,
+      uiScale: gameUI.settings.largeText ? 3 : 2,
+      onComplete: (r) => {
+        introResult = r;
+        if (import.meta.env.DEV) console.info('[intro] complete', r);
+        endIntroPreview();
+      },
+    },
+  );
+  title.active = false;
+  gameUI.close();
+  lastFrameTime = 0;
+  view.focus();
+}
+/** Leave the preview (ended, skipped or abandoned): dispose it and return to the title. */
+function endIntroPreview(): void {
+  if (!intro) return;
+  const done = intro;
+  intro = null;
+  done.dispose();
+  if (state.mode === 'play' && live) title.active = true;
+}
+function introFrame(real: number): void {
+  const playing = intro;
+  if (!playing) return;
+  const frame = playing.frame(real, view.width, view.height);
+  liveCanvas = toCanvas(frame, liveCanvas ?? undefined);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(liveCanvas, 0, 0);
 }
 
 function readInput(): LiveInput {
@@ -847,6 +916,10 @@ function playFrame(now: number): void {
   const real = lastFrameTime ? (now - lastFrameTime) / 1000 : 1 / 60;
   lastFrameTime = now;
   push(frameTimes, real * 1000);
+  if (intro) {
+    introFrame(real);
+    return;
+  }
   if (title.active) {
     titleFrame(now, real);
     return;
@@ -1109,6 +1182,11 @@ function showPlayStats(): void {
 view.addEventListener('keydown', (e) => {
   if (state.mode !== 'play') return;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Escape'].includes(e.code)) e.preventDefault();
+  // The intro cinematic: any key skips it.
+  if (intro) {
+    if (!e.repeat) intro.skip();
+    return;
+  }
   // The title screen owns the keyboard (unless its settings panel is open).
   if (title.active && !gameUI.capturing) {
     if (!e.repeat) title.key(e.code);
@@ -1152,7 +1230,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -1166,9 +1244,22 @@ if (import.meta.env.DEV)
         showObjectives();
       },
       rebuildWorld: (reveal: boolean) => rebuildFromSave(reveal),
+      previewIntro: (kind, reduced) => {
+        if (state.mode !== 'play') setMode('play');
+        startIntroPreview(kind, reduced);
+      },
+      // A refused dev action shows as a notice on the game view (no panel is open to carry a message).
+      say: (text: string) => {
+        if (live) live.notices.push({ heading: 'Dev tools', title: 'Not on this world', text, until: Math.max(live.clock.time, live.notices.at(-1)?.until ?? 0) + 5 });
+      },
       // A separate world seed: experiments never touch the player's own save.
-      openTestWorld: () => {
+      openTestWorld: (kind) => {
         state.seed = 'm5-test-world';
+        if (kind) {
+          state.options = { ...state.options, kind };
+          if (kind !== 'turtle') state.turtleSeed = `${kind}-test`;
+          syncControls();
+        }
         seedInput.value = state.seed;
         regenerate();
         if (!live) startLive();
@@ -1811,7 +1902,7 @@ $('size').addEventListener('change', (e) => {
   fitZoom();
 });
 $('world-kind').addEventListener('change', (e) => {
-  state.options.kind = (e.target as HTMLSelectElement).value as 'island' | 'turtle' | 'manta';
+  state.options.kind = (e.target as HTMLSelectElement).value as 'island' | 'turtle' | 'manta' | 'whale';
   stopLive();
   regenerate();
   fitZoom();
@@ -1888,6 +1979,12 @@ view.addEventListener('pointerdown', (e) => {
     const rect = view.getBoundingClientRect();
     const sx = ((e.clientX - rect.left) * view.width) / Math.max(1, rect.width);
     const sy = ((e.clientY - rect.top) * view.height) / Math.max(1, rect.height);
+    // The intro cinematic: a click or a tap skips it.
+    if (intro) {
+      intro.skip();
+      e.preventDefault();
+      return;
+    }
     if (title.active && !gameUI.capturing) {
       title.pointer(sx, sy);
       e.preventDefault();
@@ -2059,6 +2156,11 @@ world = makeWorld(state.seed);
 rerender();
 fitZoom();
 setMode(state.mode);
+// Development only: `#mode=play&intro=whale` (and `&reduced=1`) plays the intro preview straight away.
+if (import.meta.env.DEV && isIntroSpecies(params.get('intro'))) {
+  if (state.mode !== 'play') setMode('play');
+  startIntroPreview(params.get('intro') as CarrierKind, params.get('reduced') === '1' || gameUI.settings.reducedMotion);
+}
 rafId = requestAnimationFrame(playFrame);
 requestAnimationFrame(previewFrame);
 requestAnimationFrame(growthFrame);

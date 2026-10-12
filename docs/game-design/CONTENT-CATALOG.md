@@ -24,7 +24,7 @@
 | Tool upgrades | 4 | `content/tools.ts` |
 | Biomes (grown land) | 5 | `world/growth.ts` |
 | Growth stages | 3 | `world/growth.ts` |
-| Carrier observations (turtle / manta) | 8 / 6 | `game/carrier.ts` |
+| Carrier observations (turtle / manta / whale) | 8 / 6 / 8 | `game/carrier.ts` |
 | Sound effects | 59 | `audio/sfx.ts` |
 | Music moods | 6 | `audio/music.ts` |
 
@@ -480,7 +480,7 @@
 | Species | Name | Status | Island |
 |---|---|---|---|
 | turtle | Shell Carrier (sea turtle) | playable | A round oval island on the dome of the shell, ringed by the rim. |
-| whale | Ridge Carrier (whale) | prototype | A long, narrow ridge meadow along the spine, a path down its length; the spout is a landmark in front of it. |
+| whale | Ridge Carrier (whale) | playable | A ridge meadow along the spine with a mossy fringe, paths fore and aft; the spout is a landmark in front of it. |
 | manta | Wing Carrier (manta) | playable | A wide, flat island across the central disc, with tide pools where it meets the wings. |
 
 | Observation (turtle) | When |
@@ -502,6 +502,17 @@
 | it glides where the water is bright | day |
 | a thin tail, steering | any time |
 | it drifts in wide circles | night |
+
+| Observation (whale) | When |
+|---|---|
+| a spout of mist, up ahead! | any time |
+| a song, deep under the ridge | any time |
+| long fins, like slow wings | any time |
+| the great tail rises... and sinks | any time |
+| barnacles on its nose | day |
+| an eye, as big as a door | any time |
+| little knuckles down its back | any time |
+| it swims straight, by the stars | night |
 
 ## Audio
 

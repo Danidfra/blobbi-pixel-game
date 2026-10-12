@@ -156,12 +156,15 @@ export function generateResources(world: WorldDescription, canStand: StandCheck)
   // Shells along the shore: sand, or (on a World Carrier, which has no beach) the grass band by the shell's rim.
   const shells = forage.shell;
   const count = shells.int(6, 10);
+  const whaleOval = world.creature?.species === 'whale';
   for (let i = 0; i < count; i++) {
     for (let t = 0; t < 40; t++) {
       const ang = shells.range(0, Math.PI * 2);
       const r = island.radius * shells.range(0.7, 1.12);
-      const x = island.cx + Math.cos(ang) * r;
-      const y = island.cy + Math.sin(ang) * r * (island.aspect ?? 1);
+      // (A whale's island is long: sample its true oval, or the far ends of its shore would never be tried.)
+      const k = whaleOval ? 2 / (1 + (island.aspect ?? 1)) : 1;
+      const x = island.cx + Math.cos(ang) * r * k;
+      const y = island.cy + Math.sin(ang) * r * (island.aspect ?? 1) * k;
       if (isShore(world, x, y) && free(x, y)) {
         put('shell', x, y, shells.int(0, 1), -1);
         break;
@@ -183,13 +186,16 @@ export function isShore(world: WorldDescription, fx: number, fy: number): boolea
   const c = cls[y * width + x];
   if (c === T.SAND || c === T.SAND_WET) return true;
   if (!WALKABLE.has(c) || c === T.PATH) return false;
+  // A whale's island meets its skin (a mossy fringe, no beach): that edge is its shore. (Only the whale: the
+  // turtle's land beside its head, or a manta's, was never shore, and their worlds stay as they were.)
+  const skinShore = world.creature?.species === 'whale';
   for (let dy = -6; dy <= 6; dy += 2)
     for (let dx = -6; dx <= 6; dx += 2) {
       const xx = x + dx;
       const yy = y + dy;
       if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
       const n = cls[yy * width + xx];
-      if (n === T.RIM || n <= T.FOAM) return true;
+      if (n === T.RIM || n <= T.FOAM || (skinShore && n === T.SKIN)) return true;
     }
   return false;
 }

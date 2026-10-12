@@ -11,6 +11,7 @@ import { Gfx, UI, textWidth, type Hit } from './gfx';
 import { DESIGN, card } from './hud';
 import { drawTinyText } from '../render/live-render';
 import type { WorldEntry } from '../game/worlds';
+import type { CarrierKind } from '../game/carrier';
 
 export type TitlePage = 'main' | 'islands' | 'about' | 'new';
 
@@ -21,8 +22,10 @@ export interface TitleActions {
   current(): { identity: string; name: string; saved: boolean };
   continueGame(): void;
   openWorld(w: WorldEntry): void;
-  newWorld(kind: 'turtle' | 'manta'): void;
+  newWorld(kind: CarrierKind): void;
   settings(): void;
+  /** A small picture of a species (96×64) for the NEW ISLAND page; optional. */
+  preview?(kind: CarrierKind, time: number): PixelBuffer | null;
 }
 
 const W = 320;
@@ -40,7 +43,7 @@ export class TitleScreen {
 
   constructor(private readonly actions: TitleActions) {}
 
-  private items(): { label: string; detail?: string; run: () => void }[] {
+  private items(): { label: string; detail?: string; kind?: CarrierKind; run: () => void }[] {
     const a = this.actions;
     if (this.page === 'main') {
       const cur = a.current();
@@ -54,13 +57,14 @@ export class TitleScreen {
       ];
     }
     if (this.page === 'islands') {
-      const list = a.worlds().map((w) => ({ label: w.name.toUpperCase(), detail: `${w.params.kind === 'manta' ? 'MANTA' : 'TURTLE'}  DAY ${w.day}  ${w.quests} QUESTS  ${w.buildings} BUILT`, run: () => a.openWorld(w) }));
+      const list = a.worlds().map((w) => ({ label: w.name.toUpperCase(), detail: `${w.params.kind === 'manta' ? 'MANTA' : w.params.kind === 'whale' ? 'WHALE' : 'TURTLE'}  DAY ${w.day}  ${w.quests} QUESTS  ${w.buildings} BUILT`, run: () => a.openWorld(w) }));
       return [...list, { label: 'BACK', run: () => this.go('main') }];
     }
     if (this.page === 'new')
       return [
-        { label: 'A TURTLE ISLAND', detail: 'ROUND, ON A GREAT SHELL', run: () => a.newWorld('turtle') },
-        { label: 'A MANTA ISLAND', detail: 'WIDE AND FLAT, WITH BEACHES (NEW)', run: () => a.newWorld('manta') },
+        { label: 'A TURTLE ISLAND', detail: 'ROUND, ON A GREAT SHELL', kind: 'turtle' as const, run: () => a.newWorld('turtle') },
+        { label: 'A MANTA ISLAND', detail: 'WIDE AND FLAT, WITH BEACHES', kind: 'manta' as const, run: () => a.newWorld('manta') },
+        { label: 'A WHALE ISLAND', detail: 'LONG, ON A SINGING GIANT (NEW)', kind: 'whale' as const, run: () => a.newWorld('whale') },
         { label: 'BACK', run: () => this.go('main') },
       ];
     return [{ label: 'BACK', run: () => this.go('main') }];
@@ -152,7 +156,9 @@ export class TitleScreen {
     if (this.index < this.scroll) this.scroll = this.index;
     if (this.index >= this.scroll + rows) this.scroll = this.index - rows + 1;
     const panelW = 184;
-    const px = Math.floor((W - panelW) / 2);
+    // NEW ISLAND shows a picture of the chosen Carrier beside the list.
+    const pictured = this.page === 'new' && !!this.actions.preview;
+    const px = pictured ? 18 : Math.floor((W - panelW) / 2);
     let y = 56;
     const heading = this.page === 'islands' ? 'YOUR ISLANDS' : this.page === 'new' ? 'NEW ISLAND' : this.page === 'about' ? 'ABOUT' : '';
     if (heading) {
@@ -186,6 +192,16 @@ export class TitleScreen {
       });
       y += h + 2;
     });
+    const kind = items[this.index]?.kind;
+    if (pictured && kind) {
+      const pic = this.actions.preview!(kind, time);
+      if (pic) {
+        const fx = px + panelW + 8;
+        const fy = 78;
+        g.buf.blit(card(pic.width + 4, pic.height + 4, DESIGN.accent), fx - 2, fy - 2);
+        g.buf.blit(pic, fx, fy);
+      }
+    }
     if (this.scroll > 0) g.text('MORE', px + panelW + 3, 66, UI.muted);
     if (this.scroll + rows < items.length) g.text('MORE', px + panelW + 3, y - 8, UI.muted);
     const foot = 'ARROWS AND ENTER, OR CLICK. ESC GOES BACK.';
