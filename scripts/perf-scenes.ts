@@ -7,7 +7,7 @@
  *   node --expose-gc --import tsx scripts/perf-scenes.ts [label] [--frames 600] [--only name]
  *
  * Scenes: turtle stage 0 and 4, manta 4, whale 4, the house interior, rain, active fishing, Carrier animation at
- * overview, the minimum and maximum zoom (close-up, and up close since M10); each at desktop 1280×720, desktop 1920×1080 and a phone 844×390.
+ * overview, the minimum and maximum zoom (close-up, and up close since M10), the canoe paddling and fishing (M10 B); each at desktop 1280×720, desktop 1920×1080 and a phone 844×390.
  * Output: a table, and JSON in docs/testing/perf/<label>.json.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -24,7 +24,7 @@ import { GameUI } from '../src/ui/game-ui';
 import { paletteFor } from '../src/world/generate';
 import { memoryStore } from '../src/game/persistence';
 import { rainAt } from '../src/game/daylight';
-import { findBuildSpot, pressE, run } from '../src/dev/scripted-play';
+import { findBuildSpot, pressE, run, stand } from '../src/dev/scripted-play';
 import { ITEMS } from '../src/game/items';
 import type { WorldDescription } from '../src/world/types';
 
@@ -117,7 +117,39 @@ const SCENES: Scene[] = [
   { name: 'max-zoom-closeup', mode: 'closeup', make: () => liveAt(turtle, 4), input: walk },
   // M10: the fourth mode, now the maximum zoom.
   { name: 'max-zoom-upclose', mode: 'upclose', make: () => liveAt(turtle, 4), input: walk },
+  // M10 phase B: paddling the canoe round the Carrier, and fishing from it (stage 2: the shore reaches the sea).
+  { name: 'canoe-navigation', mode: 'exploration', make: () => afloat(liveAt(turtle, 2)), input: walk },
+  { name: 'canoe-fishing', mode: 'closeup', make: () => afloat(liveAt(turtle, 2), true) },
 ];
+
+/** Launch the canoe from the shore nearest the hub and step in (and, if asked, cast a line from it). */
+function afloat(live: LiveWorld, fishing = false): LiveWorld {
+  live.inventory.add('blobbi-pixel:vehicle:canoe', 1);
+  (live as unknown as { nearbyMarine: () => null }).nearbyMarine = () => null;
+  const { width, height } = live.world.terrain;
+  search: for (let y = 6; y < height - 6; y += 3)
+    for (let x = 6; x < width - 6; x += 3) {
+      if (!live.collision.canStand(x, y, live.blobbi.footRx, live.blobbi.footRy)) continue;
+      for (const d of ['down', 'right', 'left', 'up'] as const) {
+        stand(live, x, y, d);
+        if (live.launchSpot()) break search;
+      }
+    }
+  live.resources = [];
+  live.launchCanoe();
+  live.boardCanoe();
+  run(live, 40);
+  // Out into open water.
+  for (let i = 0; i < 240; i++) live.update(1 / 60, { ...IDLE_INPUT, up: true });
+  for (let i = 0; i < 120; i++) live.update(1 / 60, IDLE_INPUT);
+  if (fishing) {
+    live.inventory.add('blobbi-pixel:tool:fishing-rod', 1);
+    live.equip('blobbi-pixel:tool:fishing-rod');
+    live.fish();
+    if (live.fishing) live.fishing.biteAt = 1e9;
+  }
+  return live;
+}
 
 const pct = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p))];
 

@@ -222,6 +222,9 @@ describe('saving and loading with the canoe', () => {
     expect(b.x0).toBeLessThan(0);
     const v = new ViewCamera('closeup').update(0, again.cameraTarget(), 960, 540, b, true);
     expect(Number.isInteger(v.originX) && Number.isInteger(v.originY)).toBe(true);
+    // The overview still frames the Carrier (not the whole canoe sea): the same scale as on foot.
+    const cam = new ViewCamera('overview');
+    expect(cam.restScale('overview', 1280, 720, b)).toBe(cam.restScale('overview', 1280, 720, worldBounds(again.world)));
     // A record from before phase B has no canoe.
     raw.version = 10;
     delete raw.boat;

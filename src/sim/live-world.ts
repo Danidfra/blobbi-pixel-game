@@ -657,15 +657,18 @@ export class LiveWorld {
     return this.interior !== null;
   }
   /** What the camera frames: the room when inside. */
-  sceneBounds(): { width: number; height: number; x0?: number; y0?: number } | null {
+  sceneBounds(): { width: number; height: number; x0?: number; y0?: number; subject?: { x0: number; y0: number; x1: number; y1: number } } | null {
     if (this.interior) return { width: this.roomLayout.w, height: this.roomLayout.h };
-    // Afloat (M10 phase B): the canoe's sea round the Carrier, which may reach past the world's edge.
+    // Afloat (M10 phase B): the canoe's sea round the Carrier, which may reach past the world's edge; the overview
+    // still frames the Carrier itself.
     if (this.boat?.aboard) {
       const r = this.seaNav().region;
-      return { x0: r.x0, y0: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0 };
+      this.subjectCache ??= worldBounds(this.world).subject ?? null;
+      return { x0: r.x0, y0: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, ...(this.subjectCache ? { subject: this.subjectCache } : {}) };
     }
     return null;
   }
+  private subjectCache: { x0: number; y0: number; x1: number; y1: number } | null | undefined;
 
   /** Discovery spots and the place to listen to the Carrier: from the world alone, the same every time. */
   /** Which ground can be reached on foot from the hub, on a navigation grid (a flood fill over its free cells). */
@@ -4455,8 +4458,11 @@ export class LiveWorld {
     this.trees.clear();
     this.cleared.clear();
     this.caught.clear();
+    // Afloat when the progress is reset: back on the island, by the hub.
+    const wasAfloat = !!this.boat?.aboard || !!this.boarding;
     this.boat = null;
     this.boarding = null;
+    if (wasAfloat) this.placeBlobbiAtStart();
     this.absentKey = '';
     this.equipped = null;
     this.timeOffset = -this.clock.time;
