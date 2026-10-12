@@ -190,3 +190,21 @@ describe('growth requirements are achievable on every Carrier', () => {
       }
     });
 });
+
+describe('M8 saves keep their grown worlds exactly (M9 compatibility)', () => {
+  for (const [name, make] of CARRIERS)
+    for (const version of [1, 2])
+      it(`${name}: a stage-3 save made with growth version ${version} loads the very same land and objects`, () => {
+        const base = make();
+        const store = memoryStore();
+        const live = new LiveWorld(base, 'blobbi-9', 16, { store });
+        live.growth = { stage: 3, version, history: [1, 2, 3].map((stage) => ({ stage, worldTime: stage, version })), regions: [] };
+        live.save();
+        const again = new LiveWorld(base, 'blobbi-9', 16, { store });
+        const expected = growWorld(base, 3, version);
+        expect(again.growthError).toBeNull();
+        expect(sig(again.world.terrain.cls)).toBe(sig(expected.terrain.cls));
+        expect(JSON.stringify(again.world.objects)).toBe(JSON.stringify(expected.objects));
+        expect(again.world.growth!.stage).toBe(3);
+      });
+});

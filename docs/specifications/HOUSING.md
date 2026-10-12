@@ -37,6 +37,10 @@ upgrades (Cottage, Dream Home) earned through play, rooms to furnish, and a look
 - **Customising** (HOME → LOOK and ROOMS): roof colour, wall material, door style, window style; floor, wall colour,
   wall finish. A live preview shows the draft; APPLY saves it, REVERT forgets it. Locked options are listed with
   what unlocks them and cannot be applied ([unlocks](#unlocks)). ROOMS → ARRANGE (inside) starts the move mode.
+- **Beds (M9):** a bed (or a Blobbi cushion) is where rest happens: R walks the Blobbi home and into the nearest
+  reachable bed, tucked under the blanket ([gameplay systems](../game-design/GAMEPLAY-SYSTEMS.md#care-and-friendship)).
+- **At night (M9)** a home's windows glow and its light reaches further with each level; a Cottage's and a Dream
+  Home's chimney smokes.
 - Entering, leaving, sleeping and indoor placing work as in M5, in every layout: E at the door goes in (the Cottage's
   door is right of centre), walking out of the door gap leaves.
 

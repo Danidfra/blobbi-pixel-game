@@ -38,7 +38,7 @@
 | `plots`, `care`, `tally`, `objectives` | 6 | farm plots and crops; needs; what the player did; quests, request, lore found |
 | `companion`, `found`, `interiors`, `containers`, `producers` | 7 | friendship and tasted foods; discoveries found; house interiors; chest contents; producer timers |
 | `carrier`, `places` | 8 | Carrier bond, observations, likes found, counts; named places visited |
-| `growth`, `species`, `generator` | 9 | `{ stage, version, history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`/`'whale'`; base generator version (`m6.0`) |
+| `growth`, `species`, `generator` | 9 | `{ stage (0–4 since M9), version (1–3), history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`/`'whale'`; base generator version (`m6.0`) |
 | `buildings[].level`, `.look`, `.upgradedAt`; `interiors[].style.finish` | 10 | the home's level, look and upgrade time; the rooms' wall finish ([housing](../specifications/HOUSING.md)) |
 | `name`, `intro`, `tutorial` | 10 | the island's own name or null; `{ state: 'pending' \| 'done' \| 'skipped', at }`; `{ done: [step ids], skipped }` |
 
@@ -60,6 +60,9 @@ Guarantees (tested):
 - An unknown **growth** version makes the world read-only for that session (no store), so it is neither regrown
   differently nor overwritten.
 - Quest rewards are never granted twice after a migration (quest ids are stable).
+- **Growth stage 4 (M9)** needs no schema change: `growth.stage` may be 4 and `growth.version` 3. Stages 1–3 are
+  regrown exactly with the version each was made with (its history entry), so every M7/M8 grown world loads the same
+  land and objects (`tests/growth-stage4.test.ts`).
 - **A world from before schema 10 never plays the intro** (its `intro` loads as seen), has no name (it keeps its
   generated one) and has tips off (`tutorial.skipped`), because it is already under way.
 - A new island is saved the moment it is made, with `intro: pending`: if the page goes away during its intro, the

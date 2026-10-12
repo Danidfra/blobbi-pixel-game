@@ -132,6 +132,28 @@ if (!only || only === 'cams') {
   }
 }
 
+if (!only || only === 'feel') {
+  // A Dream Home at night (lit windows, a smoking chimney) on a stage-4 whale island.
+  const store = memoryStore();
+  const live = new LiveWorld(island('whale'), 'blobbi-9', 16, { store });
+  live.brain.enabled = false;
+  live.inventory.add(ITEMS.wood.id, 6);
+  live.inventory.add(ITEMS.stone.id, 3);
+  live.objectives.completed.materials = 0;
+  findBuildSpot(live, 'shelter', live.world.hubs[0], 160, 3);
+  live.setBuildMode('shelter');
+  pressE(live);
+  run(live, 60 * 26);
+  live.home()!.level = 3;
+  live.timeOffset += 1200 * 0.6; // night
+  run(live, 60 * 8);
+  const view = new ViewRenderer(live, new LiveRenderer(live));
+  const h = live.home()!;
+  live.blobbi.x = h.x + 30;
+  live.blobbi.y = h.y + 20;
+  write('feel-dream-home-night.png', shot(live, view, 'closeup', { ...DEFAULT_VIEW_UI, lighting: true }));
+}
+
 if (!only || only === 'flippers') {
   // The turtle's flippers where they meet the shell, Variant S (new worlds) and Variant B, at close-up, two paddle phases.
   const label = process.env.LABEL ?? 'after';

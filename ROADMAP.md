@@ -441,6 +441,18 @@ Details: docs/milestones/M8.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATION
       larger wrapped menu bar, mode bar, rotate hint).
 - [ ] Manual validation (M8 sections of docs/testing/MANUAL-TEST-PLAN.md).
 
+### M9: Living world and progression (implemented, committed on `develop`)
+
+Details: docs/milestones/M9.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATION**.
+
+- [x] Rest: R goes home, in by the door, into the nearest bed; tucked in; climbs out on waking.
+- [x] Turtle flippers emerge from under the shell (Variants B and S, all stages).
+- [x] Home styles start small and are earned (padlocked previews, unlock notices, kept styles).
+- [x] Growth: four rebalanced stages; stage 4, the Sanctuary (≈80 %+ of the suitable surface,
+      anatomy kept clear), growth version 3 with stages 1–3 unchanged.
+- [x] World feel: glowing windows, smoking chimneys, growth progress notices.
+- [ ] Manual validation (M9 sections of docs/testing/MANUAL-TEST-PLAN.md).
+
 ### Later (not started)
 
 Network visiting (world cards and presence, docs/architecture/NOSTR-MULTIPLAYER.md

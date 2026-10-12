@@ -292,6 +292,32 @@ refuses them (GROW-09).
 | TOUCH-M8-05 | Phone, inside the house | BAG → potted plant → PLACE → USE; HOME → ROOMS → ARRANGE → USE, STYLE, TO BAG, DONE. | Placing and moving furniture fully by touch. | NOT TESTED | |
 | TOUCH-M8-06 | Phone | NEW ISLAND: TYPE A NAME, create; tap during the intro. | The phone keyboard opens; the name shows; a tap skips the intro into play. | NOT TESTED | |
 
+## Rest, styles, growth and the turtle (REST, STYLE, GROW4, TLAYER, FEEL) — M9
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| REST-01 | A finished house, the Blobbi outside | R. | It walks to the door, goes in (the usual transition), walks to the bed, hops in and sleeps under the blanket; energy rises faster than outside. | NOT TESTED | M9 |
+| REST-02 | Inside | R. | Into the bed, not below it; the prompt says R to wake up. | NOT TESTED | M9 |
+| REST-03 | Asleep in bed | R; then rest again and press an arrow. | It hops out to the front of the bed both times; never through a wall. | NOT TESTED | M9 |
+| REST-04 | No house; then a house with its bed removed | R. | A nap where it stands (outside / on the floor). | NOT TESTED | M9 |
+| REST-05 | Two beds (a bed and a Blobbi cushion) | R from different spots; move the target bed (M) while it walks. | It goes to the nearer one; when the bed moves it follows to the new place. | NOT TESTED | M9 |
+| REST-06 | Asleep in bed | Reload. | The Blobbi starts awake outside; its needs are kept. | NOT TESTED | M9 |
+| STYLE-01 | A brand-new island, first home built | HOME → LOOK and ROOMS. | One open option per part (two roofs once the first home quest is done); the rest show a padlock and what unlocks them; a locked preview is greyed with a padlock; APPLY only explains. | NOT TESTED | M9 |
+| STYLE-02 | Inside, move mode (M), nothing selected | T several times. | Only unlocked floors and walls cycle. | NOT TESTED | M9 |
+| STYLE-03 | Play on (craft, finish quests) | — | A "New home style" notice when a style is earned. | NOT TESTED | M9 |
+| STYLE-04 | An M8 save with a style that M9 locks | Change another part and APPLY. | It applies; the kept style stays. | NOT TESTED | M9 |
+| GROW4-01 | A new island | Open GROWTH (L) through a few sessions. | Stage 1 asks for the first chapters' progress (not just a shelter); each stage asks more; nothing decays during breaks. | NOT TESTED | pacing |
+| GROW4-02 | Requirements being met | Play. | An "Island growth: … done" notice for each requirement met. | NOT TESTED | M9 |
+| GROW4-03 | A stage-3 turtle (Variant S) | Grow to stage 4 (dev stage buttons on a test world, or play). | Land over most of the shell, a ring of plates and the soil band remain; head, flippers and their motion untouched; nothing placed moved. | NOT TESTED | M9 |
+| GROW4-04 | A stage-3 manta | Grow to stage 4. | Land over the central disc; the beating wings and the tail stay bare; no seams or straight edges. | NOT TESTED | M9 |
+| GROW4-05 | A stage-3 whale | Grow to stage 4. | Land further toward the head and aft; blowholes and spout clear; knuckles visible; rounded ends. | NOT TESTED | M9 |
+| GROW4-06 | Stage 4, any Carrier | Walk all over the new land; build and farm on it; Z through the camera modes. | Everything reachable, buildable, crisp at every scale. | NOT TESTED | M9 |
+| GROW4-07 | An M8 save at stage 1–3 | Open it. | Exactly the same land and objects as before. | NOT TESTED | M9 |
+| TLAYER-01 | A turtle (Variant B and Variant S) | Close-up on each flipper joint for a few paddle strokes. | The flipper base disappears under the shell's rim at every phase. | NOT TESTED | before/after in examples/m9-world |
+| TLAYER-02 | A turtle at stage 3 and 4 | Same. | Same. | NOT TESTED | M9 |
+| FEEL-01 | A Cottage or Dream Home | Watch it for a while, then at night. | The chimney smokes; at night the windows glow and the light around reaches further. | NOT TESTED | M9 |
+| FEEL-02 | Any | Play an evening. | No extra clutter: particles stay sparse. | NOT TESTED | M9 |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

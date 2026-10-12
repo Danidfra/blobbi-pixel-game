@@ -201,3 +201,14 @@ describe('resting in bed', () => {
     expect(h(tucked)).not.toBe(h(sitting));
   });
 });
+
+describe('the prompt in bed', () => {
+  it('says how to wake up', () => {
+    const { live, home } = withHome('turtle');
+    live.enterInterior(home);
+    run(live, 2);
+    live.rest();
+    until(live, () => live.restPlan?.phase === 'in-bed');
+    expect(live.prompt()).toBe('R  wake up');
+  });
+});

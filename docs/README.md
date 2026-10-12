@@ -5,8 +5,9 @@ disagree, the code wins and the document is the bug ([maintenance rules](#mainte
 
 **Project state (2026-10-11):** M1–M3 are committed on `master`. M4–M7, M8 phase 0 (the playable whale), the M8
 intro cinematic and M8 (the beginning and home progression: first-time flow, the intro in play, the first home,
-three house levels, customisation, tips, guide, touch, delete safety) are committed on `develop`. All are
-**IMPLEMENTED — AWAITING MANUAL VALIDATION**: the automated suite passes (see [M8](milestones/M8.md)), and no manual
+three house levels, customisation, tips, guide, touch, delete safety) and M9 (rest in bed, turtle flipper layering,
+earned home styles, four growth stages with the Sanctuary) are committed on `develop`. All are
+**IMPLEMENTED — AWAITING MANUAL VALIDATION**: the automated suite passes (see [M9](milestones/M9.md)), and no manual
 test has been run by a person yet.
 
 ## Status labels
@@ -51,7 +52,7 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 | [Quests](specifications/QUESTS.md) | IMPLEMENTED · NOT TESTED |
 | [Teleportation](specifications/TELEPORTATION.md) | IMPLEMENTED · NOT TESTED |
 | [Audio](specifications/AUDIO.md) | IMPLEMENTED · NOT TESTED |
-| [World growth](specifications/WORLD-GROWTH.md) | IMPLEMENTED · NOT TESTED |
+| [World growth](specifications/WORLD-GROWTH.md) | IMPLEMENTED (M7; M9 stage 4 and rebalance) · NOT TESTED |
 | [World visiting](specifications/WORLD-VISITING.md) | PROTOTYPE (local only) · NOT TESTED |
 | [Tutorial (tips)](specifications/TUTORIAL.md) | IMPLEMENTED (M8) · NOT TESTED |
 | [Intro cinematic](specifications/INTRO-CINEMATIC.md) | IMPLEMENTED (dev preview only; not in the start flow; reworked after the first review, with the turtle's small start) · NOT TESTED |
@@ -62,7 +63,7 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 - Automated: `npm run check` (typecheck, vitest, build).
 
 ## Milestones
-- [Milestones](milestones/README.md): M0–M8: summaries and approval status.
+- [Milestones](milestones/README.md): M0–M9: summaries and approval status.
 - [Archived reports and development logs](milestones/reports/), unchanged.
 - [Roadmap](../ROADMAP.md).
 

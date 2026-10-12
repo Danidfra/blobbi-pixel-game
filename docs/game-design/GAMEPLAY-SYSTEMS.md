@@ -72,6 +72,20 @@ waste). Friendship (`src/game/friendship.ts`) only grows: pet +1 (8 s cooldown),
 rest +2, a quest +3; levels at 0, 15, 45, 100, 180 and 300 points. Each Blobbi has two favourite foods and a
 favourite kind of thing from its own seed.
 
+**Rest (M9).** R (or BLOBBI → REST, or E at a bed) means bed:
+- *Outside:* the Blobbi walks to the nearest finished house, goes in through its door (the usual way in, no jump),
+  walks to the nearest bed it can reach (a bed or a Blobbi cushion) and climbs in with a short hop (0.45 s).
+- *Inside:* straight to the nearest reachable bed (before M9 it stopped on the floor below the bed).
+- *In bed:* tucked in — the bed is drawn behind it and the blanket in front, eyes closed, little z's; it recovers at
+  the sheltered rate (3/s). The prompt says R to wake up.
+- *Waking* (R again, rested, or any movement key): a hop back out to the front of the bed, then free to walk.
+- *Edge cases:* a bed moved or picked up on the way is chosen again; no house, no reachable house or no bed: a nap
+  where it stands; a key on the way home ends the plan; a reload starts awake outside (rest is not saved; needs
+  are). On its own, a tired Blobbi still naps in the doorway outside (no surprise trip indoors) and climbs into bed
+  when it is already inside.
+- Source: `LiveWorld.rest`, `stepRestPlan`, `goToBed`, `inBed`; drawing in `src/render/interior-render.ts`; tests
+  `tests/rest.test.ts`.
+
 ### The World Carrier
 
 Listen (E at the shore by its head), then — once the "Listen to the Carrier" quest is done — the Carrier panel:

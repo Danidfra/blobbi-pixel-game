@@ -2216,6 +2216,8 @@ export class LiveWorld {
    */
   prompt(): string | null {
     if (this.buildMode || this.placing || this.moving || this.manage) return null;
+    // In bed (M9): how to get up, not how to go to bed.
+    if (this.restPlan && (this.restPlan.phase === 'in-bed' || this.restPlan.phase === 'climb-in')) return 'R  wake up';
     if (this.nearestDiscovery()) return 'E  pick up something glinting';
     const node = this.nearestResource();
     if (node) return `E  pick up the ${RESOURCE_SINGULAR[node.kind] ?? node.kind}`;

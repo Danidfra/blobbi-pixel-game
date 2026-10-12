@@ -14,6 +14,7 @@ One summary per milestone; the full reports and development logs are archived, u
 | [M7](M7.md) | Living worlds: growth, manta, visiting | `develop` checkpoint `2273168` (unvalidated) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M8 phase 0](M8-PHASE-0.md) | The playable whale (unfinished M7 work) | `develop` `fcf8549` | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M8 cinematic](M8-CINEMATIC.md) | The species-aware intro cinematic and the turtle's small start (shell Variant S for new worlds) | `develop` `fcf8549` | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
+| [M9](M9.md) | Living world and progression: rest in bed, turtle flipper layering, earned home styles, four growth stages with the Sanctuary, small world-feel details | `develop` `6b1bc74` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M8](M8.md) | The beginning and home progression: first-time flow, the intro in play, no house at the start, the first-home chapter, three house levels, customisation, tips, guide, touch, delete safety | `develop` `e432f38` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 
 "Committed" means the work is in git history; it does not mean a person ran the [manual test plan](../testing/MANUAL-TEST-PLAN.md).
