@@ -284,6 +284,21 @@ export interface HouseUpgradeCheck {
   displaced: number;
 }
 
+/** The steps of a rest that ends in bed (M9). */
+export interface RestPlan {
+  phase: 'home' | 'bed' | 'climb-in' | 'in-bed' | 'climb-out';
+  houseId: string | null;
+  bedId: string | null;
+  /** Where the bed stood when the plan chose it (a moved bed is chosen again). */
+  bedAt?: { x: number; y: number };
+  from?: { x: number; y: number };
+  to?: { x: number; y: number };
+  t0?: number;
+}
+
+/** Seconds a climb into or out of bed takes (a little hop, never a jump cut). */
+export const CLIMB_SECONDS = 0.45;
+
 export interface LiveOptions {
   /** Where collected resources and the inventory persist; nothing persists without it. */
   store?: KeyValueStore | null;
@@ -1423,10 +1438,177 @@ export class LiveWorld {
       return;
     }
     this.sound('sleep');
-    // Indoors the bed is the place to sleep; outside, the shelter's doorway.
-    const door = this.inside ? this.bedSpot() : this.shelterDoor();
-    this.brain.restNow(time, { x: b.x, y: b.y }, door);
-    this.bubble = { text: (this.brain.state as string) === 'to-shelter' ? 'going home for a nap' : 'nap time', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    // M9: rest means bed. Indoors: to the nearest bed the Blobbi can reach. Outside: home first (through its door,
+    // the usual way in), then to bed. Without a home or a bed, a nap right here.
+    let text = 'nap time';
+    if (this.inside) text = this.goToBed(time) ? 'bed time' : 'no bed here: a little nap';
+    else {
+      const home = this.homeForRest();
+      if (home) {
+        this.restPlan = { phase: 'home', houseId: home.id, bedId: null };
+        this.brain.restNow(time, { x: b.x, y: b.y }, doorSpot(home, b.footRy));
+        if ((this.brain.state as string) === 'to-shelter') text = 'going home to bed';
+        else if ((this.brain.state as string) === 'rest' && !this.brain.restAtShelter) {
+          this.restPlan = null;
+          text = 'too far from home: a little nap';
+        }
+      } else this.brain.restNow(time, { x: b.x, y: b.y }, null);
+    }
+    this.bubble = { text, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+  }
+
+  // ─── Resting in bed (M9) ────────────────────────────────────────────────
+
+  /** A rest that ends in a bed: going home, walking to the bed, climbing in, tucked in, climbing out. Not saved. */
+  restPlan: RestPlan | null = null;
+
+  /** The finished house the Blobbi goes home to (the nearest), or null. */
+  private homeForRest(): Building | null {
+    const b = this.blobbi;
+    let best: { h: Building; d: number } | null = null;
+    for (const s of this.buildings) {
+      if (s.kind !== 'shelter' || this.buildingAt(s) < 1) continue;
+      const door = doorSpot(s, b.footRy);
+      const d = Math.hypot(door.x - b.x, door.y - b.y);
+      if (!best || d < best.d) best = { h: s, d };
+    }
+    return best?.h ?? null;
+  }
+
+  /** The beds of the room (beds and Blobbi cushions), nearest first. */
+  private roomBeds(): Building[] {
+    const b = this.blobbi;
+    const beds = this.interior?.state.furniture.filter((f) => f.kind === 'bed' || f.kind === 'pet-bed') ?? [];
+    return beds.sort((p, q) => Math.hypot(p.x - b.x, p.y - b.y) - Math.hypot(q.x - b.x, q.y - b.y) || (p.id < q.id ? -1 : 1));
+  }
+
+  /** Where the Blobbi stands to climb into a bed (in front of it). */
+  bedApproach(bed: Building): { x: number; y: number } {
+    return { x: bed.x, y: bed.y + BUILDINGS[bed.kind].footRy + this.blobbi.footRy + 2 };
+  }
+
+  /** Where the Blobbi lies in a bed: on the sheet, its lower half under the blanket (a cushion: sitting in it). */
+  bedSleepSpot(bed: Building): { x: number; y: number } {
+    return bed.kind === 'pet-bed' ? { x: bed.x, y: bed.y + 1 } : { x: bed.x, y: bed.y + 2 };
+  }
+
+  /** Indoors: walk to the nearest reachable bed and rest there. False (a nap on the spot) without one. */
+  private goToBed(time: number): boolean {
+    const b = this.blobbi;
+    const pos = { x: b.x, y: b.y };
+    for (const bed of this.roomBeds()) {
+      const at = this.bedApproach(bed);
+      if (!this.brain.reachable(pos, at)) continue;
+      this.restPlan = { phase: 'bed', houseId: this.interior!.state.shelterId, bedId: bed.id, bedAt: { x: bed.x, y: bed.y } };
+      this.brain.restNow(time, pos, at);
+      return true;
+    }
+    this.restPlan = null;
+    this.brain.restNow(time, pos, null);
+    return false;
+  }
+
+  /** The bed the Blobbi is in (or climbing into or out of), for drawing; null otherwise. */
+  inBed(): { bed: Building; tucked: boolean } | null {
+    const p = this.restPlan;
+    if (!p || !this.interior || (p.phase !== 'climb-in' && p.phase !== 'in-bed' && p.phase !== 'climb-out')) return null;
+    const bed = this.interior.state.furniture.find((f) => f.id === p.bedId);
+    return bed ? { bed, tucked: p.phase === 'in-bed' } : null;
+  }
+
+  /** Each step, after movement: carry the rest plan along (enter the house, climb in, stay tucked, climb out). */
+  private stepRestPlan(time: number): void {
+    const b = this.blobbi;
+    const st = this.brain.state;
+    let p = this.restPlan;
+    // A rest that reached a bed on its own (autonomy, tired indoors): climb in too.
+    if (!p) {
+      if (!this.inside || st !== 'rest' || !this.brain.restAtShelter) return;
+      const bed = this.roomBeds().find((f) => Math.hypot(this.bedApproach(f).x - b.x, this.bedApproach(f).y - b.y) < 6);
+      if (!bed) return;
+      p = this.restPlan = { phase: 'bed', houseId: this.interior!.state.shelterId, bedId: bed.id, bedAt: { x: bed.x, y: bed.y } };
+    }
+    const lerp = (k: number) => {
+      const e = k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k);
+      b.x = p!.from!.x + (p!.to!.x - p!.from!.x) * e;
+      b.y = p!.from!.y + (p!.to!.y - p!.from!.y) * e;
+    };
+    const bed = p.bedId ? this.interior?.state.furniture.find((f) => f.id === p!.bedId) ?? null : null;
+    switch (p.phase) {
+      case 'home': {
+        if (st === 'to-shelter') return;
+        const house = this.buildings.find((h) => h.id === p.houseId);
+        // Interrupted (a key, a tap), or no way home (a nap where it stands): the plan ends.
+        if (st !== 'rest' || !this.brain.restAtShelter || this.inside || !house || this.buildingAt(house) < 1) {
+          this.restPlan = null;
+          return;
+        }
+        // At the door: in through the usual way, then to bed.
+        if (!this.enterInterior(house)) {
+          this.restPlan = null;
+          return;
+        }
+        if (!this.goToBed(time)) this.bubble = { text: 'no bed here: a little nap', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+        return;
+      }
+      case 'bed': {
+        // The bed was moved, picked up or replaced while the Blobbi walked: choose again.
+        if (!bed || bed.x !== p.bedAt!.x || bed.y !== p.bedAt!.y) {
+          if (st === 'to-shelter' || st === 'rest') this.goToBed(time);
+          else this.restPlan = null;
+          return;
+        }
+        if (st === 'to-shelter') return;
+        if (st !== 'rest' || !this.brain.restAtShelter) {
+          this.restPlan = null;
+          return;
+        }
+        p.phase = 'climb-in';
+        p.from = { x: b.x, y: b.y };
+        p.to = this.bedSleepSpot(bed);
+        p.t0 = time;
+        b.animator.state.direction = 'down';
+        this.sound('place');
+        return;
+      }
+      case 'climb-in': {
+        if (!bed) return void (this.restPlan = null);
+        if (st !== 'rest') return this.climbOut(time, bed);
+        const k = (time - p.t0!) / CLIMB_SECONDS;
+        lerp(k);
+        if (k >= 1) {
+          p.phase = 'in-bed';
+          b.animator.state.direction = 'down';
+          b.animator.state.sleeping = true;
+          // Snug: a little heart as it settles (no reaction: that would open its eyes).
+          this.particles.heart(b.x, b.y - b.size + 2);
+        }
+        return;
+      }
+      case 'in-bed': {
+        if (!bed) return void (this.restPlan = null);
+        if (st !== 'rest') return this.climbOut(time, bed);
+        b.x = p.to!.x;
+        b.y = p.to!.y;
+        return;
+      }
+      case 'climb-out': {
+        const k = (time - p.t0!) / CLIMB_SECONDS;
+        lerp(k);
+        if (k >= 1) this.restPlan = null;
+        return;
+      }
+    }
+  }
+
+  /** Out of bed: a short hop back to where the Blobbi climbed in (never through a wall). */
+  private climbOut(time: number, bed: Building): void {
+    const p = this.restPlan!;
+    p.phase = 'climb-out';
+    p.from = { x: this.blobbi.x, y: this.blobbi.y };
+    const at = this.bedApproach(bed);
+    p.to = this.collision.nearestFree(at.x, at.y, this.blobbi.footRx, this.blobbi.footRy) ?? at;
+    p.t0 = time;
   }
 
   /** Where the Blobbi sleeps at the nearest finished shelter: in its doorway, or null without one. */
@@ -2114,6 +2296,7 @@ export class LiveWorld {
     const scene = this.interior;
     if (!scene) return;
     if (this.moving) this.cancelMove();
+    this.restPlan = null;
     this.interior = null;
     this.placing = null;
     this.manage = false;
@@ -2156,9 +2339,8 @@ export class LiveWorld {
 
   /** Where the Blobbi lies down to sleep indoors: in front of a bed, or null without one. */
   private bedSpot(): { x: number; y: number } | null {
-    const bed = this.interior?.state.furniture.find((f) => f.kind === 'bed');
-    if (!bed) return null;
-    return { x: bed.x, y: bed.y + BUILDINGS.bed.footRy + this.blobbi.footRy + 2 };
+    const bed = this.roomBeds()[0];
+    return bed ? this.bedApproach(bed) : null;
   }
 
   /** What is placed in the current scene: the island's buildings, or the room's furniture. */
@@ -3478,6 +3660,7 @@ export class LiveWorld {
     }
     b.animator.step(dt, time, { moving, direction });
     b.animator.state.sleeping = !away && this.brain.state === 'rest';
+    this.stepRestPlan(time);
     this.stepTeleport(time);
     // The brain's interactions never touch resources, crops or the bag; looking around makes it happy.
     if (brainInteract) {

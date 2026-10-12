@@ -145,7 +145,7 @@ describe('energy, rest and the shelter', () => {
     expect(live.care.happiness).toBeGreaterThan(50);
   });
 
-  it('with a shelter it walks to the doorway and sleeps there, recovering twice as fast; WASD wakes it at once', () => {
+  it('with a shelter, R walks it home, in by the door and into bed (M9), recovering twice as fast; WASD wakes it at once', () => {
     const live = quiet();
     live.inventory.add(ITEMS.wood.id, 6);
     live.inventory.add(ITEMS.stone.id, 3);
@@ -165,11 +165,12 @@ describe('energy, rest and the shelter', () => {
     live.care.energy = 20;
     live.rest(); // R
     expect(live.brain.state).toBe('to-shelter');
-    for (let i = 0; i < 60 * 20 && live.brain.state !== 'rest'; i++) live.update(1 / 60, IDLE_INPUT);
+    for (let i = 0; i < 60 * 30 && live.restPlan?.phase !== 'in-bed'; i++) live.update(1 / 60, IDLE_INPUT);
     expect(live.brain.state).toBe('rest');
     expect(live.brain.restAtShelter).toBe(true);
-    const door = live.shelterDoor()!;
-    expect(Math.hypot(live.blobbi.x - door.x, live.blobbi.y - door.y)).toBeLessThan(6);
+    expect(live.inside).toBe(true);
+    const bed = live.inBed()!.bed;
+    expect(Math.hypot(live.blobbi.x - bed.x, live.blobbi.y - bed.y)).toBeLessThan(4);
     const e0 = live.care.energy;
     run(live, 60);
     expect(live.care.energy - e0).toBeCloseTo(RATES.energyInShelter, 1);

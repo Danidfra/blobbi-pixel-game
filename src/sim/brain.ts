@@ -409,6 +409,16 @@ export class Brain {
     this.beginRest(time, 'recover', false, 'sleeping');
   }
 
+  /** Is there a walkable path from `pos` to near `target` (the rest plan's bed choice)? */
+  reachable(pos: { x: number; y: number }, target: { x: number; y: number }): boolean {
+    const cell = this.grid.nearestFree(target.x, target.y, 3);
+    if (!cell) return false;
+    const to = this.grid.centre(cell.c, cell.r);
+    if (Math.hypot(to.x - pos.x, to.y - pos.y) < 3) return true;
+    const path = findPath(this.grid, pos, to);
+    return !!path && path.length > 1;
+  }
+
   /** The player tapped a place: walk there (the player's command, so it works with autonomy off). */
   goTo(time: number, pos: { x: number; y: number }, target: { x: number; y: number }): boolean {
     const cell = this.grid.nearestFree(target.x, target.y, 3);

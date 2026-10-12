@@ -69,11 +69,19 @@ export class InteriorRenderer {
     scene.particles.draw(frame, ox, oy, false);
     // Standing furniture and the Blobbi in painter's order.
     const drawables: Drawable[] = [];
-    for (const f of furniture) if (!isWallKind(f.kind) && BUILDINGS[f.kind].layer !== 'floor') drawables.push({ x: f.x, y: f.y, sprite: sprite(f), dy: 0 });
     const b = live.blobbi;
     const pose = b.animator.pose(time);
     const bx = Math.round(b.x);
     const by = Math.round(b.y);
+    // In bed (M9): the bed is drawn behind the Blobbi and, once it is tucked in, the blanket in front of it.
+    const inBed = live.inBed();
+    for (const f of furniture) {
+      if (isWallKind(f.kind) || BUILDINGS[f.kind].layer === 'floor') continue;
+      if (inBed && f === inBed.bed) {
+        drawables.push({ x: f.x, y: by - 0.5, sprite: sprite(f), dy: f.y - by + 0.5 });
+        if (inBed.tucked && f.kind === 'bed') drawables.push({ x: f.x, y: by + 0.25, sprite: blanketOf(sprite(f)), dy: f.y - by - 0.25 });
+      } else drawables.push({ x: f.x, y: f.y, sprite: sprite(f), dy: 0 });
+    }
     const hop = b.animator.hop(time);
     if (!split) {
       drawables.push({ x: bx, y: by, sprite: live.blobbiSprite(pose), dy: hop });
@@ -110,4 +118,20 @@ export class InteriorRenderer {
     void o;
     return frame;
   }
+}
+
+const blankets = new WeakMap<Sprite, Sprite>();
+/**
+ * The front of a bed (blanket and foot): its rows from the blanket's top edge down, so the sleeping Blobbi looks
+ * tucked in. The bed art (`furniture-art.ts`) puts the blanket's top at row 8 of the outlined sprite.
+ */
+export function blanketOf(bed: Sprite): Sprite {
+  const hit = blankets.get(bed);
+  if (hit) return hit;
+  const top = 8;
+  const buffer = new PixelBuffer(bed.buffer.width, bed.buffer.height);
+  for (let y = top; y < bed.buffer.height; y++) for (let x = 0; x < bed.buffer.width; x++) buffer.set(x, y, bed.buffer.get(x, y));
+  const out = { ...bed, buffer };
+  blankets.set(bed, out);
+  return out;
 }
