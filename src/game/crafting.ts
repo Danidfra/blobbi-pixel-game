@@ -92,6 +92,9 @@ for (const u of UPGRADES)
 /** The fishing rod. */
 RECIPES.push({ id: 'blobbi-pixel:recipe:fishing-rod', label: 'Fishing rod', ingredients: [{ item: 'blobbi-pixel:resource:stick', quantity: 3 }, { item: 'blobbi-pixel:resource:fibre', quantity: 2 }], output: { item: 'blobbi-pixel:tool:fishing-rod', quantity: 1 }, group: 'tools', station: 'hand', unlock: 'carrier' });
 
+/** The canoe (M10 phase B): a workbench piece, known once "Gone fishing" is done (the island has a fisher). */
+RECIPES.push({ id: 'blobbi-pixel:recipe:canoe', label: 'Canoe', ingredients: [{ item: 'blobbi-pixel:material:wood', quantity: 8 }, { item: 'blobbi-pixel:resource:stick', quantity: 4 }, { item: 'blobbi-pixel:material:cloth', quantity: 2 }], output: { item: 'blobbi-pixel:vehicle:canoe', quantity: 1 }, group: 'tools', station: 'workbench', unlock: 'side-angler' });
+
 export const recipeById = (id: string): Recipe | undefined => RECIPES.find((r) => r.id === id);
 
 export interface CraftCheck {

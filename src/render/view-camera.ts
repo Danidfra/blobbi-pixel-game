@@ -91,6 +91,9 @@ export interface CameraTarget {
 export interface WorldBounds {
   width: number;
   height: number;
+  /** Where the bounds start (M10 phase B: the canoe's sea reaches past the world's edge); 0 when absent. */
+  x0?: number;
+  y0?: number;
   /** What the overview frames (the turtle with its foam); the whole world when absent. */
   subject?: { x0: number; y0: number; x1: number; y1: number };
 }
@@ -230,9 +233,11 @@ export class ViewCamera {
     const s = this.scale;
     const vw = screenW / s;
     const vh = screenH / s;
-    const clamp = (focus: number, span: number, size: number) => (size <= span ? (size - span) / 2 : Math.max(0, Math.min(size - span, focus - span / 2)));
-    let originX = clamp(this.focusX, vw, world.width);
-    let originY = clamp(this.focusY, vh, world.height);
+    const bx = world.x0 ?? 0;
+    const by = world.y0 ?? 0;
+    const clamp = (focus: number, span: number, size: number, start: number) => start + (size <= span ? (size - span) / 2 : Math.max(0, Math.min(size - span, focus - start - span / 2)));
+    let originX = clamp(this.focusX, vw, world.width, bx);
+    let originY = clamp(this.focusY, vh, world.height, by);
     const transitioning = this.from !== null;
     // At rest the origin sits on the world-pixel grid: whole blocks, no shimmer.
     if (!transitioning) {
@@ -256,8 +261,8 @@ export class ViewCamera {
           ox = hold(ox, h.ox, fx, h.fx);
           oy = hold(oy, h.oy, fy, h.fy);
         }
-        if (world.width > vw) ox = Math.max(0, Math.min(Math.floor(world.width - vw), ox));
-        if (world.height > vh) oy = Math.max(0, Math.min(Math.floor(world.height - vh), oy));
+        if (world.width > vw) ox = Math.max(bx, Math.min(bx + Math.floor(world.width - vw), ox));
+        if (world.height > vh) oy = Math.max(by, Math.min(by + Math.floor(world.height - vh), oy));
         this.held = { ox, oy, fx, fy };
         originX = ox;
         originY = oy;

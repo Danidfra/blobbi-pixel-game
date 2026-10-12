@@ -25,7 +25,19 @@ export const COPPER_ORE: ItemDefinition = {
   icon: { rows: ['..sss..', '.sSoss.', 'soOosss', 'ssoOsos', '.ssssO.', '..sss..'], colours: { s: '#8a8f9f', S: '#c4c9d8', o: '#d8843a', O: '#ffb070' } },
 };
 
+/** The canoe (M10 phase B): made at a workbench once the island has a fisher; launched from the shore (E). */
+export const CANOE_ITEM: ItemDefinition = {
+  id: 'blobbi-pixel:vehicle:canoe',
+  label: 'canoe',
+  plural: 'canoes',
+  category: 'special',
+  stack: 1,
+  description: 'A small wooden canoe with a paddle. Stand at the shore facing the water and press E to launch it; E beside it to get in.',
+  icon: { rows: ['..........', '.o......o.', 'oLLLLLLLLo', '.oddLdddo.', '..oooooo..'], colours: { o: '#5a3a1e', L: '#c88a4a', d: '#7a4a24' } },
+};
+
 export const TOOL_ITEMS: readonly ItemDefinition[] = [
+  CANOE_ITEM,
   tool('blobbi-pixel:tool:copper-axe', 'copper axe', 'axe', ['chop'], 'A keen copper edge: fells a grown tree in two hits.', 2),
   tool('blobbi-pixel:tool:copper-pickaxe', 'copper pickaxe', 'pickaxe', ['mine'], 'Breaks a large rock in three hits.', 2),
   tool('blobbi-pixel:tool:copper-hoe', 'copper hoe', 'hoe', ['till'], 'Tills a row of three plots in one go.', 2),
@@ -47,6 +59,15 @@ export interface FishContent {
   /** Weight among the catches of its water. */
   weight: number;
   water: 'sea' | 'pond' | 'both';
+  /**
+   * M10 phase B: where in the sea — the coast (shallow water by the island) or open water (the deep, and the sea
+   * beyond, reached from the canoe or a long cast); absent: anywhere.
+   */
+  region?: 'coast' | 'open';
+  /** M10 phase B: only by day or only at night; absent: any time. */
+  time?: 'day' | 'night';
+  /** Where and when, for the fish log's hint. */
+  hint?: string;
 }
 
 const fish = (id: string, label: string, plural: string, description: string, restores: number, joy: number, c: string, C: string): ItemDefinition => ({
@@ -65,12 +86,30 @@ export const FISH_CONTENT: readonly FishContent[] = [
   { item: fish('sea-bream', 'sea bream', 'sea bream', 'A plump pink fish from the sea around the shell.', 12, 1, '#e0909a', '#ffc0c8'), weight: 3, water: 'sea' },
   { item: fish('pond-perch', 'pond perch', 'pond perch', 'A striped green fish from the island pond.', 12, 1, '#7aa860', '#b8d890'), weight: 3, water: 'pond' },
   { item: fish('rainbow-fish', 'rainbow fish', 'rainbow fish', 'Rare and shimmering. Blobbis think it is magic.', 15, 8, '#9a7ad8', '#7ad8c8'), weight: 1, water: 'both' },
+  // M10 phase B: coastal and open-water fish, by day and by night.
+  { item: fish('flounder', 'flounder', 'flounder', 'A flat sandy fish that hides in the shallows by day.', 12, 1, '#c8b088', '#e8d8b8'), weight: 3, water: 'sea', region: 'coast', time: 'day', hint: 'the shallows by the island, by day' },
+  { item: fish('mackerel', 'mackerel', 'mackerel', 'A striped, quick fish of the open water. Lovely on a skewer.', 14, 2, '#4a7a9a', '#8ac0d8'), weight: 4, water: 'sea', region: 'open', hint: 'open water, from the canoe' },
+  { item: fish('moonfish', 'moonfish', 'moonfish', 'A round silver fish that rises toward the moon. Rare, and gentle.', 16, 10, '#c8d0e8', '#f4f8ff'), weight: 1, water: 'sea', region: 'open', time: 'night', hint: 'open water, at night' },
 ];
+
+/** Seaweed (M10 phase B): gathered at the kelp garden out at sea; a little food, and a broth. */
+export const SEAWEED_ITEM: ItemDefinition = {
+  id: 'blobbi-pixel:food:seaweed',
+  label: 'seaweed',
+  plural: 'seaweed',
+  category: 'food',
+  stack: 30,
+  description: 'Ribbons of kelp from the garden out at sea. Salty, and good in a broth.',
+  food: { restores: 5 },
+  icon: { rows: ['.g..g.', '.gG.gG', 'gG.gG.', '.gGg..', '..gG..', '.gg...'], colours: { g: '#3a7a4a', G: '#7ac08a' } },
+};
 
 /** Meals from fish (cooking station). */
 export const FISH_MEALS: readonly { id: string; label: string; plural: string; description: string; food: { restores: number; energy?: number; joy?: number }; ingredients: readonly { item: string; quantity: number }[]; colours: { c: string; C: string } }[] = [
   { id: 'blobbi-pixel:meal:grilled-minnows', label: 'grilled minnows', plural: 'plates of grilled minnows', description: 'Crispy little fish with a squeeze of herbs.', food: { restores: 35, energy: 5 }, ingredients: [{ item: 'blobbi-pixel:food:minnow', quantity: 2 }], colours: { c: '#c8b090', C: '#f0e0c0' } },
   { id: 'blobbi-pixel:meal:fish-soup', label: 'fish soup', plural: 'bowls of fish soup', description: 'A warm, clear soup that gives a lot of energy.', food: { restores: 55, energy: 15, joy: 3 }, ingredients: [{ item: 'blobbi-pixel:food:sea-bream', quantity: 1 }, { item: 'blobbi-pixel:food:potato', quantity: 1 }, { item: 'blobbi-pixel:resource:herb', quantity: 1 }], colours: { c: '#e0d0b0', C: '#e0909a' } },
   { id: 'blobbi-pixel:meal:perch-roast', label: 'perch roast', plural: 'perch roasts', description: 'Pond perch roasted with tomatoes.', food: { restores: 55, joy: 6 }, ingredients: [{ item: 'blobbi-pixel:food:pond-perch', quantity: 1 }, { item: 'blobbi-pixel:food:tomato', quantity: 1 }], colours: { c: '#a8b070', C: '#e8402c' } },
+  { id: 'blobbi-pixel:meal:mackerel-skewers', label: 'mackerel skewers', plural: 'mackerel skewers', description: 'Grilled open-water mackerel with herbs, on sticks.', food: { restores: 50, energy: 10, joy: 4 }, ingredients: [{ item: 'blobbi-pixel:food:mackerel', quantity: 2 }, { item: 'blobbi-pixel:resource:herb', quantity: 1 }], colours: { c: '#4a7a9a', C: '#d8b070' } },
+  { id: 'blobbi-pixel:meal:kelp-soup', label: 'kelp soup', plural: 'bowls of kelp soup', description: 'A green, salty broth from the kelp garden, with a flounder in it.', food: { restores: 45, energy: 12, joy: 3 }, ingredients: [{ item: 'blobbi-pixel:food:seaweed', quantity: 2 }, { item: 'blobbi-pixel:food:flounder', quantity: 1 }], colours: { c: '#7ac08a', C: '#c8b088' } },
   { id: 'blobbi-pixel:meal:rainbow-platter', label: 'rainbow platter', plural: 'rainbow platters', description: 'A festive plate around a rainbow fish. Pure delight.', food: { restores: 60, energy: 10, joy: 25 }, ingredients: [{ item: 'blobbi-pixel:food:rainbow-fish', quantity: 1 }, { item: 'blobbi-pixel:food:strawberry', quantity: 2 }], colours: { c: '#9a7ad8', C: '#7ad8c8' } },
 ];

@@ -36,7 +36,9 @@ import { canCraft, craft, type Recipe } from '../game/crafting';
 import { HITS_TO_FELL, STUMP_SECONDS, TREE_RETURN_SECONDS, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
 import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
 import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, type RockCondition, type RockState } from '../game/rocks';
-import type { BoatState } from '../game/canoe';
+import { CANOE, SeaNav, seaRegion, stepBoat, type BoatState, type Heading } from '../game/canoe';
+import { movingPartsMask } from '../cinematic/sea';
+import { worldBounds } from '../render/view-camera';
 import { clearableKind, CLEAR_YIELD, RETURN_SECONDS, RETRY_SECONDS, MIN_STANDING_TREES, type ClearState } from '../game/clearing';
 import { RESPAWN_SECONDS } from '../game/resources';
 import type { RockSaveState } from '../game/persistence';
@@ -54,6 +56,8 @@ import { nextDawn, clockLabel, lightAt, rainAt, type LightSource } from '../game
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
+import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
+import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
 import { GENERATOR_VERSION } from '../game/archipelago';
 import { placeDiscoveries, type DiscoverySpot } from '../game/discoveries';
 import { FRIEND, FRIEND_TITLES, friendLevel, tastesFor, type Tastes } from '../game/friendship';
@@ -620,6 +624,8 @@ export class LiveWorld {
     }
     // The listening spot on the island as loaded (grown land, buildings): the head place moves there now.
     void this.listenSpot;
+    // The canoe (M10 phase B): afloat where it was, or moved to the nearest water if that spot is water no more.
+    this.settleBoat();
   }
 
   // ─── Scenes: the island, or a house interior ───────────────────────────
@@ -651,8 +657,14 @@ export class LiveWorld {
     return this.interior !== null;
   }
   /** What the camera frames: the room when inside. */
-  sceneBounds(): { width: number; height: number } | null {
-    return this.interior ? { width: this.roomLayout.w, height: this.roomLayout.h } : null;
+  sceneBounds(): { width: number; height: number; x0?: number; y0?: number } | null {
+    if (this.interior) return { width: this.roomLayout.w, height: this.roomLayout.h };
+    // Afloat (M10 phase B): the canoe's sea round the Carrier, which may reach past the world's edge.
+    if (this.boat?.aboard) {
+      const r = this.seaNav().region;
+      return { x0: r.x0, y0: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0 };
+    }
+    return null;
   }
 
   /** Discovery spots and the place to listen to the Carrier: from the world alone, the same every time. */
@@ -1738,6 +1750,10 @@ export class LiveWorld {
 
   /** Rest (R): go to sleep, in the shelter when there is one, until rested; R again wakes. */
   rest(): void {
+    if (this.boat?.aboard) {
+      this.bubble = { text: 'not in the canoe. land first', until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
+      return;
+    }
     const time = this.clock.time;
     const b = this.blobbi;
     if (this.brain.state === 'rest' || this.brain.state === 'to-shelter') {
@@ -2136,6 +2152,295 @@ export class LiveWorld {
     return ALL_DISCOVERIES.find((d) => d.item.id === item)?.lore ?? null;
   }
 
+  // ─── The canoe (M10 phase B) ──────────────────────────────────────────────
+
+  private seaNavCache: SeaNav | null = null;
+  /** Where the canoe may float: the sea round the Carrier (water only, never its body or moving parts). */
+  seaNav(): SeaNav {
+    if (!this.seaNavCache) {
+      const sub = worldBounds(this.world).subject ?? { x0: 0, y0: 0, x1: this.world.terrain.width, y1: this.world.terrain.height };
+      this.seaNavCache = new SeaNav(this.world, seaRegion(sub), movingPartsMask(this.world));
+    }
+    return this.seaNavCache;
+  }
+
+  /** Stepping in or out of the canoe: a short hop from `from` to `to`. */
+  boarding: { from: { x: number; y: number }; to: { x: number; y: number }; start: number; into: boolean } | null = null;
+  /** Seconds a hop in or out of the canoe takes. */
+  static readonly HOP_SECONDS = 0.4;
+  /** How far below the hull's centre line the seated Blobbi's ground point is (its lower body behind the side). */
+  static readonly SEAT = 4;
+  private edgeWarned = false;
+
+  private readonly headingOf = (d: Direction): Heading => (d === 'left' || d === 'right' || d === 'up' || d === 'down' ? d : 'down');
+
+  /** With a canoe in the bag, facing open water a step or two from the shore: where it would float. */
+  launchSpot(): { x: number; y: number; heading: Heading } | null {
+    if (this.inside || this.boat || this.visitor || !this.inventory.count(CANOE_ITEM.id)) return null;
+    const b = this.blobbi;
+    const heading = this.headingOf(b.animator.state.direction);
+    const fx = heading === 'left' ? -1 : heading === 'right' ? 1 : 0;
+    const fy = heading === 'up' ? -1 : heading === 'down' ? 1 : 0;
+    const nav = this.seaNav();
+    for (let reach = 8; reach <= 28; reach += 2) {
+      const x = Math.round(b.x + fx * reach);
+      const y = Math.round(b.y + fy * reach);
+      if (nav.canFloat(x, y, heading)) return { x, y, heading };
+    }
+    return null;
+  }
+
+  /** E with the canoe in the bag at the water: it goes in, moored by the shore. */
+  launchCanoe(): boolean {
+    const spot = this.launchSpot();
+    if (!spot) return false;
+    this.inventory.remove(CANOE_ITEM.id, 1);
+    this.boat = { x: spot.x, y: spot.y, heading: spot.heading, vx: 0, vy: 0, aboard: false };
+    const time = this.clock.time;
+    for (let i = 0; i < 6; i++) this.islandParticles.ripple(spot.x + this.particles.rng.range(-6, 6), spot.y + this.particles.rng.range(-2, 2), hex('#eaf8ff'));
+    this.bubble = { text: 'the canoe is in the water!', until: time + 2, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
+    this.blobbi.animator.react('excited', time, 1, 3);
+    this.sound('cast');
+    this.events.add('canoe-launched');
+    this.save();
+    return true;
+  }
+
+  /** Close enough to the moored canoe to step in. */
+  nearBoat(): boolean {
+    const boat = this.boat;
+    if (!boat || boat.aboard || this.inside || this.boarding) return false;
+    // (A canoe launched at the far end of the launch reach, or just landed from, is still within this.)
+    return this.hullDistance(this.blobbi.x, this.blobbi.y) <= 18;
+  }
+
+  /** The distance from (x, y) to the canoe's hull (its nearest point), not to its middle. */
+  private hullDistance(x: number, y: number): number {
+    const boat = this.boat!;
+    const along = boat.heading === 'left' || boat.heading === 'right';
+    const hx = along ? CANOE.halfLength : CANOE.halfBeam;
+    const hy = along ? CANOE.halfBeam : CANOE.halfLength;
+    return Math.hypot(Math.max(0, Math.abs(x - boat.x) - hx), Math.max(0, Math.abs(y - boat.y) - hy));
+  }
+
+  /** E beside the canoe: a hop in. */
+  boardCanoe(): boolean {
+    if (!this.nearBoat() || this.denied('build')) return false;
+    const boat = this.boat!;
+    this.boarding = { from: { x: this.blobbi.x, y: this.blobbi.y }, to: { x: boat.x, y: boat.y + LiveWorld.SEAT }, start: this.clock.time, into: true };
+    this.fishing = null;
+    this.restPlan = null;
+    this.blobbi.animator.react('excited', this.clock.time, 0.8, 2);
+    this.sound('step-wood');
+    return true;
+  }
+
+  private landingCache: { key: string; spot: { x: number; y: number } | null } | null = null;
+  /**
+   * Aboard, near the island: the ground to step out onto — standable, and connected on foot to the hub (never an
+   * islet the Blobbi could not walk back from), the nearest within reach of the canoe, in front first.
+   */
+  landingSpot(): { x: number; y: number } | null {
+    const boat = this.boat;
+    if (!boat?.aboard || this.boarding) return null;
+    const key = `${Math.round(boat.x)},${Math.round(boat.y)},${boat.heading}|${this.structureVersion}|${this.absentVersion}`;
+    if (this.landingCache?.key === key) return this.landingCache.spot;
+    const hub = this.world.hubs[0] ?? { x: this.world.islands[0].cx, y: this.world.islands[0].cy };
+    this.landReach ??= { key: '', fn: () => false };
+    const rk = `${this.structureVersion}|${this.absentVersion}`;
+    if (this.landReach.key !== rk) this.landReach = { key: rk, fn: this.reachability(this.islandNav, hub) };
+    const reach = this.landReach.fn;
+    const { footRx, footRy } = this.blobbi;
+    const fx = boat.heading === 'left' ? -1 : boat.heading === 'right' ? 1 : 0;
+    const fy = boat.heading === 'up' ? -1 : boat.heading === 'down' ? 1 : 0;
+    let best: { x: number; y: number; d: number } | null = null;
+    for (let r = 4; r <= CANOE.halfLength + 16; r += 2)
+      for (let k = 0; k < 24; k++) {
+        const a = (k / 24) * Math.PI * 2;
+        const x = Math.round(boat.x + Math.cos(a) * r);
+        const y = Math.round(boat.y + Math.sin(a) * r);
+        if (!this.islandCollision.canStand(x, y, footRx, footRy) || !reach(x, y)) continue;
+        // Within a step of the hull, so the canoe can be boarded again from where the Blobbi lands.
+        if (this.hullDistance(x, y) > 16) continue;
+        // Nearer first, and ahead of the bow a little better than behind.
+        const d = r - (Math.cos(a) * fx + Math.sin(a) * fy) * 3;
+        if (!best || d < best.d) best = { x, y, d };
+      }
+    const spot = best ? { x: best.x, y: best.y } : null;
+    this.landingCache = { key, spot };
+    return spot;
+  }
+  private landReach: { key: string; fn: (x: number, y: number) => boolean } | null = null;
+
+  /** E aboard by the shore: a hop out onto the landing spot; the canoe stays moored there. */
+  goAshore(): boolean {
+    // Still drifting a little since the prompt was shown: the spot it offered stands if it is within a step.
+    const shown = this.landingCache?.spot ?? null;
+    const spot = this.landingSpot() ?? (shown && this.hullDistance(shown.x, shown.y) <= 20 ? shown : null);
+    if (!spot) return false;
+    const boat = this.boat!;
+    boat.vx = boat.vy = 0;
+    boat.x = Math.round(boat.x);
+    boat.y = Math.round(boat.y);
+    this.boarding = { from: { x: this.blobbi.x, y: this.blobbi.y }, to: spot, start: this.clock.time, into: false };
+    this.fishing = null;
+    this.sound('step-grass');
+    return true;
+  }
+
+  /** The hop in or out, and paddling while aboard. Returns true when the Blobbi's movement was handled here. */
+  private stepCanoe(input: LiveInput, dt: number, time: number): boolean {
+    const b = this.blobbi;
+    const boat = this.boat;
+    if (this.boarding) {
+      const h = this.boarding;
+      const k = Math.min(1, (time - h.start) / LiveWorld.HOP_SECONDS);
+      b.x = h.from.x + (h.to.x - h.from.x) * k;
+      b.y = h.from.y + (h.to.y - h.from.y) * k;
+      this.brain.manual(time);
+      b.animator.step(dt, time, { moving: false, direction: b.animator.state.direction });
+      if (k >= 1) {
+        if (boat) boat.aboard = h.into;
+        this.boarding = null;
+        if (h.into) {
+          b.animator.state.direction = boat!.heading;
+          this.events.add('canoe-boarded');
+          if (!this.bubble) this.bubble = { text: 'arrows to paddle. E by the shore to land', until: time + 2.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+        }
+        this.save();
+      }
+      this.movedLastStep = false;
+      return true;
+    }
+    if (!boat?.aboard) return false;
+    this.brain.manual(time);
+    const paddle = this.fishing ? { up: false, down: false, left: false, right: false } : input;
+    const before = { x: boat.x, y: boat.y };
+    const r = stepBoat(boat, paddle, dt, this.seaNav());
+    b.x = boat.x;
+    b.y = boat.y + LiveWorld.SEAT;
+    const held = paddle.up || paddle.down || paddle.left || paddle.right;
+    this.movedLastStep = held && Math.hypot(boat.x - before.x, boat.y - before.y) > 0.01;
+    b.animator.step(dt, time, { moving: false, direction: boat.heading });
+    // The rough water at the edge of the sea round the Carrier: the current turns the canoe back, and says so once.
+    if (r.edge > 0.25 && !this.edgeWarned) {
+      this.edgeWarned = true;
+      this.bubble = { text: 'the current pulls back toward the Carrier', until: time + 2.4, x: b.x, y: b.y - b.size - 2, head: b.size };
+    } else if (r.edge === 0) this.edgeWarned = false;
+    if (this.movedLastStep) {
+      this.stride += Math.hypot(boat.x - before.x, boat.y - before.y);
+      if (this.stride >= 14) {
+        this.stride = 0;
+        this.sound('paddle');
+        this.islandParticles.ripple(boat.x - (boat.heading === 'right' ? 9 : boat.heading === 'left' ? -9 : 0), boat.y + (boat.heading === 'down' ? -9 : boat.heading === 'up' ? 9 : 2), hex('#eaf8ff'));
+      }
+    }
+    return true;
+  }
+
+  /**
+   * A canoe whose spot is no longer open water (the island grew, a save from elsewhere): moved to the nearest water
+   * it fits in; aboard with nowhere to float, the Blobbi is put ashore by the hub. Nobody is ever stranded.
+   */
+  private settleBoat(): void {
+    const boat = this.boat;
+    if (!boat) return;
+    const nav = this.seaNav();
+    if (!nav.canFloat(boat.x, boat.y, boat.heading)) {
+      let found: { x: number; y: number; heading: Heading } | null = null;
+      search: for (let r = 2; r <= 120; r += 2)
+        for (let k = 0; k < 32; k++) {
+          const a = (k / 32) * Math.PI * 2;
+          for (const heading of [boat.heading, 'right', 'down'] as Heading[]) {
+            const x = Math.round(boat.x + Math.cos(a) * r);
+            const y = Math.round(boat.y + Math.sin(a) * r);
+            if (nav.canFloat(x, y, heading)) {
+              found = { x, y, heading };
+              break search;
+            }
+          }
+        }
+      if (found) Object.assign(boat, found);
+      else {
+        // No water near at all: the canoe goes back into the bag.
+        this.boat = null;
+        this.inventory.add(CANOE_ITEM.id, 1);
+      }
+    }
+    if (this.boat?.aboard) {
+      this.blobbi.x = this.boat.x;
+      this.blobbi.y = this.boat.y + LiveWorld.SEAT;
+    } else if (!this.boat && this.blobbi && !this.collision.canStand(this.blobbi.x, this.blobbi.y, this.blobbi.footRx, this.blobbi.footRy)) this.placeBlobbiAtStart();
+  }
+
+  // ─── Ocean features (M10 phase B): a bottle adrift, the kelp garden, the silver shoal ─────────────
+
+  private oceanCache: OceanFeatures | null = null;
+  ocean(): OceanFeatures {
+    if (!this.oceanCache) {
+      const sub = worldBounds(this.world).subject ?? { x0: 0, y0: 0, x1: this.world.terrain.width, y1: this.world.terrain.height };
+      this.oceanCache = new OceanFeatures(this.world.seed, this.seaNav(), sub);
+    }
+    return this.oceanCache;
+  }
+
+  /** What is out on the sea now (the bottle only until it is found). */
+  oceanNow(): OceanFeature[] {
+    return this.ocean().at(this.worldTime, this.found.has('sea:bottle-adrift'));
+  }
+
+  /** The kelp garden's seaweed: there to gather (not taken in the last day). */
+  kelpReady(): boolean {
+    const at = this.collectedAt.get('sea:kelp');
+    return at === undefined || this.worldTime - at >= KELP_REGROW_SECONDS;
+  }
+
+  /** From the canoe: the feature within reach, if any. */
+  nearbyFeature(): OceanFeature | null {
+    if (!this.boat?.aboard || this.boarding) return null;
+    const b = this.blobbi;
+    let best: { f: OceanFeature; d: number } | null = null;
+    for (const f of this.oceanNow()) {
+      const d = Math.hypot(f.x - b.x, f.y - b.y);
+      if (d <= FEATURE_REACH && (!best || d < best.d)) best = { f, d };
+    }
+    return best?.f ?? null;
+  }
+
+  /** E by a feature from the canoe: fish out the bottle, gather seaweed, watch the shoal. */
+  visitFeature(): boolean {
+    const f = this.nearbyFeature();
+    if (!f) return false;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const say = (text: string) => (this.bubble = { text, until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size });
+    this.brain.manual(time);
+    if (f.kind === 'bottle') {
+      say('a bottle! there is a letter inside');
+      b.animator.react('surprised', time, 0.8, 2);
+      if (!this.visitor) this.meetAtSea('sea:bottle-adrift', f);
+    } else if (f.kind === 'kelp') {
+      if (!this.kelpReady()) {
+        say('the kelp needs a day to grow back');
+        return true;
+      }
+      if (!this.visitor) {
+        const got = this.inventory.add(SEAWEED_ITEM.id, 3);
+        this.collected.add('sea:kelp');
+        this.collectedAt.set('sea:kelp', this.worldTime);
+        say(got ? `+${got} seaweed` : 'no room for seaweed');
+        this.meetAtSea('sea:kelp-garden', f);
+      } else say('the kelp sways under the water');
+    } else {
+      say('the shoal turns all at once!');
+      b.animator.react('happy', time, 1, 3);
+      for (let i = 0; i < 8; i++) this.islandParticles.sparkle(f.x + this.particles.rng.range(-10, 10), f.y + this.particles.rng.range(-5, 5), hex('#f4f8ff'));
+      if (!this.visitor) this.meetAtSea('sea:silver-shoal', f);
+    }
+    if (!this.visitor) this.save();
+    return true;
+  }
+
   // ─── Marine life (M10): scenery, and a seal and a ray to meet ─────────────
 
   /** The sea's creatures (a pure function of the world and world time; nothing is saved). Made when first asked. */
@@ -2209,7 +2514,7 @@ export class LiveWorld {
   }
 
   /** A first meeting at sea: a discovery, as finding something on the island is. */
-  private meetAtSea(id: string, s: Sighting): void {
+  private meetAtSea(id: string, s: { x: number; y: number }): void {
     if (this.found.has(id)) return;
     const d = SEA_DISCOVERIES.find((c) => c.id === id)!;
     const time = this.clock.time;
@@ -2421,8 +2726,21 @@ export class LiveWorld {
 
   /** The water in front of the Blobbi a rod could reach, or null. */
   fishTarget(): { x: number; y: number; water: 'sea' | 'pond' } | null {
-    if (this.inside) return null;
+    if (this.inside || this.boarding) return null;
     const b = this.blobbi;
+    // From the canoe: any open water in front, beyond the bow (the sea beyond the world's edge too).
+    if (this.boat?.aboard) {
+      const dir = b.animator.state.direction;
+      const fx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+      const fy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
+      const nav = this.seaNav();
+      for (let reach = 18; reach <= 44; reach += 2) {
+        const x = Math.round(b.x + fx * reach);
+        const y = Math.round(b.y + fy * reach * 0.8);
+        if (nav.water(x, y)) return { x, y, water: 'sea' };
+      }
+      return null;
+    }
     const dir = b.animator.state.direction;
     const fx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
     const fy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
@@ -2439,6 +2757,15 @@ export class LiveWorld {
       if (reach > 16 && c !== T.RIM && c !== T.FOAM && c !== T.SAND && c !== T.SAND_WET && c !== T.GRASS_EDGE) return null;
     }
     return null;
+  }
+
+  /** Where a cast lands at sea: open water (the deep, or the sea beyond the world's edge) or the coast. */
+  seaRegionAt(x: number, y: number): 'coast' | 'open' {
+    const { width, height, cls } = this.world.terrain;
+    const xi = Math.round(x);
+    const yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= width || yi >= height) return 'open';
+    return cls[yi * width + xi] === T.DEEP ? 'open' : 'coast';
   }
 
   /** Open water straight ahead, past the line's reach (up to 140 px away), with nothing but shore and shell between. */
@@ -2497,8 +2824,11 @@ export class LiveWorld {
       say('it got away');
       return true;
     }
-    // A catch: which fish, from this water's weights (a deterministic draw per cast).
-    const pool = FISH_CONTENT.filter((c) => c.water === 'both' || c.water === f.water);
+    // A catch: which fish, from this water's weights (a deterministic draw per cast). M10 phase B: the sea's fish
+    // also depend on where (the coast or open water) and when (day or night).
+    const region = f.water === 'sea' ? this.seaRegionAt(f.x, f.y) : null;
+    const night = lightAt(this.worldTime).night;
+    const pool = FISH_CONTENT.filter((c) => (c.water === 'both' || c.water === f.water) && (!c.region || c.region === region) && (!c.time || (c.time === 'night') === night));
     const total = pool.reduce((n, c) => n + c.weight, 0);
     let roll = stream(this.world.seed, 'catch', this.casts).range(0, total);
     const caught = pool.find((c) => (roll -= c.weight) < 0) ?? pool[0];
@@ -2507,6 +2837,10 @@ export class LiveWorld {
       return true;
     }
     this.tally.fished++;
+    // The fish log (M10 phase B): a species caught for the first time is recorded, and says so.
+    const firstOfKind = !this.caught.has(caught.item.id);
+    this.caught.add(caught.item.id);
+    if (firstOfKind) this.notices.push({ heading: 'Fish log', title: `new: ${caught.item.label}`, text: `${this.caught.size} of ${FISH_CONTENT.length} kinds caught (J)`, until: (this.notices.at(-1)?.until ?? time) + 3 });
     for (let i = 0; i < 6; i++) this.particles.drop(f.x + this.particles.rng.range(-3, 3), f.y - 2, i % 2 ? hex('#d8f1ff') : hex('#5fb3f0'));
     say(`+1 ${caught.item.label}!`);
     b.animator.react('excited', time, 1.3, 3);
@@ -2653,6 +2987,18 @@ export class LiveWorld {
     if (node) return `E  pick up the ${RESOURCE_SINGULAR[node.kind] ?? node.kind}`;
     const sea = this.fishing ? null : this.nearbyMarine();
     if (sea) return sea.kind === 'seal' ? 'E  wave to the seal' : 'E  watch the glowing ray';
+    // The canoe (M10 phase B).
+    if (this.boarding) return null;
+    if (this.boat?.aboard) {
+      if (this.fishing) return this.clock.time >= this.fishing.biteAt ? 'E  reel it in!' : 'wait for a bite...';
+      const feature = this.nearbyFeature();
+      if (feature) return feature.kind === 'bottle' ? 'E  fish out the bottle' : feature.kind === 'kelp' ? (this.kelpReady() ? 'E  gather seaweed' : 'the kelp is growing back') : 'E  watch the shoal';
+      if (this.landingSpot()) return 'E  go ashore';
+      if (this.equipped && toolSupports(this.equipped, 'fish') && this.fishTarget()) return 'E  cast the line';
+      return null;
+    }
+    if (this.nearBoat()) return 'E  get in the canoe';
+    if (this.launchSpot()) return 'E  launch the canoe';
     const farm = this.farmAction();
     if (farm) {
       const t = this.worldTime;
@@ -3143,6 +3489,7 @@ export class LiveWorld {
   /** Enter or leave build mode for a kind (null leaves). */
   setBuildMode(kind: BuildingKind | null): void {
     if (kind && this.denied('build')) return;
+    if (kind && (this.boat?.aboard || this.boarding)) return; // nothing is built from the canoe
     // Decorations wait for the objective that unlocks them.
     this.buildMode = kind && this.unlocked().has(kind) ? kind : null;
     if (this.buildMode) {
@@ -3582,6 +3929,7 @@ export class LiveWorld {
   /** Start placing a furniture item from the bag: a preview in front of the Blobbi; E places, Esc stops. */
   startPlacing(item: string): boolean {
     if (this.denied('build')) return false;
+    if (this.boat?.aboard || this.boarding) return false; // nothing is placed from the canoe
     const kind = kindForItem(item);
     const time = this.clock.time;
     const b = this.blobbi;
@@ -4106,6 +4454,9 @@ export class LiveWorld {
     this.pickups.length = 0;
     this.trees.clear();
     this.cleared.clear();
+    this.caught.clear();
+    this.boat = null;
+    this.boarding = null;
     this.absentKey = '';
     this.equipped = null;
     this.timeOffset = -this.clock.time;
@@ -4252,6 +4603,8 @@ export class LiveWorld {
       brainInteract = intent.interact;
       if (intent.face) direction = intent.face;
     }
+    const afloat = !away && this.stepCanoe(input, dt, time);
+    if (afloat) moving = false;
     const before = { x: b.x, y: b.y };
     if (moving) {
       const len = Math.hypot(dx, dy);
@@ -4263,8 +4616,8 @@ export class LiveWorld {
       b.x = moved.x;
       b.y = moved.y;
     }
-    const walked = Math.hypot(b.x - before.x, b.y - before.y);
-    this.movedLastStep = walked > 0.01;
+    const walked = afloat ? 0 : Math.hypot(b.x - before.x, b.y - before.y);
+    if (!afloat) this.movedLastStep = walked > 0.01;
     // The tutorial's first step: the player walked (keys, the stick, or a click to walk).
     if (manualNow || this.walkingToClick) {
       this.playerWalked += walked;
@@ -4277,8 +4630,8 @@ export class LiveWorld {
       this.stride = 0;
       this.sound(`step-${this.surfaceUnder()}`);
     }
-    b.animator.step(dt, time, { moving, direction });
-    b.animator.state.sleeping = !away && this.brain.state === 'rest';
+    if (!afloat) b.animator.step(dt, time, { moving, direction });
+    b.animator.state.sleeping = !away && !afloat && this.brain.state === 'rest';
     this.stepRestPlan(time);
     this.stepTeleport(time);
     // The brain's interactions never touch resources, crops or the bag; looking around makes it happy.
@@ -4293,7 +4646,12 @@ export class LiveWorld {
       else if (this.placing) this.placeFromBag();
       else if (this.buildMode) this.placeBuilding();
       else if (this.inside) this.interact();
-      else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.greetMarine() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
+      else if (this.boarding) {
+        // (mid-hop: nothing)
+      } else if (this.boat?.aboard) {
+        // Afloat: fish, greet the sea's creatures, or land; otherwise a word on how to land.
+        if (!(this.fishing && this.fish()) && !this.greetMarine() && !this.visitFeature() && !this.goAshore() && !this.fish()) this.bubble = { text: 'paddle to the shore to land', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+      } else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.greetMarine() && !this.boardCanoe() && !this.launchCanoe() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
     }
     // Walking into the door gap leaves the house.
     if (this.interior && atDoor(b.x, b.y, this.roomLayout)) this.exitInterior();

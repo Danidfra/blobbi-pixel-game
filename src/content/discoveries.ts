@@ -148,6 +148,25 @@ export const SEA_DISCOVERIES: readonly DiscoveryContent[] = [
     lore: 'glowing-ray',
     item: special('glowray-sketch', 'night-lamp sketch', 'A quick drawing of the glowing ray, made by moonlight. Read it.', ['pppppp', 'pbbbbp', 'pbcCbp', 'pbCcbp', 'pbbbbp', 'pppppp'], { p: '#f3e3c3', b: '#3a4a7a', c: '#7ae8f0', C: '#e8ffff' }),
   },
+  // M10 phase B: found from the canoe, out on the sea (src/game/ocean-features.ts).
+  {
+    id: 'sea:bottle-adrift',
+    terrain: 'beach',
+    lore: 'letter-from-afar',
+    item: special('letter-from-afar', 'letter from afar', 'A letter fished out of a bottle adrift at sea. The ink has run a little. Read it.', ['...c..', '...g..', '..gGg.', '.gGggg', '.gpppg', '.gpppg', '.ggggg'], { c: '#b07a3a', g: '#5a9ab8', G: '#b8e0f0', p: '#f3e3c3' }),
+  },
+  {
+    id: 'sea:kelp-garden',
+    terrain: 'beach',
+    lore: 'kelp-garden',
+    item: special('pressed-kelp', 'pressed kelp', 'A frond from the kelp garden, pressed flat between two leaves.', ['..g...', '.gGg..', '.gGgg.', 'gGggG.', '.gGgg.', '..gg..'], { g: '#3a7a4a', G: '#7ac08a' }),
+  },
+  {
+    id: 'sea:silver-shoal',
+    terrain: 'beach',
+    lore: 'silver-shoal',
+    item: special('shoal-scale', 'shoal scale', 'A single bright scale from the silver shoal, caught on the paddle.', ['..ss..', '.sSSs.', 'sSwSSs', '.sSSs.', '..ss..'], { s: '#9aa8c0', S: '#d8e0f0', w: '#ffffff' }),
+  },
 ];
 
 /** Every discovery, the island's, the grown land's and the sea's (journal, notes). */

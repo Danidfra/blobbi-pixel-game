@@ -34,8 +34,8 @@ export const CANOE = {
   accel: 2.4,
   drag: 1.6,
   /** The hull's half length and half beam (world px), along its heading. */
-  halfLength: 8,
-  halfBeam: 3,
+  halfLength: 13,
+  halfBeam: 5,
   /** The sea round the Carrier's island picture the canoe may roam, and the band where the current turns it back. */
   margin: 150,
   band: 36,
@@ -138,9 +138,12 @@ export function stepBoat(boat: BoatState, input: PaddleInput, dt: number, nav: S
     boat.vy += ((cy - boat.y) / d) * CANOE.speed * 1.6 * edge * dt * 3;
   }
   // The heading follows the stronger component of the paddling (the canoe turns, it does not slide sideways).
-  if (held) boat.heading = Math.abs(ix) >= Math.abs(iy) ? (ix > 0 ? 'right' : 'left') : iy > 0 ? 'down' : 'up';
+  // Turning in place must fit too; where it does not (a narrow channel), the canoe keeps its heading.
+  if (held) {
+    const want: Heading = Math.abs(ix) >= Math.abs(iy) ? (ix > 0 ? 'right' : 'left') : iy > 0 ? 'down' : 'up';
+    if (want !== boat.heading && nav.canFloat(boat.x, boat.y, want)) boat.heading = want;
+  }
   let bumped = false;
-  // Turning in place must fit too; if it does not, keep the old heading.
   const nx = boat.x + boat.vx * dt;
   if (nav.canFloat(nx, boat.y, boat.heading)) boat.x = nx;
   else {

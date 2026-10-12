@@ -21,7 +21,10 @@ import { ITEMS } from '../game/items';
 import { attachTool, toolIcon, EQUIPMENT, type Attachment } from '../game/equipment';
 import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { OpenSea } from './open-sea';
-import { drawMarine } from './marine-render';
+import { drawMarine, drawOceanFeatures } from './marine-render';
+import { canoeSprites, paddleSprite } from './canoe-render';
+import { CANOE } from '../game/canoe';
+import type { WorldPalette as WorldPaletteLike } from '../core/palette';
 import { BUILDINGS, buildingSprite } from '../game/buildings';
 import { drawPlacementOverlay } from './placement-overlay';
 import { itemIcon } from '../ui/icons';
@@ -278,6 +281,38 @@ export class LiveRenderer {
     return { buffer: buf, anchorX: gx - x0, anchorY: gy - y0, footRx: 0, footRy: 0 };
   }
 
+  /**
+   * Whitecaps in the outer band of the canoe's sea, thicker toward its edge, drifting: the limit is seen before it
+   * is felt. Only the band's strips inside the view are visited.
+   */
+  private drawRoughWater(frame: PixelBuffer, ox: number, oy: number, time: number, palette: WorldPaletteLike): void {
+    const nav = this.live.seaNav();
+    const r = nav.region;
+    const band = CANOE.band;
+    const W = frame.width;
+    const H = frame.height;
+    const strips = [
+      { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y0 + band },
+      { x0: r.x0, y0: r.y1 - band, x1: r.x1, y1: r.y1 },
+      { x0: r.x0, y0: r.y0, x1: r.x0 + band, y1: r.y1 },
+      { x0: r.x1 - band, y0: r.y0, x1: r.x1, y1: r.y1 },
+    ];
+    const phase = Math.floor(time * 3);
+    for (const st of strips) {
+      const x0 = Math.max(st.x0, ox);
+      const y0 = Math.max(st.y0, oy);
+      const x1 = Math.min(st.x1, ox + W);
+      const y1 = Math.min(st.y1, oy + H);
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+          const e = nav.edge(x, y);
+          if (e <= 0) continue;
+          const h = ((x * 374761393 + y * 668265263 + phase * 2654435761) >>> 0) % 1000;
+          if (h < e * e * 260) frame.set(x - ox, y - oy, h % 3 ? palette.foam : palette.shallow.light);
+        }
+    }
+  }
+
   /** Render the viewport (viewW × viewH world pixels) whose top-left is the camera position. */
   render(viewW: number, viewH: number, camX: number, camY: number, time: number, o: LiveRenderOptions, split?: SplitLayers): PixelBuffer {
     const t0 = performance.now();
@@ -367,6 +402,9 @@ export class LiveRenderer {
 
     // ── Marine life (M10): fish, jellyfish, a dolphin, the curious seal, the glowing ray ──
     drawMarine(frame, this.live, ox, oy, time, palette);
+    drawOceanFeatures(frame, this.live, ox, oy, time, palette);
+    // ── The edge of the canoe's sea (M10 phase B): rough water where the current turns the canoe back ──
+    if (this.live.boat?.aboard) this.drawRoughWater(frame, ox, oy, time, palette);
 
     // ── The turtle's living parts: flippers paddling, the head bobbing, blinking and glancing ──
     if (world.turtle) this.drawTurtle(frame, ox, oy, time, o.animateWind);
@@ -447,7 +485,21 @@ export class LiveRenderer {
     const pose = b.animator.pose(time);
     const bx = Math.round(b.x);
     const by = Math.round(b.y);
-    if (o.shadows) this.paintShadow(frame, bx, by - 1, b.footRx, 2, ox, oy);
+    // The canoe (M10 phase B): moored whole; with the Blobbi in it, the hull behind and the near side in front.
+    const boat = live.boat;
+    const seated = !!boat?.aboard && !live.boarding;
+    if (boat && boat.x > ox - 30 && boat.x < ox + viewW + 30 && boat.y > oy - 30 && boat.y < oy + viewH + 30) {
+      const c = canoeSprites(boat.heading, palette);
+      const hx = Math.round(boat.x);
+      const hy = Math.round(boat.y);
+      if (seated) {
+        drawables.push({ y: by - 1, x: bx, sprite: c.back, sway: 0, dy: 0, offset: { x: hx - bx, y: hy - (by - 1) } });
+        drawables.push({ y: by, x: bx + 0.75, sprite: c.front, sway: 0, dy: 0, offset: { x: hx - bx - 0.75, y: hy - by } });
+        // Paddling: the paddle dips on alternate sides.
+        if (Math.hypot(boat.vx, boat.vy) > 3 && !live.fishing) drawables.push({ y: by, x: bx + 0.8, sprite: paddleSprite(boat.heading, Math.floor(time * 2.2), palette), sway: 0, dy: 0, offset: { x: 0, y: -2 } });
+      } else drawables.push({ y: hy, x: hx, sprite: c.whole, sway: 0, dy: 0 });
+    }
+    if (o.shadows && !seated && !live.boarding) this.paintShadow(frame, bx, by - 1, b.footRx, 2, ox, oy);
     const hop = b.animator.hop(time);
     // Split: the view draws the Blobbi at its own size, so the gameplay-size sprite is not rasterized here.
     if (!split) {

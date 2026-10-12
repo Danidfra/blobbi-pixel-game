@@ -168,3 +168,55 @@ function drawSeal(frame: PixelBuffer, live: LiveWorld, s: Sighting, ox: number, 
   for (const dx of [-4, -3, 3, 4]) frame.set(x + dx - ox, y + 1 + bob - oy, palette.foam);
   if (happy) for (const dx of [-5, 5]) frame.set(x + dx - ox, y - 1 - oy, palette.foam);
 }
+
+/**
+ * The ocean's features (M10 phase B): the message bottle bobbing (cork up), the kelp garden's ribbons swaying under
+ * the surface, the silver shoal turning in a cloud of glints. In world pixels, over water only (the bottle's top
+ * sits above it).
+ */
+export function drawOceanFeatures(frame: PixelBuffer, live: LiveWorld, ox: number, oy: number, time: number, palette: WorldPalette): void {
+  const W = frame.width;
+  const H = frame.height;
+  const sea = live.marine;
+  const wet = (x: number, y: number, c: Color) => {
+    if (sea.wet(x, y)) frame.set(x - ox, y - oy, c);
+  };
+  for (const f of live.oceanNow()) {
+    if (f.x < ox - 30 || f.x > ox + W + 30 || f.y < oy - 30 || f.y > oy + H + 30) continue;
+    if (f.kind === 'bottle') {
+      const bob = Math.round(Math.sin(time * 2.2) * 0.6);
+      const glass = hex('#5a9ab8');
+      const shine = hex('#b8e0f0');
+      const cork = hex('#b07a3a');
+      const x = f.x;
+      const y = f.y + bob;
+      for (const [dx, dy, c] of [[0, -4, cork], [0, -3, glass], [-1, -2, glass], [0, -2, shine], [1, -2, glass], [-1, -1, glass], [0, -1, glass], [1, -1, glass]] as const) frame.set(x + dx - ox, y + dy - oy, c);
+      for (const dx of [-3, -2, 2, 3]) wet(x + dx, y, palette.water.light);
+    } else if (f.kind === 'kelp') {
+      const ready = live.kelpReady();
+      const dark = mix(hex('#2a5a3a'), palette.water.dark, 0.35);
+      const light = mix(hex('#5aa06a'), palette.water.dark, 0.3);
+      // Eight ribbons rooted round the spot, swaying; shorter for a day after gathering.
+      for (let k = 0; k < 8; k++) {
+        const rx = f.x + ((k * 37) % 23) - 11;
+        const ry = f.y + ((k * 53) % 13) - 6;
+        const len = ready ? 5 + (k % 3) : 2;
+        for (let i = 0; i < len; i++) {
+          const sway = Math.round(Math.sin(time * 1.4 + k + i * 0.6) * (i / 3));
+          wet(rx + sway, ry - i, i === len - 1 ? light : dark);
+        }
+      }
+    } else {
+      // A cloud of little fish turning together: glints that flicker on and off.
+      const turn = Math.sin(time * 0.9) * 6;
+      for (let k = 0; k < 26; k++) {
+        const a = k * 2.399;
+        const r = 3 + ((k * 7) % 9);
+        const x = Math.round(f.x + Math.cos(a) * r * 1.4 + turn * Math.sin(k));
+        const y = Math.round(f.y + Math.sin(a) * r * 0.7);
+        const on = (Math.floor(time * 6) + k) % 4;
+        wet(x, y, on === 0 ? hex('#ffffff') : on === 1 ? hex('#c8d0e8') : mix(hex('#9aa8c0'), palette.water.dark, 0.4));
+      }
+    }
+  }
+}

@@ -119,6 +119,21 @@ export const LORE: readonly LoreNote[] = [
     text: 'A grey seal with enormous eyes keeps coming up by the shore to see what the Blobbi is doing. When you wave, it rolls over in the water, delighted. It left a piece of sea glass on the sand, as if returning the favour.',
   },
   {
+    id: 'letter-from-afar',
+    title: 'A letter from afar',
+    text: 'The letter in the drifting bottle is from someone on another Carrier — a whale, they say, very old and very slow. They grow beans on its back and wonder whether anyone else is out there. Someone is.',
+  },
+  {
+    id: 'kelp-garden',
+    title: 'The kelp garden',
+    text: 'Out past the island the water turns green-gold: a garden of kelp swaying under the surface. The Carrier swims round it, never through it, as if it had been planted there on purpose.',
+  },
+  {
+    id: 'silver-shoal',
+    title: 'The silver shoal',
+    text: 'At dawn and at dusk thousands of little fish gather near the Carrier and turn all at once, flashing like a dropped handful of coins. By full day they are gone again.',
+  },
+  {
     id: 'glowing-ray',
     title: 'The glowing ray',
     text: 'Some nights a ray glides past the Carrier, faintly lit from inside like a lantern under the water. The old pages call them night-lamps and say they follow Carriers to eat what drifts in their wake. Seeing one is good luck.',

@@ -146,11 +146,12 @@ describe('tools', () => {
   });
 
   it('fish and fish meals are real food, with recipes learnt by "Gone fishing"', () => {
-    expect(FISH_CONTENT.length).toBe(4);
+    // M10 phase B: three more fish (flounder, mackerel, moonfish) and two more fish meals.
+    expect(FISH_CONTENT.length).toBe(7);
     for (const f of FISH_CONTENT) expect(itemById(f.item.id)?.food).toBeDefined();
     const fishMeals = MEAL_CONTENT.filter((m) => m.unlock === 'side-angler');
-    expect(fishMeals.length).toBe(4);
-    expect(MEAL_CONTENT.length).toBe(19);
+    expect(fishMeals.length).toBe(6);
+    expect(MEAL_CONTENT.length).toBe(21);
   });
 });
 

@@ -11,9 +11,10 @@ import { Gfx, UI } from '../gfx';
 import { isConfirm, moveSelection, type GameUI, type Screen } from '../game-ui';
 import { observationsFor, type Observation } from '../../game/carrier';
 import type { Place } from '../../game/places';
+import { FISH_CONTENT } from '../../content/tools';
 
-type Tab = 'quests' | 'notes' | 'finds' | 'places' | 'carrier';
-const TABS: readonly Tab[] = ['quests', 'notes', 'finds', 'places', 'carrier'];
+type Tab = 'quests' | 'notes' | 'finds' | 'fish' | 'places' | 'carrier';
+const TABS: readonly Tab[] = ['quests', 'notes', 'finds', 'fish', 'places', 'carrier'];
 const ROW = 10;
 const TERRAIN_HINT: Record<string, string> = { beach: 'somewhere on the beach', forest: 'under the trees', meadow: 'in a meadow', grass: 'out on the grass', plateau: 'up on high ground', pond: 'near the pond' };
 
@@ -26,6 +27,8 @@ interface Row {
   find?: (typeof DISCOVERY_CONTENT)[number];
   place?: Place;
   observation?: Observation;
+  /** M10 phase B: a fish species in the fish log. */
+  fish?: (typeof FISH_CONTENT)[number];
 }
 
 export class JournalScreen implements Screen {
@@ -35,7 +38,7 @@ export class JournalScreen implements Screen {
 
   title(ui: GameUI): string {
     const live = ui.live!;
-    return `Journal  ${Object.keys(live.objectives.completed).length}/${QUESTS.length} quests  ${(live.objectives.lore ?? []).length}/${LORE.length} notes  ${live.found.size}/${DISCOVERY_CONTENT.length} finds  ${live.visited.size}/${live.places.length} places`;
+    return `Journal  ${Object.keys(live.objectives.completed).length}/${QUESTS.length} quests  ${(live.objectives.lore ?? []).length}/${LORE.length} notes  ${live.found.size}/${DISCOVERY_CONTENT.length} finds  ${live.caught.size}/${FISH_CONTENT.length} fish  ${live.visited.size}/${live.places.length} places`;
   }
 
   opened(ui: GameUI): void {
@@ -69,6 +72,8 @@ export class JournalScreen implements Screen {
     if (this.tab === 'places') return live.places.map((p) => (live.visited.has(p.id) ? { label: p.name, colour: UI.ink, place: p } : { label: '???', colour: UI.muted }));
     // The Carrier: what the Blobbi has noticed about it, in the order noticed.
     if (this.tab === 'carrier') return observationsFor(live.species).map((o) => (live.carrier.observations.includes(o.id) ? { label: o.text, colour: UI.ink, observation: o } : { label: '???', colour: UI.muted }));
+    // The fish log (M10 phase B): every species, the caught ones by name.
+    if (this.tab === 'fish') return FISH_CONTENT.map((f) => ({ label: live.caught.has(f.item.id) ? f.item.label : '???', colour: live.caught.has(f.item.id) ? UI.ink : UI.muted, fish: f }));
     return DISCOVERY_CONTENT.map((d) => ({ label: live.found.has(d.id) ? d.item.label : '???', colour: live.found.has(d.id) ? UI.ink : UI.muted, find: d }));
   }
 
@@ -158,8 +163,19 @@ export class JournalScreen implements Screen {
         para(r.find.item.description);
       } else {
         para('Not found yet', UI.muted);
-        para(`Something is hidden ${TERRAIN_HINT[r.find.terrain]}.`, UI.muted);
+        // Finds at sea are met, not dug up: no beach to search.
+        para(r.find.id.startsWith('sea:') ? 'Something waits out on the sea round the Carrier, or in it.' : `Something is hidden ${TERRAIN_HINT[r.find.terrain]}.`, UI.muted);
       }
+    } else if (r.fish) {
+      const f = r.fish;
+      if (live.caught.has(f.item.id)) {
+        g.buf.blit(itemIcon(f.item.id, ui.palette()).scaled(2), dx + 4, cy);
+        cy += 30;
+        para(f.item.label, UI.accent);
+        para(f.item.description);
+      } else para('Not caught yet', UI.muted);
+      const where = f.hint ?? (f.water === 'pond' ? 'the island pond' : f.water === 'sea' ? 'the sea' : 'the sea or a pond');
+      para(`Where: ${where}.`, UI.muted);
     }
   }
 }

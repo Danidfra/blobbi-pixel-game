@@ -9,18 +9,18 @@
 
 | Content | Count | Source |
 |---|---|---|
-| Items | 123 | `game/items.ts` `ALL_ITEMS` |
+| Items | 133 | `game/items.ts` `ALL_ITEMS` |
 | Crops | 11 | `content/crops.ts` |
-| Forage kinds | 5 | `content/forage.ts` |
+| Forage kinds | 6 | `content/forage.ts` |
 | Placeable kinds (incl. the shelter) | 44 | `game/buildings.ts` `BUILDINGS` |
-| Recipes | 66 | `game/crafting.ts` `RECIPES` |
-| Meals | 19 | `content/meals.ts` |
+| Recipes | 69 | `game/crafting.ts` `RECIPES` |
+| Meals | 21 | `content/meals.ts` |
 | Quests | 39 | `content/quests.ts` |
 | Island requests | 8 | `content/quests.ts` `REQUEST_POOL` |
-| Lore notes | 22 | `content/lore.ts` |
+| Lore notes | 25 | `content/lore.ts` |
 | Discoveries (island) | 8 | `content/discoveries.ts` |
 | Discoveries (grown land) | 6 | `content/discoveries.ts` `GROWTH_DISCOVERIES` |
-| Fish | 4 | `content/tools.ts` |
+| Fish | 7 | `content/tools.ts` |
 | Tool upgrades | 4 | `content/tools.ts` |
 | Biomes (grown land) | 6 | `world/growth.ts` |
 | Growth stages | 4 | `world/growth.ts` |
@@ -63,7 +63,7 @@
 | tulip bulb | `blobbi-pixel:seed:tulip` | 20 |  |
 | lavender seed | `blobbi-pixel:seed:lavender` | 20 |  |
 
-### Food (32)
+### Food (38)
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
@@ -94,11 +94,17 @@
 | grilled minnows | `blobbi-pixel:meal:grilled-minnows` | 10 | food: +35 fed, +5 energy |
 | fish soup | `blobbi-pixel:meal:fish-soup` | 10 | food: +55 fed, +15 energy, +3 joy |
 | perch roast | `blobbi-pixel:meal:perch-roast` | 10 | food: +55 fed, +6 joy |
+| mackerel skewers | `blobbi-pixel:meal:mackerel-skewers` | 10 | food: +50 fed, +10 energy, +4 joy |
+| kelp soup | `blobbi-pixel:meal:kelp-soup` | 10 | food: +45 fed, +12 energy, +3 joy |
 | rainbow platter | `blobbi-pixel:meal:rainbow-platter` | 10 | food: +60 fed, +10 energy, +25 joy |
+| seaweed | `blobbi-pixel:food:seaweed` | 30 | food: +5 fed |
 | minnow | `blobbi-pixel:food:minnow` | 20 | food: +6 fed |
 | sea bream | `blobbi-pixel:food:sea-bream` | 20 | food: +12 fed, +1 joy |
 | pond perch | `blobbi-pixel:food:pond-perch` | 20 | food: +12 fed, +1 joy |
 | rainbow fish | `blobbi-pixel:food:rainbow-fish` | 20 | food: +15 fed, +8 joy |
+| flounder | `blobbi-pixel:food:flounder` | 20 | food: +12 fed, +1 joy |
+| mackerel | `blobbi-pixel:food:mackerel` | 20 | food: +14 fed, +2 joy |
+| moonfish | `blobbi-pixel:food:moonfish` | 20 | food: +16 fed, +10 joy |
 
 ### Tools (9)
 
@@ -162,10 +168,11 @@
 | wooden bench | `blobbi-pixel:furniture:bench` | 10 | places: bench |
 | storage crate | `blobbi-pixel:furniture:crate` | 10 | places: crate |
 
-### Special (16)
+### Special (20)
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
+| canoe | `blobbi-pixel:vehicle:canoe` | 1 |  |
 | message in a bottle | `blobbi-pixel:special:bottle` | 1 |  |
 | Carrier Stone | `blobbi-pixel:special:carrier-stone` | 1 |  |
 | journal page | `blobbi-pixel:special:page-1` | 1 |  |
@@ -182,6 +189,9 @@
 | golden seed | `blobbi-pixel:special:golden-seed` | 1 |  |
 | seal's sea glass | `blobbi-pixel:special:seal-sea-glass` | 1 |  |
 | night-lamp sketch | `blobbi-pixel:special:glowray-sketch` | 1 |  |
+| letter from afar | `blobbi-pixel:special:letter-from-afar` | 1 |  |
+| pressed kelp | `blobbi-pixel:special:pressed-kelp` | 1 |  |
+| shoal scale | `blobbi-pixel:special:shoal-scale` | 1 |  |
 
 ## Crops
 
@@ -208,6 +218,7 @@
 | berry | wild berry | bush | 200 |
 | herb | wild herb | meadow | 180 |
 | shell | sea shell | beach | 240 |
+| driftwood | wood | beach | 240 |
 
 ## Placeables (buildings, decorations, furniture)
 
@@ -322,12 +333,15 @@
 | Grilled minnows | 1 grilled minnows | 2 minnow | cooking | meals | side-angler |
 | Fish soup | 1 fish soup | 1 sea bream, 1 potato, 1 wild herb | cooking | meals | side-angler |
 | Perch roast | 1 perch roast | 1 pond perch, 1 tomato | cooking | meals | side-angler |
+| Mackerel skewers | 1 mackerel skewers | 2 mackerel, 1 wild herb | cooking | meals | side-angler |
+| Kelp soup | 1 kelp soup | 2 seaweed, 1 flounder | cooking | meals | side-angler |
 | Rainbow platter | 1 rainbow platter | 1 rainbow fish, 2 strawberry | cooking | meals | side-angler |
 | Copper Axe | 1 copper axe | 1 simple axe, 3 copper ore, 2 wood | workbench | tools | side-miner |
 | Copper Pickaxe | 1 copper pickaxe | 1 simple pickaxe, 4 copper ore, 2 wood | workbench | tools | side-miner |
 | Copper Hoe | 1 copper hoe | 1 simple hoe, 3 copper ore, 1 wood | workbench | tools | side-miner |
 | Copper Can | 1 copper watering can | 1 watering can, 4 copper ore | workbench | tools | side-miner |
 | Fishing rod | 1 fishing rod | 3 stick, 2 wild fibre | hand | tools | carrier |
+| Canoe | 1 canoe | 8 wood, 4 stick, 2 cloth | workbench | tools | side-angler |
 
 ## Meals
 
@@ -351,6 +365,8 @@
 | grilled minnows | +35 fed, +5 energy | 2 minnow | side-angler |
 | fish soup | +55 fed, +15 energy, +3 joy | 1 sea bream, 1 potato, 1 wild herb | side-angler |
 | perch roast | +55 fed, +6 joy | 1 pond perch, 1 tomato | side-angler |
+| mackerel skewers | +50 fed, +10 energy, +4 joy | 2 mackerel, 1 wild herb | side-angler |
+| kelp soup | +45 fed, +12 energy, +3 joy | 2 seaweed, 1 flounder | side-angler |
 | rainbow platter | +60 fed, +10 energy, +25 joy | 1 rainbow fish, 2 strawberry | side-angler |
 
 ## Quests
@@ -454,6 +470,9 @@
 | `new-grove` | The deep green |
 | `new-sanctuary` | Sanctuary |
 | `curious-seal` | The curious seal |
+| `letter-from-afar` | A letter from afar |
+| `kelp-garden` | The kelp garden |
+| `silver-shoal` | The silver shoal |
 | `glowing-ray` | The glowing ray |
 
 ## Fishing and tool upgrades
@@ -464,6 +483,9 @@
 | sea bream | sea | 3 |
 | pond perch | pond | 3 |
 | rainbow fish | both | 1 |
+| flounder | sea | 3 |
+| mackerel | sea | 4 |
+| moonfish | sea | 1 |
 
 | Upgrade | From | To | Extra |
 |---|---|---|---|
