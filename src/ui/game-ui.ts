@@ -17,7 +17,7 @@ import type { Building } from '../game/buildings';
 import { Gfx, UI, textWidth, type Hit } from './gfx';
 import { card } from './hud';
 
-export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds';
+export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide';
 
 export interface Screen {
   readonly id: ScreenId;
@@ -37,7 +37,7 @@ export const PANEL_W = 304;
 export const PANEL_H = 184;
 
 /** Keys that open a screen from play. */
-export const OPEN_KEYS: Readonly<Record<string, ScreenId>> = { KeyI: 'inventory', KeyK: 'crafting', KeyJ: 'journal', KeyU: 'care', KeyN: 'map', KeyL: 'growth', KeyY: 'worlds' };
+export const OPEN_KEYS: Readonly<Record<string, ScreenId>> = { KeyI: 'inventory', KeyK: 'crafting', KeyJ: 'journal', KeyU: 'care', KeyN: 'map', KeyL: 'growth', KeyY: 'worlds', Digit1: 'home', Slash: 'guide', F1: 'guide' };
 
 export interface UiSettings {
   /** Day and night lighting (presentation only). */
@@ -261,6 +261,7 @@ export class GameUI {
       ['JOURNAL J', 'journal'],
       ['BLOBBI U', 'care'],
       ['MAP N', 'map'],
+      ['HOME 1', 'home'],
       ['...', 'settings'],
     ];
     const use = 'USE E';

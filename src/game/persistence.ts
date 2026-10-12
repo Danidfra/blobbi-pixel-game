@@ -61,6 +61,12 @@ export interface BuildingSave {
   placedAt: number;
   seed: string;
   variant?: number;
+  /** A shelter's house level 2-3 (schema 10; absent: 1). */
+  level?: number;
+  /** A shelter's look (schema 10). */
+  look?: { roof?: number; wall?: number; door?: number; window?: number };
+  /** When the house's last upgrade began (schema 10). */
+  upgradedAt?: number;
 }
 
 export interface RockSaveState {
@@ -109,7 +115,7 @@ export interface WorldSave {
   tally: Tally;
   objectives: ObjectiveState;
   /** House interiors by shelter id; furniture in ROOM coordinates. */
-  interiors: Record<string, { furniture: BuildingSave[]; style: { floor: number; wall: number }; level: number }>;
+  interiors: Record<string, { furniture: BuildingSave[]; style: { floor: number; wall: number; finish?: number }; level: number }>;
   /** Container contents by container key (`island/<id>`, `room/<shelter>/<id>`). */
   containers: Record<string, { capacity: number; items: { item: string; quantity: number }[] }>;
   /** World time each producer was last emptied. */
@@ -225,6 +231,18 @@ function buildingFromSave(b: unknown): BuildingSave | null {
   if (!Number.isInteger(r.x) || !Number.isInteger(r.y) || !finite(r.placedAt)) return null;
   const out: BuildingSave = { id: r.id, kind: r.kind, x: r.x!, y: r.y!, placedAt: r.placedAt, seed: r.seed };
   if (Number.isInteger(r.variant) && (r.variant as number) > 0) out.variant = r.variant;
+  if (r.kind === 'shelter') {
+    if (r.level === 2 || r.level === 3) out.level = r.level;
+    if (finite(r.upgradedAt) && out.level) out.upgradedAt = r.upgradedAt;
+    if (r.look && typeof r.look === 'object') {
+      const look: NonNullable<BuildingSave['look']> = {};
+      for (const k of ['roof', 'wall', 'door', 'window'] as const) {
+        const v = (r.look as Record<string, unknown>)[k];
+        if (Number.isInteger(v) && (v as number) >= 0 && (v as number) < 16) look[k] = v as number;
+      }
+      if (Object.keys(look).length) out.look = look;
+    }
+  }
   return out;
 }
 
@@ -233,10 +251,12 @@ function interiorsFromSave(raw: unknown): WorldSave['interiors'] {
   if (!raw || typeof raw !== 'object') return out;
   for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!v || typeof v !== 'object') continue;
-    const r = v as { furniture?: unknown; style?: { floor?: unknown; wall?: unknown }; level?: unknown };
+    const r = v as { furniture?: unknown; style?: { floor?: unknown; wall?: unknown; finish?: unknown }; level?: unknown };
     const furniture = Array.isArray(r.furniture) ? r.furniture.map(buildingFromSave).filter((x): x is BuildingSave => !!x) : [];
     const n = (x: unknown) => (Number.isInteger(x) && (x as number) >= 0 ? (x as number) : 0);
-    out[id] = { furniture, style: { floor: n(r.style?.floor), wall: n(r.style?.wall) }, level: Math.max(1, n(r.level)) };
+    const style: WorldSave['interiors'][string]['style'] = { floor: n(r.style?.floor), wall: n(r.style?.wall) };
+    if (n(r.style?.finish) > 0) style.finish = n(r.style?.finish);
+    out[id] = { furniture, style, level: Math.min(3, Math.max(1, n(r.level))) };
   }
   return out;
 }

@@ -39,6 +39,7 @@
 | `companion`, `found`, `interiors`, `containers`, `producers` | 7 | friendship and tasted foods; discoveries found; house interiors; chest contents; producer timers |
 | `carrier`, `places` | 8 | Carrier bond, observations, likes found, counts; named places visited |
 | `growth`, `species`, `generator` | 9 | `{ stage, version, history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`/`'whale'`; base generator version (`m6.0`) |
+| `buildings[].level`, `.look`, `.upgradedAt`; `interiors[].style.finish` | 10 | the home's level, look and upgrade time; the rooms' wall finish ([housing](../specifications/HOUSING.md)) |
 | `name`, `intro`, `tutorial` | 10 | the island's own name or null; `{ state: 'pending' \| 'done' \| 'skipped', at }`; `{ done: [step ids], skipped }` |
 
 ## 3. Loading and migration

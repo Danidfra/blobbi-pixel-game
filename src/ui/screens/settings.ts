@@ -18,6 +18,7 @@ const CONTROLS = [
   'MOVE MODE: E MOVE  X TO BAG',
   'C V G  AXE PICKAXE HOE',
   'Z CAMERA  O GOAL BOX  Y WORLDS',
+  '1 HOME  ? OR F1 GUIDE',
 ];
 
 type Row = { label: string; run: () => void; adjust?: (d: number) => void };

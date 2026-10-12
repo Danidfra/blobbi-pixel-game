@@ -16,7 +16,7 @@
  * expire and missing one costs nothing.
  */
 import type { Inventory } from './inventory';
-import { BUILDINGS, buildingProgress, type Building, type BuildingKind } from './buildings';
+import { BUILDINGS, buildingProgress, houseLevel, type Building, type BuildingKind } from './buildings';
 import { QUEST_CONTENT, REQUEST_POOL, type Goal, type QuestContent, type QuestReward, type RequestContent, type TallyKey } from '../content/quests';
 
 /** What the player has done on this island (only the player's own actions count; autonomy never adds here). */
@@ -55,6 +55,7 @@ export function goalProgress(goal: Goal, ctx: ObjectiveContext): { have: number;
   if ('finished' in goal) return { have: Math.min(goal.n ?? 1, ctx.buildings.filter((b) => b.kind === goal.finished && buildingProgress(b, ctx.worldTime) >= 1).length), need: goal.n ?? 1 };
   if ('decorations' in goal) return { have: Math.min(goal.decorations, decorationsPlaced(ctx)), need: goal.decorations };
   if ('found' in goal) return { have: ctx.found?.has(goal.found) ? 1 : 0, need: 1 };
+  if ('house' in goal) return { have: Math.min(goal.house, Math.max(0, ...ctx.buildings.filter((b) => b.kind === 'shelter' && buildingProgress(b, ctx.worldTime) >= 1).map((b) => houseLevel(b)))), need: goal.house };
   if ('friendship' in goal) return { have: Math.min(goal.friendship, ctx.friendship ?? 1), need: goal.friendship };
   const list: readonly Goal[] = 'all' in goal ? goal.all : goal.any;
   const parts = list.map((g) => goalProgress(g, ctx));

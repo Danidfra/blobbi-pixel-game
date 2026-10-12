@@ -29,7 +29,7 @@ B build · E place / pick up / put down · T style · M manage · X/Delete to ba
   furniture), bag item (none for the shelter), where (indoor, outdoor, both), layer (`solid`, `floor`, `open`,
   `wall`), use, capacity, variants, cost, footprint half-sizes, build seconds, clearance gap. 44 kinds
   ([catalogue](../game-design/CONTENT-CATALOG.md)); placeables come from `src/content/placeables.ts`.
-- `Building` record: `{ id, kind, x, y, placedAt, seed, variant? }` (canvas coordinates in play; island-frame in the
+- `Building` record: `{ id, kind, x, y, placedAt, seed, variant?, level?, look?, upgradedAt? }` (the last three: the home, M8) (canvas coordinates in play; island-frame in the
   save).
 
 ## 6. State transitions
@@ -63,7 +63,7 @@ saved buildings (unknown kinds, bad numbers) are dropped one by one.
 (buildings preserved by growth), `tests/manta-world.test.ts`, `tests/visiting.test.ts` (refused for a visitor).
 
 ## 12. Known limitations
-No rotation or grid snapping beyond 2 px; house `level` (upgrades) is reserved in the data, not implemented.
+No rotation or grid snapping beyond 2 px. House levels, upgrades and looks: see [Housing](HOUSING.md) (M8).
 
 ## 13. Extension points
 New placeables are catalogue entries with an `art` generator; furniture grid and rotation are PLANNED.

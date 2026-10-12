@@ -8,7 +8,7 @@ import type { Direction } from '../blobbi/animation';
 import { PLOT_GRID, type Cell } from '../game/farming';
 import { ITEMS } from '../game/items';
 import { recipeById } from '../game/crafting';
-import { BUILDINGS, type BuildingKind } from '../game/buildings';
+import { BUILDINGS, footOf, type BuildingKind } from '../game/buildings';
 import type { ResourceKind } from '../game/resources';
 import { MAIN_QUESTS } from '../game/objectives';
 
@@ -69,7 +69,7 @@ function standable(live: LiveWorld, c: Cell): boolean {
 }
 
 /** Find a spot near the hub where a building of `kind` fits in front of the Blobbi (facing down); leaves it there. */
-export function findBuildSpot(live: LiveWorld, kind: BuildingKind, from: { x: number; y: number } = live.world.hubs[0], reach = 120): boolean {
+export function findBuildSpot(live: LiveWorld, kind: BuildingKind, from: { x: number; y: number } = live.world.hubs[0], reach = 120, roomFor?: number): boolean {
   for (let r = 0; r < reach; r += 4)
     for (let k = 0; k < 24; k++) {
       const a = (k / 24) * Math.PI * 2;
@@ -77,7 +77,8 @@ export function findBuildSpot(live: LiveWorld, kind: BuildingKind, from: { x: nu
       const y = Math.round(from.y + Math.sin(a) * r * 0.7);
       if (!live.collision.canStand(x, y, live.blobbi.footRx, live.blobbi.footRy)) continue;
       stand(live, x, y, 'down');
-      if (live.placementCheck(kind).ok) return true;
+      // `roomFor`: a house with room to grow to that level where it stands.
+      if (live.placementCheck(kind).ok && (!roomFor || live.placementCheck(kind, live.placementSpot(kind), roomFor).ok)) return true;
     }
   return false;
 }
@@ -333,5 +334,61 @@ export function playStory(live: LiveWorld, shot: LoopShots = () => {}): string[]
   }
   run(live, 60 * 3);
   shot('RESTORED');
+  growHome(live, shot);
   return QUESTS_MAIN_IDS.filter((id) => !(id in live.objectives.completed));
+}
+
+/** Pick the house up in management mode and put it down where its next level has room (same id: same rooms). */
+export function moveHouseForRoom(live: LiveWorld, level: number): boolean {
+  const house = live.home();
+  if (!house) return false;
+  stand(live, house.x, house.y + footOfRecord(house) + live.blobbi.footRy + 3, 'up');
+  if (!live.manage) live.toggleManage();
+  if (!live.pickUpToMove()) return false;
+  if (!findBuildSpot(live, 'shelter', live.world.hubs[0], 200, level)) {
+    live.cancelMove();
+    return false;
+  }
+  const ok = live.placeMoved();
+  if (live.manage) live.toggleManage();
+  return ok;
+}
+const footOfRecord = (b: { kind: string; level?: number }) => footOf(b).footRy;
+
+/**
+ * Chapter 4 (M8), as a player would: gather what the next house level costs (wood from trees, stones from the ground
+ * and the rocks, cloth woven at the workbench from wild fibre), find discoveries until there are enough, and upgrade
+ * the home at the HOME panel's rules (`LiveWorld.upgradeHouse`), twice.
+ */
+export function growHome(live: LiveWorld, shot: LoopShots = () => {}): void {
+  const inv = live.inventory;
+  for (let step = 0; step < 2; step++) {
+    const check = live.houseUpgrade();
+    if (!check.next) return;
+    const need = (item: string) => check.next!.cost.find((c) => c.item === item)?.quantity ?? 0;
+    live.equip(ITEMS.axe.id);
+    fellTrees(live, () => inv.count(ITEMS.wood.id) >= need(ITEMS.wood.id) + 2);
+    stonesUntil(live, need(ITEMS.stone.id));
+    const cloth = 'blobbi-pixel:material:cloth';
+    if (inv.count(cloth) < need(cloth)) {
+      gather(live, ['fibre'], () => inv.count('blobbi-pixel:resource:fibre') >= (need(cloth) - inv.count(cloth)) * 2, 400);
+      const bench = live.buildings.find((b) => b.kind === 'workbench');
+      if (bench) stand(live, bench.x, bench.y + BUILDINGS.workbench.footRy + live.blobbi.footRy + 2, 'up');
+      while (inv.count(cloth) < need(cloth) && live.craftRecipe(recipeById('blobbi-pixel:recipe:cloth')!)) run(live, 1);
+    }
+    // Discoveries for the Dream Home (finds, and the wonder they add to the island's harmony).
+    const enough = () => (check.next!.finds ?? 0) <= live.found.size && (check.next!.harmony ?? 0) <= live.harmony().value;
+    for (const d of live.discoveries) {
+      if (enough()) break;
+      if (live.found.has(d.id) || !live.collision.canStand(d.x, d.y + 3, live.blobbi.footRx, live.blobbi.footRy)) continue;
+      stand(live, d.x, d.y + 3, 'down');
+      pressUntil(live, () => live.found.has(d.id));
+    }
+    run(live, 2);
+    // No room to grow where it stands: move the house (management mode) to a spot with room, as a player would.
+    if (live.houseUpgrade().blocked?.includes('does not fit')) moveHouseForRoom(live, check.next.level);
+    if (!live.upgradeHouse().ok) return;
+    run(live, 60 * (check.next.buildSeconds + 2));
+    shot(check.next.level === 2 ? 'COTTAGE' : 'DREAM HOME');
+  }
 }

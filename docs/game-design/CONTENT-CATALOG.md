@@ -15,7 +15,7 @@
 | Placeable kinds (incl. the shelter) | 44 | `game/buildings.ts` `BUILDINGS` |
 | Recipes | 66 | `game/crafting.ts` `RECIPES` |
 | Meals | 19 | `content/meals.ts` |
-| Quests | 36 | `content/quests.ts` |
+| Quests | 38 | `content/quests.ts` |
 | Island requests | 8 | `content/quests.ts` `REQUEST_POOL` |
 | Lore notes | 19 | `content/lore.ts` |
 | Discoveries (island) | 8 | `content/discoveries.ts` |
@@ -373,6 +373,8 @@
 | `mystery` | main | 3 | Something that hums | home | a painting plan |
 | `carrier` | main | 3 | Listen to the Carrier | mystery | +3 sunflower seeds, a journal note, bookshelf and fishing rod plans |
 | `restore` | main | 3 | Begin restoring the island | carrier | two journal notes, the harvest feast recipe |
+| `cottage` | main | 4 | A bigger home | home, harvest | new roof and wall colours, room styles |
+| `dream-home` | main | 4 | The dream home | cottage, carrier | the last house styles, a journal note |
 | `improve` | side |  | Make it pretty | axe | storage crate plans, garden decoration plans |
 | `side-storage` | side |  | A place for everything | shelter | cabinet plans, +2 cloth |
 | `side-shells` | side |  | Shell seeker |  | wind chime and wall clock plans, +2 strawberry runners |

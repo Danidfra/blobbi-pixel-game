@@ -19,6 +19,8 @@ import { ITEMS } from './items';
 import { generateDecoration } from './decorations';
 import { ART } from './furniture-art';
 import { PLACEABLE_CONTENT, type Layer, type Use, type Where } from '../content/placeables';
+import { houseLevelInfo } from '../content/houses';
+import { drawCottage, drawDoor, drawDreamHome, drawWindow, resolveLook, roofRamp, wallRamp, type HouseLook, type ResolvedLook } from './house-art';
 
 /** A placeable's kind: the shelter, the M4 decorations, or any kind in `content/placeables.ts`. */
 export type BuildingKind = string;
@@ -216,10 +218,31 @@ export interface Building {
   seed: string;
   /** Colourway (rugs, beds, cushions...). */
   variant?: number;
+  /** A shelter's house level (M8): 1 Cozy Shelter (absent), 2 Cottage, 3 Dream Home. */
+  level?: number;
+  /** A shelter's look (M8): roof colour, wall material, door and window styles; absent parts use the level's own. */
+  look?: HouseLook;
+  /** World time an upgrade to `level` began (M8): the house is under construction until it is done. */
+  upgradedAt?: number;
+}
+
+/** A shelter's house level (1-3); every other kind is 1. */
+export const houseLevel = (b: { kind: BuildingKind; level?: number }): 1 | 2 | 3 => (b.kind === 'shelter' && (b.level === 2 || b.level === 3) ? b.level : 1);
+
+/** A record's ground footprint: its kind's, or a house's own for its level. */
+export function footOf(b: { kind: BuildingKind; level?: number }): { footRx: number; footRy: number } {
+  if (b.kind === 'shelter') {
+    const l = houseLevelInfo(houseLevel(b));
+    return { footRx: l.footRx, footRy: l.footRy };
+  }
+  const d = BUILDINGS[b.kind];
+  return { footRx: d.footRx, footRy: d.footRy };
 }
 
 /** Construction progress 0..1 at a world time. */
 export function buildingProgress(b: Building, worldTime: number): number {
+  // A house being upgraded is under construction again, for its new level's time.
+  if (b.kind === 'shelter' && b.upgradedAt !== undefined) return Math.max(0, Math.min(1, (worldTime - b.upgradedAt) / houseLevelInfo(houseLevel(b)).buildSeconds));
   const def = BUILDINGS[b.kind];
   if (def.buildSeconds <= 0) return 1;
   return Math.max(0, Math.min(1, (worldTime - b.placedAt) / def.buildSeconds));
@@ -280,16 +303,28 @@ const overlaps = (a: { x0: number; y0: number; x1: number; y1: number }, b: { x0
   a.x0 - margin <= b.x1 && a.x1 + margin >= b.x0 && a.y0 - margin <= b.y1 && a.y1 + margin >= b.y0;
 
 /** A building's footprint rectangle on the canvas (inclusive). */
-export function footprintRect(b: { kind: BuildingKind; x: number; y: number }): { x0: number; y0: number; x1: number; y1: number } {
-  const d = BUILDINGS[b.kind];
+export function footprintRect(b: { kind: BuildingKind; x: number; y: number; level?: number }): { x0: number; y0: number; x1: number; y1: number } {
+  const d = footOf(b);
   return { x0: Math.round(b.x) - d.footRx, y0: Math.round(b.y) - d.footRy, x1: Math.round(b.x) + d.footRx, y1: Math.round(b.y) + d.footRy };
 }
 
 /** The ground in front of a shelter's door, kept clear so the Blobbi can always walk in to sleep. */
-export function doorwayRect(b: { kind: BuildingKind; x: number; y: number }): { x0: number; y0: number; x1: number; y1: number } | null {
+export function doorwayRect(b: { kind: BuildingKind; x: number; y: number; level?: number }): { x0: number; y0: number; x1: number; y1: number } | null {
   if (b.kind !== 'shelter') return null;
-  const d = BUILDINGS.shelter;
-  return { x0: Math.round(b.x) - 6, y0: Math.round(b.y) + d.footRy + 1, x1: Math.round(b.x) + 6, y1: Math.round(b.y) + d.footRy + 12 };
+  const l = houseLevelInfo(houseLevel(b));
+  // In front of the door (the Cottage's door, and its porch step, are right of centre).
+  const cx = Math.round(b.x) + doorOffsetX(b);
+  return { x0: cx - l.doorHalf, y0: Math.round(b.y) + l.footRy + 1, x1: cx + l.doorHalf, y1: Math.round(b.y) + l.footRy + 12 };
+}
+
+/** Where the Blobbi stands at a shelter's door (outside, facing it). */
+export function doorSpot(b: { kind: BuildingKind; x: number; y: number; level?: number }, blobbiFootRy: number): { x: number; y: number } {
+  return { x: b.x + doorOffsetX(b), y: b.y + footOf(b).footRy + blobbiFootRy + 3 };
+}
+
+/** The door's x offset from the house's centre (the Cottage's door is right of centre). */
+export function doorOffsetX(b: { kind: BuildingKind; level?: number }): number {
+  return houseLevel(b) === 2 ? 4 : 0;
 }
 
 const blocksDoorway = (rect: { x0: number; y0: number; x1: number; y1: number }, buildings: readonly Building[]) =>
@@ -306,8 +341,8 @@ export const PLOT_CLEARANCE = 2;
  * must be buildable grass on one level, unblocked (no object footprint, water, rim or cliff), clear of other
  * buildings, of resource nodes and of the Blobbi.
  */
-export function checkPlacement(kind: BuildingKind, x: number, y: number, ctx: PlacementContext): PlacementCheck {
-  const def = BUILDINGS[kind];
+export function checkPlacement(kind: BuildingKind, x: number, y: number, ctx: PlacementContext, level?: number): PlacementCheck {
+  const def = { ...BUILDINGS[kind], ...footOf({ kind, level }) };
   const x0 = Math.round(x) - def.footRx;
   const x1 = Math.round(x) + def.footRx;
   const y0 = Math.round(y) - def.footRy;
@@ -317,7 +352,7 @@ export function checkPlacement(kind: BuildingKind, x: number, y: number, ctx: Pl
   if (x0 - 1 < 0 || y0 - 1 < 0 || x1 + 1 >= width || y1 + 1 >= height) return result('edge');
   // Other buildings first (their footprints also block, but "too close to a building" is the useful answer).
   for (const b of ctx.buildings) {
-    const d = BUILDINGS[b.kind];
+    const d = { ...BUILDINGS[b.kind], ...footOf(b) };
     const gap = Math.max(def.gap, d.gap);
     if (Math.abs(b.x - Math.round(x)) < def.footRx + d.footRx + gap && Math.abs(b.y - Math.round(y)) < def.footRy + d.footRy + gap) return result('building');
   }
@@ -327,7 +362,7 @@ export function checkPlacement(kind: BuildingKind, x: number, y: number, ctx: Pl
   const ground = checkGround(x0, y0, x1, y1, { x, y }, ctx);
   if (ground) return result(ground);
   // A shelter needs open, walkable ground in front of its door (on its own level), so the Blobbi can walk in.
-  const door = doorwayRect({ kind, x, y });
+  const door = doorwayRect({ kind, x, y, level });
   if (door) {
     const { width, height, cls, elevation } = ctx.world.terrain;
     const level = elevation[Math.round(y) * width + Math.round(x)];
@@ -383,11 +418,12 @@ const THATCH = ramp(hex('#c7a24c'), { step: 0.085, hueShift: 8 });
  * under construction: posts and a log pile first, then the walls rising, then the roof closing from the eaves
  * to the ridge. The seed decides the thatch's tone and the plank pattern; the shape is one design.
  */
-export function generateShelter(seed: string, size: number, palette: WorldPalette, progress = 1): Sprite {
+export function generateShelter(seed: string, size: number, palette: WorldPalette, progress = 1, look: ResolvedLook = resolveLook(1, undefined), lit = false): Sprite {
   const w = Math.max(16, Math.min(40, Math.round(size)));
   const rng = stream(seed, 'shelter');
-  const wood = palette.wood;
-  const thatch = rng.chance(0.5) ? THATCH : ramp(mix(hex('#c7a24c'), palette.trunk[0].mid, 0.35), { step: 0.085, hueShift: 8 });
+  const natural = rng.chance(0.5) ? THATCH : ramp(mix(hex('#c7a24c'), palette.trunk[0].mid, 0.35), { step: 0.085, hueShift: 8 });
+  const wood = wallRamp(look, palette);
+  const thatch = look.roof ? roofRamp(1, look, seed, palette) : natural;
   const wallH = Math.round(w * 0.42);
   const roofH = Math.round(w * 0.5);
   const eave = 2;
@@ -410,15 +446,20 @@ export function generateShelter(seed: string, size: number, palette: WorldPalett
     return lit ? wood.mid : mix(wood.mid, wood.dark, 0.35);
   });
   buf.hline(wallX, wallX + w - 1, wallTop, wood.dark);
-  // Doorway: open and dark, with a lintel.
+  // Doorway: open and dark, with a lintel (or the chosen door, M8).
   const doorW = Math.max(5, Math.round(w * 0.24));
   const doorH = Math.max(6, Math.round(wallH * 0.8));
   const doorX = wallX + Math.round(w / 2 - doorW / 2);
   const doorY = groundY - doorH;
-  buf.fillRect(doorX, doorY, doorW, doorH, mix(wood.outline, hex('#1b1410'), 0.6));
-  buf.hline(doorX - 1, doorX + doorW, doorY - 1, wood.light);
-  buf.vline(doorX - 1, doorY, groundY, wood.dark);
-  buf.vline(doorX + doorW, doorY, groundY, wood.dark);
+  if (look.door) drawDoor(buf, look.door, doorX, doorY, doorW, doorH, palette.wood, wood);
+  else {
+    buf.fillRect(doorX, doorY, doorW, doorH, mix(wood.outline, hex('#1b1410'), 0.6));
+    buf.hline(doorX - 1, doorX + doorW, doorY - 1, wood.light);
+    buf.vline(doorX - 1, doorY, groundY, wood.dark);
+    buf.vline(doorX + doorW, doorY, groundY, wood.dark);
+  }
+  // One window (M8), left of the door.
+  drawWindow(buf, look.window, wallX + Math.max(2, Math.round(w * 0.12)), wallTop + 3, 4, 3, palette.wood, lit);
   // Corner posts.
   buf.vline(wallX, wallTop, groundY, wood.dark);
   buf.vline(wallX + w - 1, wallTop, groundY, wood.dark);
@@ -490,12 +531,24 @@ const spriteCache = new Map<string, Sprite>();
 /** The sprite of a building at a construction progress (quantized), cached. */
 export function buildingSprite(b: Building, palette: WorldPalette, progress: number, scale = 1.6): Sprite {
   const q = quantizeProgress(progress);
-  const key = `${palette.name}|${b.kind}|${b.seed}|${b.variant ?? 0}|${q}|${scale}`;
+  const look = b.kind === 'shelter' ? resolveLook(houseLevel(b), b.look) : null;
+  const key = `${palette.name}|${b.kind}|${b.seed}|${b.variant ?? 0}|${q}|${scale}${look ? `|${houseLevel(b)}|${look.roof},${look.wall},${look.door},${look.window}` : ''}`;
   const hit = spriteCache.get(key);
   if (hit) return hit;
-  const sprite = b.kind === 'shelter' ? generateShelter(b.seed, Math.round(18 * scale), palette, q) : BUILDING_KINDS.includes(b.kind) ? generateDecoration(b.kind as never, b.seed, palette, q) : placeableSprite(b.kind, b.seed, palette, b.variant ?? 0, q);
+  const sprite = b.kind === 'shelter' ? houseSprite(b, palette, q, scale) : BUILDING_KINDS.includes(b.kind) ? generateDecoration(b.kind as never, b.seed, palette, q) : placeableSprite(b.kind, b.seed, palette, b.variant ?? 0, q);
   spriteCache.set(key, sprite);
   return sprite;
+}
+
+/** A house at its level and look: the shelter (level 1), the Cottage or the Dream Home. */
+export function houseSprite(b: Building, palette: WorldPalette, progress: number, scale = 1.6, lit = false): Sprite {
+  const level = houseLevel(b);
+  const look = resolveLook(level, b.look);
+  const size = Math.round(18 * scale);
+  if (level === 1) return generateShelter(b.seed, size, palette, progress, look, lit);
+  const art = level === 2 ? drawCottage(b.seed, size + 10, palette, look, progress, lit) : drawDreamHome(b.seed, size + 20, palette, look, progress, lit);
+  const foot = footOf(b);
+  return { buffer: art.buffer, anchorX: art.anchorX, anchorY: art.anchorY, footRx: foot.footRx, footRy: foot.footRy };
 }
 
 /**

@@ -8,7 +8,7 @@ import { hex } from '../core/color';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { paletteFor } from '../world/generate';
 import { BUILDINGS, buildingSprite } from '../game/buildings';
-import { isWallKind, roomSprite } from '../game/interior';
+import { isWallKind, layoutFor, roomSprite } from '../game/interior';
 import { attachTool, EQUIPMENT } from '../game/equipment';
 import type { LiveWorld } from '../sim/live-world';
 import { drawTinyText, type LiveRenderOptions, type SplitLayers } from './live-render';
@@ -32,13 +32,14 @@ export class InteriorRenderer {
   constructor(readonly live: LiveWorld) {}
 
   private room(): PixelBuffer {
-    const st = this.live.interior!.state.style;
+    const state = this.live.interior!.state;
+    const st = state.style;
     const palette = paletteFor(this.live.world.options.palette);
-    const key = `${st.floor}|${st.wall}|${this.sky}`;
+    const key = `${state.level}|${st.floor}|${st.wall}|${st.finish ?? 0}|${this.sky}`;
     let hit = this.roomCache.get(key);
     if (!hit) {
       if (this.roomCache.size > 8) this.roomCache.clear();
-      hit = roomSprite(st, palette, this.sky);
+      hit = roomSprite(st, palette, this.sky, layoutFor(state.level));
       this.roomCache.set(key, hit);
     }
     return hit;

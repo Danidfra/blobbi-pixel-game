@@ -13,7 +13,7 @@
  * input collects, crafts, builds, tills, plants, waters, harvests and feeds.
  */
 import { SimClock } from './clock';
-import { CollisionMap } from './collision';
+import { SOLID_KINDS, CollisionMap } from './collision';
 import { ParticleSystem } from './particles';
 import { stream, type Rng } from '../core/rng';
 import type { Sprite } from '../core/pixel';
@@ -38,11 +38,14 @@ import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
 import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, type RockCondition, type RockState } from '../game/rocks';
 import { RESPAWN_SECONDS } from '../game/resources';
 import type { RockSaveState } from '../game/persistence';
-import { BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
+import { houseLevelInfo, MAX_HOUSE_LEVEL, type HouseLevel } from '../content/houses';
+import { optionUnlocked, type UnlockContext } from '../content/home-styles';
+import type { HouseLook } from '../game/house-art';
+import { doorSpot, doorwayRect, footOf, footprintRect, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
-import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot } from '../game/farming';
+import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
 import { JOY, addHappiness, eat, isHungry, isRested, isTired, mood, newCare, pet as petCare, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
-import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally } from '../game/objectives';
+import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById } from '../game/objectives';
 import { nextDawn, clockLabel, lightAt, rainAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES } from '../content/discoveries';
@@ -52,7 +55,7 @@ import { FRIEND, FRIEND_TITLES, friendLevel, tastesFor, type Tastes } from '../g
 import { ALL_ITEMS } from '../game/items';
 import { FOODS, foodEffect, foodValue, itemPlural, toolTier } from '../game/items';
 import { COPPER_ORE, FISH_CONTENT } from '../content/tools';
-import { ROOM_W, ROOM_H, SPAWN, WALL_ANCHOR_Y, atDoor, checkInterior, isWallKind, newInterior, roomCollision, roomRect, type InteriorState } from '../game/interior';
+import { atDoor, checkInterior, isWallKind, layoutFor, newInterior, relocateFurniture, roomCollision, roomRect, type InteriorState, type RoomLayout } from '../game/interior';
 import { newContainer, transfer, type Container } from '../game/containers';
 import type { PointOfInterest } from './brain';
 import { TeleportController, type PresenceState } from '../game/teleport';
@@ -266,6 +269,19 @@ export interface InteriorScene {
 
 /** How long newly grown land stays lit after its reveal (simulated seconds). */
 export const REVEAL_GLOW_SECONDS = 3.5;
+
+/** What the next house level needs (see `LiveWorld.houseUpgrade`). */
+export interface HouseUpgradeCheck {
+  house: Building | null;
+  level: number;
+  next: HouseLevel | null;
+  requirements: { label: string; met: boolean; have?: number; need?: number }[];
+  ready: boolean;
+  /** Why it cannot happen even when every requirement is met (inside, does not fit...). */
+  blocked: string | null;
+  /** Pieces of furniture that would go back to the bag. */
+  displaced: number;
+}
 
 export interface LiveOptions {
   /** Where collected resources and the inventory persist; nothing persists without it. */
@@ -498,7 +514,7 @@ export class LiveWorld {
       const origin = this.origin;
       for (const b of save.buildings) {
         if (!isBuildingKind(b.kind)) continue;
-        const building: Building = { id: b.id, kind: b.kind, x: b.x + origin.x, y: b.y + origin.y, placedAt: b.placedAt, seed: b.seed, ...(b.variant ? { variant: b.variant } : {}) };
+        const building: Building = { id: b.id, kind: b.kind, x: b.x + origin.x, y: b.y + origin.y, placedAt: b.placedAt, seed: b.seed, ...(b.variant ? { variant: b.variant } : {}), ...(b.level ? { level: b.level } : {}), ...(b.look ? { look: { ...b.look } } : {}), ...(b.upgradedAt !== undefined ? { upgradedAt: b.upgradedAt } : {}) };
         this.buildings.push(building);
         this.blockBuilding(building);
         if (buildingProgress(building, this.worldTime) >= 1) this.completed.add(building.id);
@@ -577,7 +593,7 @@ export class LiveWorld {
   }
   /** What the camera frames: the room when inside. */
   sceneBounds(): { width: number; height: number } | null {
-    return this.interior ? { width: ROOM_W, height: ROOM_H } : null;
+    return this.interior ? { width: this.roomLayout.w, height: this.roomLayout.h } : null;
   }
 
   /** Discovery spots and the place to listen to the Carrier: from the world alone, the same every time. */
@@ -788,7 +804,7 @@ export class LiveWorld {
       if (at === undefined || now - at < RESPAWN_SECONDS[node.kind]) continue;
       if (this.islandCollision.isBlocked(node.x + 0.5, node.y + 0.5)) continue;
       if (this.plotByCell.has(cellKey(cellAt(node.x, node.y, this.origin)))) continue; // never on a field
-      if (this.buildings.some((r) => Math.abs(r.x - node.x) <= BUILDINGS[r.kind].footRx + 1 && Math.abs(r.y - node.y) <= BUILDINGS[r.kind].footRy + 1)) continue; // nor under a path or a rug
+      if (this.buildings.some((r) => Math.abs(r.x - node.x) <= footOf(r).footRx + 1 && Math.abs(r.y - node.y) <= footOf(r).footRy + 1)) continue; // nor under a path or a rug
       if (Math.abs(node.x - b.x) <= b.footRx + 2 && Math.abs(node.y - b.y) <= b.footRy + 2) continue;
       this.collectedAt.delete(node.id);
       this.collected.delete(node.id);
@@ -1417,7 +1433,7 @@ export class LiveWorld {
     let best: { x: number; y: number; d: number } | null = null;
     for (const s of this.buildings) {
       if (s.kind !== 'shelter' || this.buildingAt(s) < 1) continue;
-      const door = { x: s.x, y: s.y + BUILDINGS.shelter.footRy + b.footRy + 3 };
+      const door = doorSpot(s, b.footRy);
       const d = Math.hypot(door.x - b.x, door.y - b.y);
       if (!best || d < best.d) best = { ...door, d };
     }
@@ -2053,11 +2069,16 @@ export class LiveWorld {
 
   // ─── The house interior ─────────────────────────────────────────────────
 
+  /** The layout of the room the Blobbi is in (level 1 outside, for callers that ask anyway). */
+  get roomLayout(): RoomLayout {
+    return layoutFor(this.interior?.state.level);
+  }
+
   /** The interior of a shelter, made (and furnished once) on first use. */
   interiorOf(shelter: Building): InteriorState {
     let state = this.interiors.get(shelter.id);
     if (!state) {
-      state = newInterior(shelter.id, `${this.world.seed}/${shelter.id}/interior`);
+      state = newInterior(shelter.id, `${this.world.seed}/${shelter.id}/interior`, houseLevel(shelter));
       this.interiors.set(shelter.id, state);
     }
     return state;
@@ -2069,8 +2090,8 @@ export class LiveWorld {
     const state = this.interiorOf(shelter);
     const b = this.blobbi;
     this.interior = this.makeRoomScene(state);
-    b.x = SPAWN.x;
-    b.y = SPAWN.y;
+    b.x = this.roomLayout.spawn.x;
+    b.y = this.roomLayout.spawn.y;
     this.blobbi.animator.state.direction = 'up';
     this.swing = null;
     this.buildMode = null;
@@ -2097,7 +2118,7 @@ export class LiveWorld {
     const shelter = this.buildings.find((x) => x.id === scene.state.shelterId);
     const b = this.blobbi;
     if (shelter) {
-      const door = { x: shelter.x, y: shelter.y + BUILDINGS.shelter.footRy + b.footRy + 3 };
+      const door = doorSpot(shelter, b.footRy);
       const spot = this.islandCollision.nearestFree(door.x, door.y, b.footRx, b.footRy) ?? door;
       b.x = spot.x;
       b.y = spot.y;
@@ -2109,9 +2130,10 @@ export class LiveWorld {
   }
 
   private makeRoomScene(state: InteriorState): InteriorScene {
-    const collision = roomCollision(state.furniture);
+    const layout = layoutFor(state.level);
+    const collision = roomCollision(state.furniture, false, layout);
     // Navigation never plans through the door: autonomy stays inside; only the player walks out.
-    const nav = new NavGrid(roomCollision(state.furniture, true), this.blobbi.footRx, this.blobbi.footRy);
+    const nav = new NavGrid(roomCollision(state.furniture, true, layout), this.blobbi.footRx, this.blobbi.footRy);
     const brain = new Brain(`${this.world.seed}/${this.blobbi.seed}/${state.shelterId}`, nav, []);
     brain.enabled = this.islandBrain.enabled;
     brain.wants = () => ({ tired: isTired(this.care), rested: isRested(this.care), shelter: this.bedSpot() });
@@ -2123,8 +2145,9 @@ export class LiveWorld {
   private rebuildRoom(): void {
     const scene = this.interior;
     if (!scene) return;
-    scene.collision = roomCollision(scene.state.furniture);
-    const nav = new NavGrid(roomCollision(scene.state.furniture, true), this.blobbi.footRx, this.blobbi.footRy);
+    const layout = layoutFor(scene.state.level);
+    scene.collision = roomCollision(scene.state.furniture, false, layout);
+    const nav = new NavGrid(roomCollision(scene.state.furniture, true, layout), this.blobbi.footRx, this.blobbi.footRy);
     scene.nav.free.set(nav.free);
     this.structureVersion++;
   }
@@ -2296,7 +2319,7 @@ export class LiveWorld {
     }
     m.record.x = spot.x;
     m.record.y = spot.y;
-    if (!m.inside) this.trample(spot.x - BUILDINGS[m.record.kind].footRx, spot.y - BUILDINGS[m.record.kind].footRy, spot.x + BUILDINGS[m.record.kind].footRx, spot.y + BUILDINGS[m.record.kind].footRy);
+    if (!m.inside) this.trample(spot.x - footOf(m.record).footRx, spot.y - footOf(m.record).footRy, spot.x + footOf(m.record).footRx, spot.y + footOf(m.record).footRy);
     this.placedHere.push(m.record);
     this.moving = null;
     this.afterStructureChange();
@@ -2434,12 +2457,13 @@ export class LiveWorld {
     if (hit !== undefined) return hit;
     const points: { x: number; y: number }[] = [];
     if (this.interior) {
-      points.push({ x: SPAWN.x, y: SPAWN.y - 2 });
+      points.push({ x: this.roomLayout.spawn.x, y: this.roomLayout.spawn.y - 2 });
+      for (const room of this.roomLayout.rooms) points.push(room.anchor);
       const bed = this.bedSpot();
       if (bed) points.push(bed);
     } else {
       points.push(this.world.hubs[0] ?? { x: this.world.islands[0].cx, y: this.world.islands[0].cy });
-      for (const s of this.buildings) if (s.kind === 'shelter') points.push({ x: s.x, y: s.y + BUILDINGS.shelter.footRy + b.footRy + 3 });
+      for (const s of this.buildings) if (s.kind === 'shelter') points.push(doorSpot(s, b.footRy));
     }
     for (const r of this.placedHere) {
       const use = BUILDINGS[r.kind].use;
@@ -2503,7 +2527,7 @@ export class LiveWorld {
   placementSpot(kind: BuildingKind = this.previewKind ?? 'shelter'): { x: number; y: number } {
     const b = this.blobbi;
     // Indoors, wall items hang on the back wall above the Blobbi.
-    if (this.inside && isWallKind(kind)) return { x: Math.round(b.x / 2) * 2, y: WALL_ANCHOR_Y };
+    if (this.inside && isWallKind(kind)) return { x: Math.round(b.x / 2) * 2, y: this.roomLayout.wallAnchorY };
     const def = BUILDINGS[kind];
     const dir = b.animator.state.direction;
     const dx = dir === 'left' ? -(def.footRx + b.footRx + 4) : dir === 'right' ? def.footRx + b.footRx + 4 : 0;
@@ -2512,17 +2536,216 @@ export class LiveWorld {
   }
 
   /** The placement check for the current spot (or a given one). */
-  placementCheck(kind: BuildingKind = this.previewKind ?? 'shelter', spot = this.placementSpot(kind)): PlacementCheck {
-    const check = this.inside ? checkInterior(kind, spot.x, spot.y, this.interior!.state.furniture, this.blobbi) : this.islandPlacementCheck(kind, spot);
+  placementCheck(kind: BuildingKind = this.previewKind ?? 'shelter', spot = this.placementSpot(kind), level?: number): PlacementCheck {
+    const check = this.inside ? checkInterior(kind, spot.x, spot.y, this.interior!.state.furniture, this.blobbi, this.moving?.record, this.roomLayout) : this.islandPlacementCheck(kind, spot, level);
     // Solid things must never cut the way to a door, a chest or a workstation.
-    if (check.ok && BUILDINGS[kind].layer === 'solid' && this.cutsOffPath(this.inside ? roomRect({ kind, ...spot }) : { x0: check.x0, y0: check.y0, x1: check.x1, y1: check.y1 })) return { ...check, ok: false, problem: 'path' };
+    if (check.ok && BUILDINGS[kind].layer === 'solid' && this.cutsOffPath(this.inside ? roomRect({ kind, ...spot }, this.roomLayout) : { x0: check.x0, y0: check.y0, x1: check.x1, y1: check.y1 })) return { ...check, ok: false, problem: 'path' };
     return check;
   }
 
-  private islandPlacementCheck(kind: BuildingKind, spot: { x: number; y: number }): PlacementCheck {
+  private islandPlacementCheck(kind: BuildingKind, spot: { x: number; y: number }, level?: number): PlacementCheck {
     const def = BUILDINGS[kind];
     if (def.where === 'indoor') return { ok: false, problem: 'outdoor', x0: spot.x - def.footRx, y0: spot.y - def.footRy, x1: spot.x + def.footRx, y1: spot.y + def.footRy };
-    return checkPlacement(kind, spot.x, spot.y, this.placementContext());
+    // A house being moved keeps its level's footprint.
+    return checkPlacement(kind, spot.x, spot.y, this.placementContext(), kind === 'shelter' ? (level ?? this.moving?.record.level) : undefined);
+  }
+
+  // ─── House upgrades (M8) ────────────────────────────────────────────────
+
+  /** The player's home: the first shelter placed (the one the quests and upgrades are about), or null. */
+  home(): Building | null {
+    return this.buildings.find((b) => b.kind === 'shelter') ?? null;
+  }
+
+  /**
+   * What upgrading the home to its next level needs, and whether it can happen now. Every requirement is listed with
+   * whether it is met, so the HOME screen can show the way. Nothing changes here.
+   */
+  houseUpgrade(): HouseUpgradeCheck {
+    const house = this.home();
+    const level = house ? houseLevel(house) : 1;
+    const next = level < MAX_HOUSE_LEVEL ? houseLevelInfo(level + 1) : null;
+    const out: HouseUpgradeCheck = { house, level, next, requirements: [], ready: false, blocked: null, displaced: 0 };
+    if (!house || !next) return out;
+    const req = (label: string, met: boolean, have?: number, need?: number) => out.requirements.push({ label, met, ...(need !== undefined ? { have, need } : {}) });
+    const quest = next.quest ? objectiveById(next.quest) : undefined;
+    for (const id of quest?.requires ?? []) req(`${objectiveById(id)?.title ?? id} (quest)`, id in this.objectives.completed);
+    if (next.harmony) req('Island harmony', this.harmony().value >= next.harmony, Math.round(this.harmony().value), next.harmony);
+    if (next.finds) req('Discoveries found', this.found.size >= next.finds, this.found.size, next.finds);
+    for (const c of next.cost) req(itemPlural(c.item), this.inventory.count(c.item) >= c.quantity, this.inventory.count(c.item), c.quantity);
+    const met = out.requirements.every((r) => r.met);
+    if (this.buildingAt(house) < 1) out.blocked = 'the house is still being built';
+    else if (this.inside) out.blocked = 'step outside first: the builders need the house empty';
+    else if (this.visitor) out.blocked = 'only the island\'s own player can rebuild its house';
+    else {
+      const fit = this.upgradeFit(house, next.level);
+      if (!fit.ok) out.blocked = fit.reason;
+      else {
+        const plan = this.upgradeRooms(house, next.level);
+        out.displaced = plan?.displaced.length ?? 0;
+        if (plan && !plan.bagOk) out.blocked = 'the bag has no room for furniture the new rooms cannot hold';
+      }
+    }
+    out.ready = met && !out.blocked;
+    return out;
+  }
+
+  /**
+   * Does the bigger house fit where the house stands? Its neighbours keep their gaps, and the new ground (and the
+   * ground before its door) must be walkable, on the house's level and free of other things; a path or a meadow
+   * under it is fine (an upgrade grows over its own garden), loose sticks and stones are cleared away.
+   */
+  private upgradeFit(house: Building, level: number): { ok: boolean; reason: string | null } {
+    const next = { ...house, level };
+    const foot = footOf(next);
+    const no = (why: string) => ({ ok: false, reason: `the bigger house does not fit here: ${why} (move it, or clear around it)` });
+    for (const b of this.buildings) {
+      if (b === house) continue;
+      const d = footOf(b);
+      const gap = Math.max(BUILDINGS.shelter.gap, BUILDINGS[b.kind].gap);
+      if (Math.abs(b.x - house.x) < foot.footRx + d.footRx + gap && Math.abs(b.y - house.y) < foot.footRy + d.footRy + gap) return no(`too close to the ${BUILDINGS[b.kind].label}`);
+    }
+    const rect = footprintRect(next);
+    for (const p of this.plots) {
+      const o = this.origin;
+      const x0 = p.gx * PLOT_GRID + o.x;
+      const y0 = p.gy * PLOT_GRID + o.y;
+      if (x0 <= rect.x1 + 2 && x0 + PLOT_GRID - 1 >= rect.x0 - 2 && y0 <= rect.y1 + 2 && y0 + PLOT_GRID - 1 >= rect.y0 - 2) return no('a farm plot is there');
+    }
+    const { width, height, cls, elevation } = this.world.terrain;
+    const level0 = elevation[Math.round(house.y) * width + Math.round(house.x)];
+    const map = (this.baseCollisionForUpgrade ??= CollisionMap.fromWorld(this.world, (p) => this.spriteOf(p)));
+    const door = doorwayRect(next)!;
+    for (const r of [{ x0: rect.x0 - 1, y0: rect.y0 - 1, x1: rect.x1 + 1, y1: rect.y1 + 1 }, door])
+      for (let y = r.y0; y <= r.y1; y++)
+        for (let x = r.x0; x <= r.x1; x++) {
+          if (x < 0 || y < 0 || x >= width || y >= height) return no(PROBLEM_TEXT.edge);
+          const i = y * width + x;
+          if (!WALKABLE.has(cls[i]) || cls[i] === T.RIM || cls[i] === T.SKIN) return no(PROBLEM_TEXT.ground);
+          if (elevation[i] !== level0) return no('the ground is not level');
+          if (map.blocked[i]) {
+            const what = this.world.objects.find((o) => SOLID_KINDS.has(o.kind) && Math.abs(o.x - x) <= this.spriteOf(o).footRx + 1 && Math.abs(o.y - y) <= this.spriteOf(o).footRy + 1);
+            return no(what ? `a ${what.kind === 'decor' ? 'stone or stump' : what.kind} is in the way` : 'the ground there is not clear (water, a slope or a tree)');
+          }
+        }
+    return { ok: true, reason: null };
+  }
+  private baseCollisionForUpgrade: CollisionMap | null = null;
+
+  /** The new rooms for an upgrade: where each piece goes, what has no place, and whether the bag can take that. */
+  private upgradeRooms(house: Building, level: number): { placed: Building[]; displaced: Building[]; bagOk: boolean } | null {
+    const st = this.interiors.get(house.id);
+    if (!st) return null; // never entered: the rooms are furnished when first entered, at the new level
+    const hasItems = (f: Building) => (this.containers.get(`room/${house.id}/${f.id}`)?.inventory.total() ?? 0) > 0;
+    const r = relocateFurniture(st.furniture, layoutFor(st.level), layoutFor(level), this.blobbi, hasItems);
+    // A piece that holds things never goes to the bag; any other must fit there.
+    const counts = new Map<string, number>();
+    let bagOk = r.displaced.every((f) => !hasItems(f) && !!BUILDINGS[f.kind].item);
+    for (const f of r.displaced) counts.set(BUILDINGS[f.kind].item ?? '', (counts.get(BUILDINGS[f.kind].item ?? '') ?? 0) + 1);
+    for (const [item, n] of counts) if (item && this.inventory.count(item) + n > this.inventory.limit(item)) bagOk = false;
+    return { ...r, bagOk };
+  }
+
+  /**
+   * Upgrade the home (after the player confirmed): pay from the bag, raise the new level over its construction time,
+   * move the furniture into the new rooms (anything without a place goes back into the bag, never lost), add the new
+   * rooms' gift, and save. Returns why not when it cannot happen; nothing changes then.
+   */
+  upgradeHouse(): { ok: boolean; reason: string | null } {
+    if (this.denied('build')) return { ok: false, reason: 'not on this island' };
+    const check = this.houseUpgrade();
+    if (!check.house || !check.next) return { ok: false, reason: check.house ? 'the house is as grand as it gets' : 'build a shelter first' };
+    if (!check.ready) return { ok: false, reason: check.blocked ?? `still needed: ${check.requirements.filter((r) => !r.met).map((r) => r.label.toLowerCase()).join(', ')}` };
+    const house = check.house;
+    const next = check.next;
+    const plan = this.upgradeRooms(house, next.level);
+    if (!consumeIngredients(this.inventory, next.cost)) return { ok: false, reason: 'the bag is short' };
+    house.level = next.level;
+    house.upgradedAt = this.worldTime;
+    this.completed.delete(house.id);
+    const st = this.interiors.get(house.id);
+    if (st && plan) {
+      st.furniture = plan.placed;
+      st.level = next.level;
+      for (const f of plan.displaced) this.inventory.add(BUILDINGS[f.kind].item!, 1);
+    }
+    let gift = '';
+    if (next.gift && BUILDINGS[next.gift]) {
+      const giftItem = BUILDINGS[next.gift].item!;
+      const placed = st ? this.placeGift(st, next.gift) : false;
+      if (placed) gift = `, and a ${BUILDINGS[next.gift].label} in the new rooms`;
+      else if (this.inventory.add(giftItem, 1) === 1) gift = `, and a ${BUILDINGS[next.gift].label} (in the bag)`;
+    }
+    this.baseCollisionForUpgrade = null;
+    this.afterStructureChange();
+    this.trample(house.x - footOf(house).footRx, house.y - footOf(house).footRy, house.x + footOf(house).footRx, house.y + footOf(house).footRy, true);
+    // The Blobbi steps out of the new walls if it stood where they rise.
+    const b = this.blobbi;
+    if (!this.islandCollision.canStand(b.x, b.y, b.footRx, b.footRy)) {
+      const spot = this.islandCollision.nearestFree(doorSpot(house, b.footRy).x, doorSpot(house, b.footRy).y, b.footRx, b.footRy);
+      if (spot) Object.assign(b, { x: spot.x, y: spot.y });
+    }
+    this.tally.built++;
+    this.stats.built++;
+    this.sound('place');
+    this.notices.push({ heading: 'Home', title: `Building the ${next.name}`, text: `the builders are at work${gift}`, until: Math.max(this.clock.time, this.notices.at(-1)?.until ?? 0) + 3.5 });
+    b.animator.react('excited', this.clock.time, 1.2, 3);
+    this.save();
+    return { ok: true, reason: null };
+  }
+
+  // ─── Home customisation (M8) ──────────────────────────────────────────
+
+  /** What the player has earned so far, for the style unlocks (`content/home-styles.ts`). */
+  styleContext(): UnlockContext {
+    const house = this.home();
+    return { completed: this.objectives.completed, found: this.found.size, tally: this.tally, growthStage: this.growth.stage, houseLevel: house ? houseLevel(house) : 1 };
+  }
+
+  /** Apply a look to the home (every part must be unlocked); false (and nothing changes) otherwise. */
+  setHouseLook(look: HouseLook): { ok: boolean; reason: string | null } {
+    if (this.denied('build')) return { ok: false, reason: 'not on this island' };
+    const house = this.home();
+    if (!house) return { ok: false, reason: 'build a shelter first' };
+    const ctx = this.styleContext();
+    const next: HouseLook = {};
+    for (const part of ['roof', 'wall', 'door', 'window'] as const) {
+      const v = look[part];
+      if (v === undefined) continue;
+      if (!optionUnlocked(part, v, ctx)) return { ok: false, reason: `that ${part} is not unlocked yet` };
+      next[part] = v;
+    }
+    house.look = next;
+    this.structureVersion++;
+    this.sound('place');
+    this.save();
+    return { ok: true, reason: null };
+  }
+
+  /** Apply a room style to the home's interior (floor, wall colour, finish; each must be unlocked). */
+  setRoomStyle(style: { floor: number; wall: number; finish?: number }): { ok: boolean; reason: string | null } {
+    if (this.denied('build')) return { ok: false, reason: 'not on this island' };
+    const house = this.home();
+    if (!house) return { ok: false, reason: 'build a shelter first' };
+    const ctx = this.styleContext();
+    if (!optionUnlocked('floor', style.floor, ctx) || !optionUnlocked('wallColour', style.wall, ctx) || !optionUnlocked('finish', style.finish ?? 0, ctx)) return { ok: false, reason: 'that style is not unlocked yet' };
+    const st = this.interiorOf(house);
+    st.style = { floor: style.floor, wall: style.wall, ...(style.finish ? { finish: style.finish } : {}) };
+    this.structureVersion++;
+    this.sound('place');
+    this.save();
+    return { ok: true, reason: null };
+  }
+
+  /** Put an upgrade's gift in its preferred room (no possession is ever moved for it). */
+  private placeGift(st: InteriorState, kind: BuildingKind): boolean {
+    const n = st.furniture.filter((f) => f.kind === kind).reduce((m, f) => Math.max(m, Number(f.id.split(':').pop()) + 1 || 0), 0);
+    const gift: Building = { id: `${kind}:${n}`, kind, x: -1, y: -1, placedAt: this.worldTime, seed: `${this.world.seed}/${st.shelterId}/${kind}/${n}` };
+    const r = relocateFurniture([...st.furniture, gift], layoutFor(st.level), layoutFor(st.level), this.blobbi, (f) => f !== gift);
+    const placed = r.placed.find((f) => f.id === gift.id);
+    if (!placed || r.displaced.length || r.placed.some((f) => { const o = st.furniture.find((x) => x.id === f.id); return o && (o.x !== f.x || o.y !== f.y); })) return false;
+    st.furniture.push(placed);
+    return true;
   }
 
   /** Can the bag pay for a building? */
@@ -2586,10 +2809,10 @@ export class LiveWorld {
   }
 
   /** Wild forage under a new footprint is gone (not collected); it grows back only once the spot is free again. */
-  private trample(x0: number, y0: number, x1: number, y1: number): void {
+  private trample(x0: number, y0: number, x1: number, y1: number, all = false): void {
     let changed = false;
     for (const n of this.resources) {
-      if ((BASIC_KINDS as readonly string[]).includes(n.kind) || n.x < x0 - 1 || n.x > x1 + 1 || n.y < y0 - 1 || n.y > y1 + 1) continue;
+      if ((!all && (BASIC_KINDS as readonly string[]).includes(n.kind)) || n.x < x0 - 1 || n.x > x1 + 1 || n.y < y0 - 1 || n.y > y1 + 1) continue;
       this.collected.add(n.id);
       this.collectedAt.set(n.id, this.worldTime);
       changed = true;
@@ -2599,7 +2822,7 @@ export class LiveWorld {
 
   /** Add a record to the island: blocks collision (when solid) and updates navigation around it. */
   private addBuilding(building: Building): void {
-    const def = BUILDINGS[building.kind];
+    const def = footOf(building);
     this.trample(building.x - def.footRx, building.y - def.footRy, building.x + def.footRx, building.y + def.footRy);
     this.buildings.push(building);
     this.blockBuilding(building);
@@ -2672,9 +2895,9 @@ export class LiveWorld {
   }
 
   private blockBuilding(b: Building): void {
-    const def = BUILDINGS[b.kind];
-    if (def.layer !== 'solid') return; // rugs, paths and arches are walked over or under
-    this.islandCollision.blockEllipse(b.x, b.y, def.footRx, def.footRy, true);
+    if (BUILDINGS[b.kind].layer !== 'solid') return; // rugs, paths and arches are walked over or under
+    const foot = footOf(b);
+    this.islandCollision.blockEllipse(b.x, b.y, foot.footRx, foot.footRy, true);
   }
 
   /** What the Blobbi walks on, for footsteps: wood indoors, else the island's ground. */
@@ -2933,7 +3156,13 @@ export class LiveWorld {
           for (let i = 0; i < 5; i++) this.particles.sparkle(building.x + this.particles.rng.range(-def.footRx, def.footRx), building.y - this.particles.rng.range(4, def.category === 'building' ? 18 : 8), hex('#fff2b0'));
           const top = building.y - buildingSprite(building, palette, 1, this.world.options.scale).anchorY;
           this.particles.heart(building.x, top - 2);
-          this.bubble = { text: `${def.label} finished!`, until: this.clock.time + 2.2, x: building.x, y: top - 4 };
+          const name = building.kind === 'shelter' && building.upgradedAt !== undefined ? `your ${houseLevelInfo(houseLevel(building)).name}` : def.label;
+          this.bubble = { text: `${name} finished!`, until: this.clock.time + 2.2, x: building.x, y: top - 4 };
+          if (building.kind === 'shelter' && building.upgradedAt !== undefined && building.upgradedAt > 0) {
+            // A grander home: a burst of sparkles over the whole house, and a chime.
+            for (let i = 0; i < 18; i++) this.particles.sparkle(building.x + this.particles.rng.range(-footOf(building).footRx - 4, footOf(building).footRx + 4), building.y - this.particles.rng.range(2, 40), hex(i % 3 ? '#fff2b0' : '#ffd0f0'));
+            this.sound('quest');
+          }
           addHappiness(this.care, JOY.built);
         }
         continue;
@@ -2958,12 +3187,12 @@ export class LiveWorld {
     const trees: Record<string, TreeSaveState> = {};
     for (const [index, t] of [...this.trees.entries()].sort((a, b) => a[0] - b[0])) if (t.hits > 0 || t.harvestedAt !== null) trees[String(index)] = { hits: t.hits, harvestedAt: t.harvestedAt };
     const origin = this.origin;
-    const record = (b: Building, dx = 0, dy = 0) => ({ id: b.id, kind: b.kind, x: b.x - dx, y: b.y - dy, placedAt: b.placedAt, seed: b.seed, ...(b.variant ? { variant: b.variant } : {}) });
+    const record = (b: Building, dx = 0, dy = 0) => ({ id: b.id, kind: b.kind, x: b.x - dx, y: b.y - dy, placedAt: b.placedAt, seed: b.seed, ...(b.variant ? { variant: b.variant } : {}), ...(b.level ? { level: b.level } : {}), ...(b.look ? { look: { ...b.look } } : {}), ...(b.upgradedAt !== undefined ? { upgradedAt: b.upgradedAt } : {}) });
     // A record being moved is saved where it was picked up from, so a reload mid-move loses nothing.
     const moved = this.moving ? { ...this.moving.record, x: this.moving.from.x, y: this.moving.from.y } : null;
     const islandList = moved && !this.moving!.inside ? [...this.buildings, moved] : this.buildings;
     const buildings = islandList.map((b) => record(b, origin.x, origin.y));
-    const interiors: Record<string, { furniture: ReturnType<typeof record>[]; style: { floor: number; wall: number }; level: number }> = {};
+    const interiors: Record<string, { furniture: ReturnType<typeof record>[]; style: { floor: number; wall: number; finish?: number }; level: number }> = {};
     for (const [id, st] of this.interiors) {
       const furniture = moved && this.moving!.inside && this.interior?.state === st ? [...st.furniture, moved] : st.furniture;
       interiors[id] = { furniture: furniture.map((f) => record(f)), style: { ...st.style }, level: st.level };
@@ -3216,7 +3445,7 @@ export class LiveWorld {
       else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
     }
     // Walking into the door gap leaves the house.
-    if (this.interior && atDoor(b.x, b.y)) this.exitInterior();
+    if (this.interior && atDoor(b.x, b.y, this.roomLayout)) this.exitInterior();
     this.stepConstruction(dt);
     this.stepRespawn(dt);
     this.stepFarm(dt);
