@@ -167,7 +167,8 @@ export class IntroCinematic {
     this.bare = bareCarrierLayer(this.live.world);
     this.land = terrainOnlyLayer(this.live.world, turtleUnderlay(this.live.world, { head: false, flippers: false }));
     this.formation = formation(this.live.world, this.bare, this.land);
-    this.sea = new OpenSea(this.live.world, this.palette);
+    // The game's own open sea (one set of tiles for the frame beneath and the water painted over it).
+    this.sea = ctx.renderer.openSea();
     this.audio = new IntroAudio(opts.audio ?? null, this.live.world.seed);
     this.renderOptions = { ...(opts.renderOptions ?? DEFAULT_LIVE_OPTIONS), hud: false, debugCollision: false, debugPath: false };
     this.uiScale = opts.uiScale ?? 2;

@@ -131,5 +131,24 @@ export const GROWTH_DISCOVERIES: readonly GrowthDiscoveryContent[] = [
   },
 ];
 
-/** Every discovery, the island's and the grown land's (journal, notes). */
-export const ALL_DISCOVERIES: readonly DiscoveryContent[] = [...DISCOVERY_CONTENT, ...GROWTH_DISCOVERIES];
+/**
+ * Sea discoveries (M10): not things lying on the ground but meetings with marine life (`src/game/marine-life.ts`),
+ * each found once, the first time it happens, with a keepsake for the bag and a note for the journal.
+ */
+export const SEA_DISCOVERIES: readonly DiscoveryContent[] = [
+  {
+    id: 'sea:seal',
+    terrain: 'beach',
+    lore: 'curious-seal',
+    item: special('seal-sea-glass', 'seal\'s sea glass', 'A frosted green pebble of glass, worn smooth. The curious seal left it on the sand for you.', ['..gg..', '.gGgg.', 'gGgggg', 'gggggg', '.gggg.'], { g: '#7ac8a8', G: '#d8fff0' }),
+  },
+  {
+    id: 'sea:glowray',
+    terrain: 'beach',
+    lore: 'glowing-ray',
+    item: special('glowray-sketch', 'night-lamp sketch', 'A quick drawing of the glowing ray, made by moonlight. Read it.', ['pppppp', 'pbbbbp', 'pbcCbp', 'pbCcbp', 'pbbbbp', 'pppppp'], { p: '#f3e3c3', b: '#3a4a7a', c: '#7ae8f0', C: '#e8ffff' }),
+  },
+];
+
+/** Every discovery, the island's, the grown land's and the sea's (journal, notes). */
+export const ALL_DISCOVERIES: readonly DiscoveryContent[] = [...DISCOVERY_CONTENT, ...GROWTH_DISCOVERIES, ...SEA_DISCOVERIES];

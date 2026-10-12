@@ -22,7 +22,7 @@ import { QUEST_CONTENT, REQUEST_POOL, type Goal, type QuestContent, type QuestRe
 /** What the player has done on this island (only the player's own actions count; autonomy never adds here). */
 export type Tally = Record<TallyKey, number>;
 
-const TALLY_KEYS: readonly TallyKey[] = ['collected', 'crafted', 'axesCrafted', 'felled', 'mined', 'plots', 'planted', 'watered', 'harvested', 'fed', 'petted', 'built', 'decorations', 'entered', 'furnished', 'stored', 'cooked', 'mealsFed', 'discoveries', 'looked', 'sat', 'played', 'talked', 'flowers', 'shells', 'foraged', 'favourites', 'fished'];
+const TALLY_KEYS: readonly TallyKey[] = ['collected', 'crafted', 'axesCrafted', 'felled', 'mined', 'plots', 'planted', 'watered', 'harvested', 'fed', 'petted', 'built', 'decorations', 'entered', 'furnished', 'stored', 'cooked', 'mealsFed', 'discoveries', 'looked', 'sat', 'played', 'talked', 'flowers', 'shells', 'foraged', 'favourites', 'fished', 'waved'];
 
 export const newTally = (): Tally => Object.fromEntries(TALLY_KEYS.map((k) => [k, 0])) as Tally;
 

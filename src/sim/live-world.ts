@@ -50,7 +50,8 @@ import { JOY, addHappiness, eat, isHungry, isRested, isTired, mood, newCare, pet
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { nextDawn, clockLabel, lightAt, rainAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
-import { ALL_DISCOVERIES } from '../content/discoveries';
+import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
+import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
 import { GENERATOR_VERSION } from '../game/archipelago';
 import { placeDiscoveries, type DiscoverySpot } from '../game/discoveries';
 import { FRIEND, FRIEND_TITLES, friendLevel, tastesFor, type Tastes } from '../game/friendship';
@@ -574,7 +575,7 @@ export class LiveWorld {
       this.care = save.care;
       this.companion = { care: this.care, friendship: save.companion.friendship, tasted: new Set(save.companion.tasted) };
       this.useCompanion(this.blobbi.seed);
-      for (const id of save.found) if (this.discoveries.some((d) => d.id === id)) this.found.add(id);
+      for (const id of save.found) if (this.discoveries.some((d) => d.id === id) || SEA_DISCOVERIES.some((d) => d.id === id)) this.found.add(id);
       this.tally = save.tally;
       this.objectives = save.objectives;
       for (const [id, v] of Object.entries(save.interiors)) {
@@ -1918,6 +1919,93 @@ export class LiveWorld {
     return ALL_DISCOVERIES.find((d) => d.item.id === item)?.lore ?? null;
   }
 
+  // ─── Marine life (M10): scenery, and a seal and a ray to meet ─────────────
+
+  /** The sea's creatures (a pure function of the world and world time; nothing is saved). Made when first asked. */
+  get marine(): MarineLife {
+    // The seal's spots read the island's standable ground as it is the first time the sea is asked about.
+    return (this.marineLife ??= new MarineLife(this.world, this.shoreSpots, (x, y) => this.islandCollision.canStand(x, y, this.blobbi.footRx, this.blobbi.footRy)));
+  }
+  private marineLife: MarineLife | null = null;
+  private marineAt: { t: number; list: Sighting[] } = { t: NaN, list: [] };
+  /** The seal rolling over after a wave: which appearance, until when (clock time). */
+  sealHappy: { id: string; until: number } | null = null;
+
+  /** What swims in the sea now. */
+  sightings(): Sighting[] {
+    const t = this.worldTime;
+    if (this.marineAt.t !== t) this.marineAt = { t, list: this.inside ? [] : this.marine.at(t) };
+    return this.marineAt.list;
+  }
+
+  /** The seal or the glowing ray close enough to greet (the Blobbi outdoors), or null. */
+  nearbyMarine(): Sighting | null {
+    if (this.inside) return null;
+    const b = this.blobbi;
+    let best: { s: Sighting; d: number } | null = null;
+    for (const s of this.sightings()) {
+      if (s.kind !== 'seal' && s.kind !== 'glowray') continue;
+      const d = Math.hypot(s.x - b.x, s.y - b.y);
+      if (d > (s.kind === 'seal' ? SEAL_REACH : RAY_REACH)) continue;
+      if (!best || d < best.d) best = { s, d };
+    }
+    return best?.s ?? null;
+  }
+
+  /**
+   * E by the seal: wave (it rolls over, delighted); by the glowing ray: watch it. The first meeting of each is a
+   * discovery (a keepsake and a journal note); waves count toward "Sea friends". Returns whether E was spent.
+   */
+  greetMarine(): boolean {
+    const s = this.nearbyMarine();
+    if (!s) return false;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    const say = (text: string) => (this.bubble = { text, until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size });
+    b.animator.state.direction = Math.abs(s.x - b.x) > Math.abs(s.y - b.y) ? (s.x > b.x ? 'right' : 'left') : s.y > b.y ? 'down' : 'up';
+    this.brain.manual(time);
+    if (s.kind === 'seal') {
+      if (this.sealHappy?.id === s.id && time < this.sealHappy.until) return true; // still rolling
+      this.sealHappy = { id: s.id, until: time + 1.6 };
+      say(['hello, seal!', 'hi there!', 'look, it waves back!', 'splash!'][this.tally.waved % 4]);
+      b.animator.react('happy', time, 1.2, 3);
+      this.islandParticles.ripple(s.x, s.y, hex('#eaf8ff'));
+      this.particles.heart(s.x, s.y - 6);
+      this.sound('curious');
+      if (!this.visitor) {
+        this.tally.waved++;
+        addHappiness(this.care, 2);
+        this.meetAtSea('sea:seal', s);
+        this.save();
+      }
+      return true;
+    }
+    say(['it glows...', 'so pretty', 'a night-lamp!', 'shhh, look'][Math.floor(time) % 4]);
+    b.animator.react('surprised', time, 0.8, 2);
+    for (let i = 0; i < 6; i++) this.islandParticles.sparkle(s.x + this.particles.rng.range(-8, 8), s.y + this.particles.rng.range(-4, 4), i % 2 ? hex('#7ae8f0') : hex('#e8ffff'));
+    if (!this.visitor) {
+      addHappiness(this.care, 3);
+      this.meetAtSea('sea:glowray', s);
+      this.save();
+    }
+    return true;
+  }
+
+  /** A first meeting at sea: a discovery, as finding something on the island is. */
+  private meetAtSea(id: string, s: Sighting): void {
+    if (this.found.has(id)) return;
+    const d = SEA_DISCOVERIES.find((c) => c.id === id)!;
+    const time = this.clock.time;
+    this.found.add(id);
+    this.inventory.add(d.item.id, 1);
+    this.tally.discoveries++;
+    this.learn(d.lore);
+    for (let i = 0; i < 8; i++) this.particles.sparkle(s.x + this.particles.rng.range(-6, 6), s.y - this.particles.rng.range(0, 8), i % 2 ? hex('#fff2b0') : hex('#d8f1ff'));
+    this.notices.push({ heading: 'Discovery', title: d.item.label, text: 'a new note in the journal (J)', until: (this.notices.at(-1)?.until ?? time) + 3 });
+    this.addFriendship(1);
+    this.sound('discover');
+  }
+
   /** Close enough to the turtle's head to listen (at the shore in front of it). */
   nearCarrier(): boolean {
     const s = this.listenSpot;
@@ -2320,6 +2408,8 @@ export class LiveWorld {
     if (this.nearestDiscovery()) return 'E  pick up something glinting';
     const node = this.nearestResource();
     if (node) return `E  pick up the ${RESOURCE_SINGULAR[node.kind] ?? node.kind}`;
+    const sea = this.fishing ? null : this.nearbyMarine();
+    if (sea) return sea.kind === 'seal' ? 'E  wave to the seal' : 'E  watch the glowing ray';
     const farm = this.farmAction();
     if (farm) {
       const t = this.worldTime;
@@ -3836,7 +3926,7 @@ export class LiveWorld {
       else if (this.placing) this.placeFromBag();
       else if (this.buildMode) this.placeBuilding();
       else if (this.inside) this.interact();
-      else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
+      else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.greetMarine() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
     }
     // Walking into the door gap leaves the house.
     if (this.interior && atDoor(b.x, b.y, this.roomLayout)) this.exitInterior();

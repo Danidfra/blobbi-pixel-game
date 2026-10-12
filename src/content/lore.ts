@@ -113,6 +113,16 @@ export const LORE: readonly LoreNote[] = [
     title: 'Sanctuary',
     text: 'The land reaches almost to the Carrier\'s edges now, and the old Keepers had a word for an island like this: a sanctuary. The Carrier swims slower, as if it does not want to spill anything.',
   },
+  {
+    id: 'curious-seal',
+    title: 'The curious seal',
+    text: 'A grey seal with enormous eyes keeps coming up by the shore to see what the Blobbi is doing. When you wave, it rolls over in the water, delighted. It left a piece of sea glass on the sand, as if returning the favour.',
+  },
+  {
+    id: 'glowing-ray',
+    title: 'The glowing ray',
+    text: 'Some nights a ray glides past the Carrier, faintly lit from inside like a lantern under the water. The old pages call them night-lamps and say they follow Carriers to eat what drifts in their wake. Seeing one is good luck.',
+  },
 ];
 
 export const loreById = (id: string): LoreNote | undefined => LORE.find((l) => l.id === id);

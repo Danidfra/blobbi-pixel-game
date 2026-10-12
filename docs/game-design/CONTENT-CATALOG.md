@@ -9,15 +9,15 @@
 
 | Content | Count | Source |
 |---|---|---|
-| Items | 121 | `game/items.ts` `ALL_ITEMS` |
+| Items | 123 | `game/items.ts` `ALL_ITEMS` |
 | Crops | 11 | `content/crops.ts` |
 | Forage kinds | 5 | `content/forage.ts` |
 | Placeable kinds (incl. the shelter) | 44 | `game/buildings.ts` `BUILDINGS` |
 | Recipes | 66 | `game/crafting.ts` `RECIPES` |
 | Meals | 19 | `content/meals.ts` |
-| Quests | 38 | `content/quests.ts` |
+| Quests | 39 | `content/quests.ts` |
 | Island requests | 8 | `content/quests.ts` `REQUEST_POOL` |
-| Lore notes | 20 | `content/lore.ts` |
+| Lore notes | 22 | `content/lore.ts` |
 | Discoveries (island) | 8 | `content/discoveries.ts` |
 | Discoveries (grown land) | 6 | `content/discoveries.ts` `GROWTH_DISCOVERIES` |
 | Fish | 4 | `content/tools.ts` |
@@ -162,7 +162,7 @@
 | wooden bench | `blobbi-pixel:furniture:bench` | 10 | places: bench |
 | storage crate | `blobbi-pixel:furniture:crate` | 10 | places: crate |
 
-### Special (14)
+### Special (16)
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
@@ -180,6 +180,8 @@
 | blue sea glass | `blobbi-pixel:special:sea-glass` | 1 |  |
 | glowcap | `blobbi-pixel:special:glowcap` | 1 |  |
 | golden seed | `blobbi-pixel:special:golden-seed` | 1 |  |
+| seal's sea glass | `blobbi-pixel:special:seal-sea-glass` | 1 |  |
+| night-lamp sketch | `blobbi-pixel:special:glowray-sketch` | 1 |  |
 
 ## Crops
 
@@ -389,6 +391,7 @@
 | `side-cozy` | side |  | Cozy corner | home | +4 cloth |
 | `side-miner` | side |  | Deeper stone |  | +3 copper ore, copper tool upgrades |
 | `side-angler` | side |  | Gone fishing | carrier | fish recipes, +2 wild herbs |
+| `side-sea-friends` | side |  | Sea friends | carrier | a seal that knows you |
 | `side-favourite` | side |  | A favourite treat | feed | a happy Blobbi |
 | `discover-bottle` | discovery |  | A message from far away |  | music box plans |
 | `discover-pages` | discovery |  | The Keeper's pages |  | +2 cloth |
@@ -450,6 +453,8 @@
 | `new-rocky` | The rocky garden |
 | `new-grove` | The deep green |
 | `new-sanctuary` | Sanctuary |
+| `curious-seal` | The curious seal |
+| `glowing-ray` | The glowing ray |
 
 ## Fishing and tool upgrades
 

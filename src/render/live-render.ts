@@ -21,6 +21,7 @@ import { ITEMS } from '../game/items';
 import { attachTool, toolIcon, EQUIPMENT, type Attachment } from '../game/equipment';
 import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { OpenSea } from './open-sea';
+import { drawMarine } from './marine-render';
 import { BUILDINGS, buildingSprite } from '../game/buildings';
 import { drawPlacementOverlay } from './placement-overlay';
 import { itemIcon } from '../ui/icons';
@@ -124,6 +125,11 @@ export class LiveRenderer {
   readonly timings: FrameTimings = { copy: 0, water: 0, objects: 0, particles: 0, total: 0, drawn: 0 };
   /** The open sea beyond the world's edge (made with the first frame that shows any). */
   private sea: OpenSea | null = null;
+
+  /** The renderer's open sea, shared with whoever else paints this world's water (the intro cinematic). */
+  openSea(): OpenSea {
+    return (this.sea ??= new OpenSea(this.live.world, paletteFor(this.live.world.options.palette)));
+  }
 
   /** During a growth reveal: the layer before and after this stage's new land (see LiveWorld.startReveal). */
   private revealFrom: PixelBuffer | null = null;
@@ -271,7 +277,7 @@ export class LiveRenderer {
     }
 
     // ── Beyond the world's edge: the open sea, seamless with the world's own deep water (M10) ──
-    (this.sea ??= new OpenSea(world, palette)).paintBeyond(frame, ox, oy, o.animateWater ? time : 0);
+    this.openSea().paintBeyond(frame, ox, oy, o.animateWater ? time : 0);
     // ── Static copy, row by row ───────────────────────────────────────────
     const x0 = Math.max(0, ox);
     const x1 = Math.min(width, ox + viewW);
@@ -312,6 +318,9 @@ export class LiveRenderer {
       }
     }
     const t2 = performance.now();
+
+    // ── Marine life (M10): fish, jellyfish, a dolphin, the curious seal, the glowing ray ──
+    drawMarine(frame, this.live, ox, oy, time, palette);
 
     // ── The turtle's living parts: flippers paddling, the head bobbing, blinking and glancing ──
     if (world.turtle) this.drawTurtle(frame, ox, oy, time, o.animateWind);
