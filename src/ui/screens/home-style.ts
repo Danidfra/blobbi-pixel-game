@@ -67,10 +67,14 @@ class StyleTab {
     this.draft[part] = (this.draft[part] + d + n) % n;
   }
 
-  /** The parts of the draft that are locked (APPLY refuses them). */
+  /**
+   * The parts of the draft that are locked (APPLY refuses them). A part left as the home has it is never "locked":
+   * a style applied before M9's unlocks stays the player's.
+   */
   private locked(ui: GameUI): string[] {
     const ctx = ui.live!.styleContext();
-    return this.parts.filter(([p]) => !isUnlocked(STYLE_OPTIONS[p][this.draft![p]].unlock, ctx)).map(([, label]) => label.toLowerCase());
+    const now = current(ui);
+    return this.parts.filter(([p]) => this.draft![p] !== now[p] && !isUnlocked(STYLE_OPTIONS[p][this.draft![p]].unlock, ctx)).map(([, label]) => label.toLowerCase());
   }
 
   apply(ui: GameUI): void {
@@ -141,14 +145,27 @@ class StyleTab {
       // The back wall and the floor below it (a corner of the room, at its own scale).
       pv.blit(room, -4, -2);
     }
+    // A locked choice is previewed dimmed under a padlock: something to earn, not something to use.
+    const lockedNow = this.locked(ui);
+    if (lockedNow.length) {
+      const d0 = pv.data;
+      for (let i = 0; i < d0.length; i++) {
+        const c = d0[i];
+        const grey = (((c & 0xff) + ((c >>> 8) & 0xff) + ((c >>> 16) & 0xff)) / 3) * 0.55 + 20;
+        d0[i] = 0xff000000 | ((grey | 0) << 16) | ((grey | 0) << 8) | (grey | 0);
+      }
+      padlock(pv, Math.floor(pw / 2) - 9, Math.floor(ph / 2) - 12, 2);
+    }
     g.buf.blit(pv, x + 2, y + 2);
-    g.text('PREVIEW', x + 2, y + ph + 7, UI.muted);
+    g.text(lockedNow.length ? `LOCKED: ${lockedNow.join(', ').toUpperCase()}`.slice(0, 30) : 'PREVIEW', x + 2, y + ph + 7, lockedNow.length ? UI.bad : UI.muted);
     // The parts, each with its option and arrows.
     const cx = x + pw + 10;
     let cy = y + 2;
     this.parts.forEach(([part, label], i) => {
       const opt = STYLE_OPTIONS[part][d[part]];
-      const open = isUnlocked(opt.unlock, ctx);
+      const open = isUnlocked(opt.unlock, ctx) || d[part] === current(ui)[part];
+      const total = STYLE_OPTIONS[part].length;
+      const openCount = STYLE_OPTIONS[part].filter((o) => isUnlocked(o.unlock, ctx)).length;
       const selected = i === this.row;
       const rw = w - pw - 10;
       g.box(cx, cy, rw, 22, selected ? UI.slotHi : UI.slot, selected ? UI.accent : UI.line);
@@ -157,15 +174,16 @@ class StyleTab {
       g.button('>', cx + rw - 12, cy + 2, () => ((this.row = i), this.cycle(part, 1)), { w: 10 });
       const name = opt.name.toUpperCase();
       g.text(name.slice(0, 18), cx + rw - 86, cy + 5, open ? UI.ink : UI.line);
-      g.text(open ? `${d[part] + 1}/${STYLE_OPTIONS[part].length}` : `LOCKED: ${unlockHint(opt.unlock)}`.toUpperCase().slice(0, 52), cx + 4, cy + 13, open ? UI.muted : UI.bad);
+      g.text(open ? `${openCount} OF ${total} OPEN` : `LOCKED: ${unlockHint(opt.unlock)}`.toUpperCase().slice(0, 52), cx + 4, cy + 13, open ? UI.muted : UI.bad);
+      if (!open) padlock(g.buf, cx + rw - 110, cy + 1);
       g.hit(cx, cy, rw - 100, 22, () => (this.row = i));
       cy += 25;
     });
     const by = y + h - 13;
     const anyLocked = this.locked(ui).length > 0;
     g.button('APPLY', cx, by, () => this.apply(ui), { w: 60, primary: !anyLocked, enabled: !anyLocked, whyNot: () => this.apply(ui) });
-    g.button('REVERT', cx + 64, by, () => this.revert(ui), { w: 56 });
-    if (this.kind === 'rooms') g.button('ARRANGE (M)', cx + 124, by, () => this.arrange(ui), { w: 64, enabled: live.inside, whyNot: () => this.arrange(ui) });
+    g.button('REVERT', cx + 64, by, () => this.revert(ui), { w: 48 });
+    if (this.kind === 'rooms') g.button('ARRANGE', cx + 116, by, () => this.arrange(ui), { w: 50, enabled: live.inside, whyNot: () => this.arrange(ui) });
     const tip = this.kind === 'look' ? 'LEFT/RIGHT CHANGE. ENTER APPLIES.' : 'INSIDE: ARRANGE MOVES FURNITURE.';
     g.text(tip, x, by + 3, UI.muted);
     void textWidth;
@@ -184,4 +202,10 @@ function lookFromDraft(d: Draft, level: number): HouseLook {
 export function installCustomisation(home: HomeScreen): void {
   home.tabs.look = new StyleTab(LOOK_PARTS, 'look');
   home.tabs.rooms = new StyleTab(ROOM_PARTS, 'rooms');
+}
+
+/** A padlock in the UI's colours (7×8 pixels, times `k`). */
+function padlock(buf: PixelBuffer, x: number, y: number, k = 1): void {
+  const rows = ['..###..', '.#...#.', '.#...#.', '#######', '#######', '###.###', '###.###', '#######'];
+  rows.forEach((row, j) => [...row].forEach((ch, i) => ch === '#' && buf.fillRect(x + (i + 1) * k, y + (j + 2) * k, k, k, j < 3 ? UI.muted : UI.accent)));
 }

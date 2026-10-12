@@ -21,6 +21,10 @@ import { doorSpot } from '../src/game/buildings';
 import { memoryStore } from '../src/game/persistence';
 import type { CarrierKind } from '../src/game/carrier';
 import { turtleBodyForWorld } from '../src/render/compose';
+import { GameUI } from '../src/ui/game-ui';
+import { HomeScreen } from '../src/ui/screens/home';
+import { installCustomisation } from '../src/ui/screens/home-style';
+import { paletteFor } from '../src/world/generate';
 
 const outDir = process.argv[2] ?? 'examples/m9-world';
 const only = process.argv[3] ?? '';
@@ -64,6 +68,36 @@ if (!only || only === 'rest') {
   write('rest-03-in-bed-closeup.png', shot(live, view, 'closeup'));
   write('rest-04-in-bed-room.png', shot(live, view, 'exploration'));
 }
+if (!only || only === 'styles') {
+  // Locked home styles: a fresh home (only the defaults earned), the LOOK tab on a locked wall, ROOMS on a locked floor.
+  const live = new LiveWorld(island('manta'), 'blobbi-9', 16, { store: memoryStore() });
+  live.brain.enabled = false;
+  live.inventory.add(ITEMS.wood.id, 6);
+  live.inventory.add(ITEMS.stone.id, 3);
+  live.objectives.completed.materials = 0;
+  findBuildSpot(live, 'shelter');
+  live.setBuildMode('shelter');
+  pressE(live);
+  run(live, 60 * 26);
+  const view = new ViewRenderer(live, new LiveRenderer(live));
+  const ui = new GameUI(() => live, () => paletteFor('cozy'));
+  const home = new HomeScreen();
+  installCustomisation(home);
+  ui.register(home);
+  ui.handleKey('Digit1');
+  ui.handleKey('Tab');
+  ui.handleKey('ArrowDown');
+  ui.handleKey('ArrowRight');
+  let f = shot(live, view, 'exploration');
+  ui.render(f, 1);
+  write('styles-01-look-locked-wall.png', f);
+  ui.handleKey('Tab');
+  ui.handleKey('ArrowRight');
+  f = shot(live, view, 'exploration');
+  ui.render(f, 2);
+  write('styles-02-rooms-locked-floor.png', f);
+}
+
 if (!only || only === 'flippers') {
   // The turtle's flippers where they meet the shell, Variant S (new worlds) and Variant B, at close-up, two paddle phases.
   const label = process.env.LABEL ?? 'after';

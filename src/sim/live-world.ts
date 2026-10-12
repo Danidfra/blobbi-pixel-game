@@ -40,7 +40,8 @@ import { RESPAWN_SECONDS } from '../game/resources';
 import type { RockSaveState } from '../game/persistence';
 import { houseLevelInfo, MAX_HOUSE_LEVEL, type HouseLevel } from '../content/houses';
 import { currentTip, TIP_PAUSE, updateTutorial, type TutorialContext, type TutorialStep } from '../game/tutorial';
-import { optionUnlocked, type UnlockContext } from '../content/home-styles';
+import { optionUnlocked, PART_NAMES, STYLE_OPTIONS, unlockedKeys, type StylePart, type UnlockContext } from '../content/home-styles';
+import { resolveLook } from '../game/house-art';
 import type { HouseLook } from '../game/house-art';
 import { doorSpot, doorwayRect, footOf, footprintRect, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
@@ -2537,11 +2538,16 @@ export class LiveWorld {
       return true;
     }
     if (this.interior) {
+      // T with nothing selected: the next floor and wall combination the player has unlocked (M9: never a locked one).
       const st = this.interior.state.style;
-      if (st.wall + 1 < 3) st.wall++;
+      const ctx = this.styleContext();
+      const floors = STYLE_OPTIONS.floor.map((_, i) => i).filter((i) => optionUnlocked('floor', i, ctx) || i === st.floor);
+      const walls = STYLE_OPTIONS.wallColour.map((_, i) => i).filter((i) => optionUnlocked('wallColour', i, ctx) || i === st.wall);
+      const wi = walls.indexOf(st.wall);
+      if (wi + 1 < walls.length) st.wall = walls[wi + 1];
       else {
-        st.wall = 0;
-        st.floor = (st.floor + 1) % 3;
+        st.wall = walls[0];
+        st.floor = floors[(floors.indexOf(st.floor) + 1) % floors.length];
       }
       this.structureVersion++;
       this.save();
@@ -2893,10 +2899,12 @@ export class LiveWorld {
     if (!house) return { ok: false, reason: 'build a shelter first' };
     const ctx = this.styleContext();
     const next: HouseLook = {};
+    const now = resolveLook(houseLevel(house), house.look);
     for (const part of ['roof', 'wall', 'door', 'window'] as const) {
       const v = look[part];
       if (v === undefined) continue;
-      if (!optionUnlocked(part, v, ctx)) return { ok: false, reason: `that ${part} is not unlocked yet` };
+      // What the house already has stays allowed (a style chosen before M9's unlocks is kept); a change must be earned.
+      if (v !== now[part] && !optionUnlocked(part, v, ctx)) return { ok: false, reason: `that ${PART_NAMES[part]} is not unlocked yet` };
       next[part] = v;
     }
     house.look = next;
@@ -2912,8 +2920,10 @@ export class LiveWorld {
     const house = this.home();
     if (!house) return { ok: false, reason: 'build a shelter first' };
     const ctx = this.styleContext();
-    if (!optionUnlocked('floor', style.floor, ctx) || !optionUnlocked('wallColour', style.wall, ctx) || !optionUnlocked('finish', style.finish ?? 0, ctx)) return { ok: false, reason: 'that style is not unlocked yet' };
     const st = this.interiorOf(house);
+    // Kept styles stay allowed; a change must be unlocked.
+    const changed = (part: 'floor' | 'wallColour' | 'finish', v: number, was: number) => v !== was && !optionUnlocked(part, v, ctx);
+    if (changed('floor', style.floor, st.style.floor) || changed('wallColour', style.wall, st.style.wall) || changed('finish', style.finish ?? 0, st.style.finish ?? 0)) return { ok: false, reason: 'that style is not unlocked yet' };
     st.style = { floor: style.floor, wall: style.wall, ...(style.finish ? { finish: style.finish } : {}) };
     this.structureVersion++;
     this.sound('place');
@@ -3450,7 +3460,26 @@ export class LiveWorld {
     return { tally: this.tally, completed: this.objectives.completed, active, events: this.events, hasShelter: this.buildings.some((b) => b.kind === 'shelter' && this.buildingAt(b) >= 1), inside: this.inside };
   }
 
+  /** Home styles open so far (to announce new ones); null until first checked. */
+  private knownStyles: Set<string> | null = null;
+
+  /** A new home style earned: a short notice (checked a few times a second; never on loading). */
+  private stepStyleUnlocks(): void {
+    if (this.clock.step % 20 !== 0 || !this.home()) return;
+    const open = unlockedKeys(this.styleContext());
+    if (this.knownStyles) {
+      const fresh = [...open].filter((k) => !this.knownStyles!.has(k));
+      if (fresh.length) {
+        const [part, i] = fresh[0].split(':') as [StylePart, string];
+        const more = fresh.length > 1 ? ` (+${fresh.length - 1} more)` : '';
+        this.notices.push({ heading: 'New home style', title: `${STYLE_OPTIONS[part][Number(i)].name} ${PART_NAMES[part]}${more}`, text: 'choose it in HOME (1)', until: Math.max(this.clock.time, this.notices.at(-1)?.until ?? 0) + 3 });
+      }
+    }
+    this.knownStyles = open;
+  }
+
   private stepTutorial(): void {
+    this.stepStyleUnlocks();
     const fresh = updateTutorial(this.tutorial, this.tutorialContext());
     if (fresh.length) {
       this.tipDoneAt = this.clock.time;

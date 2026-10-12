@@ -31,10 +31,12 @@ describe('style unlocks', () => {
   });
 
   it('quests, finds, mining, growth and the house level open more', () => {
-    const late: UnlockContext = { completed: Object.fromEntries(['shelter', 'home', 'cottage', 'dream-home', 'mystery', 'cook', 'side-cozy', 'restore', 'feed'].map((q) => [q, 1])), found: 5, tally: { mined: 3, flowers: 3 }, growthStage: 1, houseLevel: 3 };
+    const late: UnlockContext = { completed: Object.fromEntries(['shelter', 'home', 'enter-home', 'first-furniture', 'mystery', 'cook', 'side-cozy', 'restore', 'side-flowers'].map((q) => [q, 1])), found: 5, tally: { mined: 3, flowers: 3, crafted: 15, collected: 40, felled: 10, harvested: 3 }, growthStage: 2, houseLevel: 3 };
     const all = unlockedCount(late);
     expect(all.open).toBe(all.total);
-    expect(unlockedCount({ ...empty, completed: { cottage: 1 } }).open).toBeGreaterThan(unlockedCount(empty).open);
+    expect(unlockedCount({ ...empty, completed: { home: 1 } }).open).toBeGreaterThan(unlockedCount(empty).open);
+    // M9: a small start: one style of every part.
+    expect(unlockedCount(empty).open).toBe(Object.keys(STYLE_OPTIONS).length);
     expect(isUnlocked({ houseLevel: 3 }, { ...empty, houseLevel: 2 })).toBe(false);
   });
 });
@@ -58,15 +60,17 @@ describe('customising the home in play', () => {
   it('refuses a locked option and changes nothing; applies an unlocked one and saves it', () => {
     const { live, world, store } = withHouse();
     const house = live.home()!;
-    expect(live.setHouseLook({ roof: 2 }).ok).toBe(false); // slate needs the Cottage quest
+    expect(live.setHouseLook({ roof: 2 }).ok).toBe(false); // slate blue needs a Cottage
     expect(house.look).toBeUndefined();
     // The shelter quest is done by now: terracotta is open.
     expect(live.setHouseLook({ roof: 1 })).toEqual({ ok: true, reason: null });
     expect(live.setRoomStyle({ floor: 4, wall: 0 }).ok).toBe(false); // tiles need a cooked meal
-    expect(live.setRoomStyle({ floor: 2, wall: 1 }).ok).toBe(true);
+    live.objectives.completed['first-furniture'] = 1;
+    live.objectives.completed.home = 1;
+    expect(live.setRoomStyle({ floor: 1, wall: 1 }).ok).toBe(true);
     const again = new LiveWorld(world, 'blobbi-9', 16, { store });
     expect(again.home()!.look).toEqual({ roof: 1 });
-    expect(again.interiors.get(house.id)!.style).toEqual({ floor: 2, wall: 1 });
+    expect(again.interiors.get(house.id)!.style).toEqual({ floor: 1, wall: 1 });
     expect(loadSave(store, live.identity)!.buildings.find((b) => b.kind === 'shelter')!.look).toEqual({ roof: 1 });
   });
 
@@ -102,5 +106,67 @@ describe('customising the home in play', () => {
     run(live, 60 * 22);
     expect(houseLevel(live.home()!)).toBe(2);
     expect(live.home()!.look).toEqual({ roof: 1 });
+  });
+
+  it('a style applied before (now locked) is kept and does not block changing another part', () => {
+    const { live } = withHouse();
+    const house = live.home()!;
+    house.look = { wall: 3 }; // fieldstone, chosen in an M8 save (not unlocked under M9 rules here)
+    live.interiorOf(house).style = { floor: 2, wall: 2 }; // pale planks and sage, free in M8
+    expect(live.setHouseLook({ wall: 3, roof: 1 })).toEqual({ ok: true, reason: null });
+    expect(house.look).toEqual({ wall: 3, roof: 1 });
+    expect(live.setRoomStyle({ floor: 2, wall: 2 }).ok).toBe(true);
+    expect(live.setHouseLook({ wall: 4 }).ok).toBe(false); // a new locked choice is still refused
+  });
+
+  it('T in move mode cycles only unlocked floors and walls', () => {
+    const { live } = withHouse();
+    const house = live.home()!;
+    live.enterInterior(house);
+    live.toggleManage();
+    const seen = new Set<string>();
+    for (let i = 0; i < 12; i++) {
+      live.restyleSelected();
+      const st = live.interior!.state.style;
+      seen.add(`${st.floor},${st.wall}`);
+    }
+    expect([...seen]).toEqual(['0,0']); // nothing else is earned yet
+    live.objectives.completed['first-furniture'] = 1;
+    live.objectives.completed.home = 1;
+    for (let i = 0; i < 12; i++) {
+      live.restyleSelected();
+      const st = live.interior!.state.style;
+      seen.add(`${st.floor},${st.wall}`);
+    }
+    expect(seen).toEqual(new Set(['0,0', '0,1', '1,0', '1,1']));
+  });
+
+  it('earning a style says so', () => {
+    const { live } = withHouse();
+    run(live, 25);
+    live.notices.length = 0;
+    live.objectives.completed['enter-home'] = live.worldTime; // the plank door
+    run(live, 25);
+    expect(live.notices.some((n) => n.heading === 'New home style' && /plank door/.test(n.title))).toBe(true);
+  });
+
+  it('a locked choice is previewed under a padlock and cannot be applied', () => {
+    const { live } = withHouse();
+    const ui = new GameUI(() => live, () => paletteFor('cozy'));
+    const home = new HomeScreen();
+    installCustomisation(home);
+    ui.register(home);
+    ui.handleKey('Digit1');
+    ui.handleKey('Tab');
+    ui.handleKey('ArrowDown'); // walls
+    ui.handleKey('ArrowRight'); // whitewash: locked
+    const screen = new PixelBuffer(960, 540);
+    ui.render(screen, 1);
+    const apply = ui.regions.find((r) => r.w === 60 * ui.scale)!;
+    ui.handlePointer(apply.x + 2, apply.y + 2); // greyed APPLY: it only says why
+    expect(ui.message?.good).toBe(false);
+    expect(ui.message?.text).toMatch(/locked/);
+    ui.handleKey('Enter');
+    expect(live.home()!.look).toBeUndefined();
   });
 });

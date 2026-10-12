@@ -41,18 +41,21 @@ upgrades (Cottage, Dream Home) earned through play, rooms to furnish, and a look
   door is right of centre), walking out of the door gap leaves.
 
 ### Unlocks
-From `src/content/home-styles.ts` (derived from the save: nothing extra is stored). The first option of each part is
-always open.
+From `src/content/home-styles.ts` (M9 rebalance; derived from the save: nothing extra is stored). A new island starts
+with ONE style of each part; the rest are earned. Locked options are listed with a padlock and what unlocks them;
+the preview shows a locked draft dimmed under a padlock, and APPLY only explains. A style a save already has (chosen
+under the M8 rules) is kept and never blocks changing another part. T in move mode cycles only unlocked floors and
+walls. Earning a style shows a "New home style" notice.
 
 | Part | Options (unlock) |
 |---|---|
-| Roof | natural · terracotta (first home) · slate blue (A bigger home) · moss green (2 discoveries) · plum (The dream home) · honey (grow 3 flowers) |
-| Walls | natural wood · whitewash (Make it home) · dark timber (A bigger home) · fieldstone (break 3 large rocks) · rose paint (Feed Blobbi) · sky paint (island growth stage 1) |
-| Door | open doorway · plank (Make it home) · round (A bigger home) · double (a Dream Home) |
-| Windows | cross panes · round (Something that hums) · shutters (A bigger home) · flower box (grow 3 flowers) |
-| Floor | honey, dark, pale planks · flagstones (break a large rock) · terracotta tiles (A warm meal) · blue carpet (Cozy corner) |
-| Wall colour | warm wood, cream, sage · rose (grow 3 flowers) · sky (3 discoveries) · lavender (Begin restoring the island) |
-| Wall finish | logs · plaster (a Cottage) · stripes (A bigger home) · flower paper (Begin restoring) · wainscot (a Dream Home) |
+| Roof | natural · terracotta (quest: Build your first home) · slate blue (a Cottage) · moss green (2 discoveries) · plum (island stage 2) · honey (pick up 40 things) |
+| Walls | natural wood · whitewash (craft 5 things) · dark timber (fell 10 trees) · fieldstone (break 3 large rocks) · rose paint (quest: Flower friend) · sky paint (island stage 1) |
+| Door | open doorway · plank (quest: Step inside) · round (a Cottage) · double (a Dream Home) |
+| Windows | cross panes · round (quest: Something that hums) · shutters (quest: Make it home) · flower box (grow 3 flowers) |
+| Floor | honey planks · dark planks (quest: Make it yours) · pale planks (craft 10 things) · flagstones (break a large rock) · terracotta tiles (quest: A warm meal) · blue carpet (quest: Cozy corner) |
+| Wall colour | warm wood · cream (quest: Make it home) · sage (harvest 3 crops) · rose (grow 3 flowers) · sky (3 discoveries) · lavender (quest: Begin restoring the island) |
+| Wall finish | logs · plaster (a Cottage) · stripes (craft 15 things) · flower paper (quest: Begin restoring the island) · wainscot (a Dream Home) |
 
 Each level has its own default door (open doorway, plank door, double door) and roof material; a look stores only
 what the player changed, so unchanged parts follow the level.
@@ -101,7 +104,7 @@ islands, saves, schema 9, the HOME panel's confirmation), `tests/customisation.t
 ## 12. Known limitations
 Customisation covers the home (the first shelter) only. Wall items hang on the back wall only (not on partitions).
 No night glow in the house's windows on the island (the art supports it; not wired). Room styles in move mode (T)
-cycle the three base styles only; the rest are chosen in ROOMS. See [known issues](../testing/KNOWN-ISSUES.md).
+cycle the unlocked floors and walls (M9). See [known issues](../testing/KNOWN-ISSUES.md).
 
 ## 13. Extension points
 More levels are a `HOUSE_LEVELS` entry, a drawing and a `RoomLayout`; more styles are entries in the art lists and
