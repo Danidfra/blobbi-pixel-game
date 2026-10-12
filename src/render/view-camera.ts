@@ -6,7 +6,7 @@
  *   overview     1× world pixels, the Blobbi drawn natively at 12 px, centred on the turtle (whole animal in view)
  *   exploration  2×, the Blobbi drawn natively at 24 px, follows the Blobbi
  *   close-up     4×, the Blobbi drawn natively at 48 px, follows the Blobbi
- *   up close     6× (M10), the Blobbi drawn natively at 72 px, follows the Blobbi, a compact HUD
+ *   up close     6× (M10), the Blobbi drawn natively at 72 px, follows the Blobbi (the same HUD as every mode)
  *
  * The Blobbi is drawn at three quarters of its world size in every mode, so it keeps one proportion to the
  * shelter, trees and rocks whatever the zoom.

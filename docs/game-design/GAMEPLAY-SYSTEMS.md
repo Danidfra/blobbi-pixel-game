@@ -21,7 +21,7 @@ The game as the player meets it, system by system, with the numbers the code use
 | B | build mode (cycles buildings and decorations) | idem |
 | M | management mode (move, restyle, pick up placed things); X/Delete puts the selected one back in the bag | idem |
 | P | plant a tree (the M1 sapling) | idem |
-| Z, mouse wheel, tap the camera indicator | camera: overview 1×, exploration 2×, close-up 4×, up close 6× (M10, compact HUD) | `src/render/view-camera.ts` |
+| Z, mouse wheel, tap the camera indicator | camera: overview 1×, exploration 2×, close-up 4×, up close 6× (M10; the HUD is the same at every scale) | `src/render/view-camera.ts` |
 | O | hide or show the goal box | idem |
 
 Menus pause the world and take every key; mouse and touch work in every menu. M8: the menu bar (and, in build,

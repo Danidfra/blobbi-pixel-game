@@ -338,11 +338,10 @@ export class ViewRenderer {
       this.drawText(screen, t, (t.x - originX) * s, (y - originY) * s, ui.uiScale);
     }
     this.hudBox = null;
-    // Up close (M10) the HUD steps back: a needs chip instead of the status card, the time without the goal box.
-    const compact = view.mode === 'upclose';
-    if (ui.hud) this.drawHud(screen, ui.uiScale, compact);
+    // The same HUD at every camera scale (M10 phase B: the zoom never changes its design).
+    if (ui.hud) this.drawHud(screen, ui.uiScale);
     // The goal box, the prompt and goal notices are part of the HUD unless set on their own.
-    if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale, compact);
+    if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale);
     if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale, ui.bottom ?? 0);
     if (ui.hud) this.drawNotice(screen, ui.uiScale);
     this.indicatorBox = null;
@@ -388,7 +387,7 @@ export class ViewRenderer {
     screen.blit(buf, x, y);
   }
 
-  private drawHud(screen: PixelBuffer, ui: number, compact = false): void {
+  private drawHud(screen: PixelBuffer, ui: number): void {
     const live = this.live;
     const palette = paletteFor(live.world.options.palette);
     // The status card: portrait, name, friendship, the three needs and what is carried.
@@ -404,10 +403,7 @@ export class ViewRenderer {
     const away = live.getPresenceState() !== 'present';
     const level = friendLevel(live.companion.friendship);
     const info: StatusInfo = { name: live.blobbi.seed.length > 14 ? 'BLOBBI' : live.blobbi.seed, title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
-    // Compact: the three needs on one chip (the card's own words), nothing else.
-    const status = compact
-      ? this.cachedText(`needs|${info.fed}|${info.energy}|${info.joy}|${away}`, () => toastCard(null, away ? 'AWAY' : `FED ${info.fed}  ENERGY ${info.energy}  JOY ${info.joy}`), ui)
-      : this.cachedText(`status|${JSON.stringify(info)}`, () => statusCard({ ...info, face: this.portrait() }), ui);
+    const status = this.cachedText(`status|${JSON.stringify(info)}`, () => statusCard({ ...info, face: this.portrait() }), ui);
     screen.blit(status, 2 * ui, 2 * ui);
     let bottom = 2 * ui + status.height;
     // Item toasts under the card, newest last; they slide in (unless motion is reduced) and leave on time. Sim
@@ -450,7 +446,7 @@ export class ViewRenderer {
   private hudBox: { right: number; bottom: number } | null = null;
 
   /** The time and weather chip, then the current objective, in the top-right corner. */
-  private drawGoal(screen: PixelBuffer, ui: number, compact = false): void {
+  private drawGoal(screen: PixelBuffer, ui: number): void {
     const live = this.live;
     const t = live.worldTime;
     const hour = hourAt(t);
@@ -472,7 +468,7 @@ export class ViewRenderer {
       return;
     }
     const goal = currentObjective(live.objectives);
-    if (!goal || compact) return;
+    if (!goal) return;
     const n = OBJECTIVES.indexOf(goal) + 1;
     const ctx = { tally: live.tally, inventory: live.inventory, buildings: live.buildings, worldTime: live.worldTime };
     const progress = goal.progress ? goal.progress(ctx) : '';

@@ -1,6 +1,6 @@
 /**
  * M10 "up close", the fourth camera mode: 6× (whole blocks, never blurred), the Blobbi natively at 72 px, following
- * without jitter (tests/walk-stability), inside the world's and the room's bounds, a compact HUD, a camera
+ * without jitter (tests/walk-stability), inside the world's and the room's bounds, the same HUD as every mode, a camera
  * indicator a finger can tap, and every interaction the same as in any other mode.
  */
 import { describe, expect, it } from 'vitest';
@@ -82,22 +82,37 @@ describe('up close', () => {
     }
   });
 
-  it('a compact HUD: a needs chip instead of the status card, no goal box; the indicator can be tapped', () => {
+  it('the same HUD as every other mode (M10 phase B); the indicator can be tapped', () => {
     const live = scene();
     const view = new ViewRenderer(live, new LiveRenderer(live));
     const b = worldBounds(live.world);
-    const draw = (mode: 'closeup' | 'upclose') => {
+    const hud = (mode: 'overview' | 'exploration' | 'closeup' | 'upclose', W: number, H: number) => {
       const cam = new ViewCamera(mode);
-      const v = cam.update(0, live.cameraTarget(), 1280, 720, b, true);
-      view.render(v, cam.restScale(mode, 1280, 720, b), live.clock.time, DEFAULT_LIVE_OPTIONS, { ...DEFAULT_VIEW_UI, lighting: false });
-      return (view as unknown as { hudBox: { right: number; bottom: number } }).hudBox;
+      const v = cam.update(0, live.cameraTarget(), W, H, b, true);
+      const ui = { ...DEFAULT_VIEW_UI, lighting: false, indicator: false, goals: false, prompt: false };
+      const bare = view.render(v, cam.restScale(mode, W, H, b), live.clock.time, DEFAULT_LIVE_OPTIONS, { ...ui, hud: false }).clone();
+      const screen = view.render(v, cam.restScale(mode, W, H, b), live.clock.time, DEFAULT_LIVE_OPTIONS, ui);
+      // The status card: what the HUD draws over the world in the top-left corner, the same in every mode.
+      const box = (view as unknown as { hudBox: { right: number; bottom: number } }).hudBox;
+      const px: string[] = [];
+      for (let y = 0; y < box.bottom; y++) for (let x = 0; x < box.right; x++) if (screen.get(x, y) !== bare.get(x, y)) px.push(`${x},${y}:${screen.get(x, y)}`);
+      return { box, px };
     };
-    const full = draw('closeup');
-    const compact = draw('upclose');
-    expect(compact.bottom).toBeLessThan(full.bottom / 2);
-    const box = view.indicatorBox!;
-    expect(box).not.toBeNull();
-    expect(view.onIndicator(box.x + box.w / 2, box.y + box.h / 2)).toBe(true);
+    for (const [W, H] of [[1280, 720], [844, 390]]) {
+      const ref = hud('exploration', W, H);
+      for (const mode of ['overview', 'closeup', 'upclose'] as const) {
+        const h = hud(mode, W, H);
+        expect(h.box).toEqual(ref.box);
+        // Every card pixel of the reference is drawn identically (world pixels showing through may differ).
+        const drawn = new Set(h.px);
+        expect(ref.px.filter((p) => !drawn.has(p)).length).toBeLessThan(ref.px.length * 0.02);
+      }
+    }
+    const cam = new ViewCamera('upclose');
+    const v = cam.update(0, live.cameraTarget(), 1280, 720, b, true);
+    view.render(v, 6, live.clock.time, DEFAULT_LIVE_OPTIONS, { ...DEFAULT_VIEW_UI, lighting: false });
+    const ib = view.indicatorBox!;
+    expect(view.onIndicator(ib.x + ib.w / 2, ib.y + ib.h / 2)).toBe(true);
     expect(view.onIndicator(640, 360)).toBe(false);
   });
 
