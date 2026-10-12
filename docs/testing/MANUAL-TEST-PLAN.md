@@ -318,6 +318,29 @@ refuses them (GROW-09).
 | FEEL-01 | A Cottage or Dream Home | Watch it for a while, then at night. | The chimney smokes; at night the windows glow and the light around reaches further. | NOT TESTED | M9 |
 | FEEL-02 | Any | Play an evening. | No extra clutter: particles stay sparse. | NOT TESTED | M9 |
 
+## The living ocean, phase A (LISTEN, FISH, OCEAN, UPCLOSE, SEA, PERF) — M10
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| LISTEN-01 | Each Carrier (turtle, manta, whale), dev tools stage buttons | At stages 0, 1, 2, 3 and 4: walk to the Carrier's head (map: the head place); press E. | The listening spot is on the land right in front of the head at every stage, never inland or in the water; E listens (or opens the Carrier panel once known). | NOT TESTED | Automated: `tests/carrier-listen.test.ts` |
+| LISTEN-02 | A grown island | Build a bench or shelter where you listen; walk back to the head. | The spot moves to free ground nearby; E still listens; the map's head place follows. | NOT TESTED | |
+| FISH-01 | A rod, an island at stage 1+ (the land reaching the water) | Cast facing down, up, left and right; watch the cast in close-up. | The rod winds back, swings, and the float flies out on an arc from the rod's tip; the line always leaves the tip, never the face or body. | NOT TESTED | Automated: `tests/fishing-rod.test.ts`; images `examples/m10/fishing-*.png` |
+| FISH-02 | Line out | Face up (away) and right (rod in the far hand). | The rod and the line are hidden behind the Blobbi where the body covers them; the rod's tip shows above the head when facing away. | NOT TESTED | |
+| FISH-03 | Line out | Wait for a bite; reel in; also let one get away. | The line is slack while waiting and pulls straight on the bite; the rod tugs; catching works as before. | NOT TESTED | |
+| FISH-04 | All four camera modes | Fish in each mode. | The rod's art reads well at every scale; the Blobbi keeps its canonical proportions. | NOT TESTED | |
+| OCEAN-01 | A wide or large screen (1920×1080 or more) | Overview on each Carrier; resize the window. | No rectangle: the sea continues past the world's edge with the same streaks and waves; no seam where the world ends. | NOT TESTED | Automated: `tests/open-sea.test.ts`; images `examples/m10/ocean-*.png` |
+| OCEAN-02 | Overview | Switch camera modes (Z) and walk along the coast; watch the intro cinematic. | The sea stays seamless while the camera moves and eases; the cinematic is unchanged. | NOT TESTED | |
+| UPCLOSE-01 | Any island | Press Z until UP CLOSE 6X; walk around outdoors and indoors. | Crisp square pixels (no blur); the Blobbi centred and steady (no jitter); the view never shows past the world's or the room's edge. | NOT TESTED | Automated: `tests/camera-upclose.test.ts`, `tests/walk-stability.test.ts` |
+| UPCLOSE-02 | Up close | Gather, chop, fish, enter the house, open menus. | Everything works as in other modes; the HUD is compact (a needs chip, the time, prompts, notices). | NOT TESTED | Images `examples/m10/camera-*.png` |
+| UPCLOSE-03 | Reload the page in up close | Reload. | The game opens in up close again (the choice is remembered). | NOT TESTED | |
+| UPCLOSE-04 | Phone or touch screen | Tap the camera indicator (bottom left) repeatedly. | Each tap moves to the next camera mode, through all four. | NOT TESTED | |
+| SEA-01 | Any island, exploration | Watch the sea for a few minutes by day and at night. | Small fish schools in the shallows, jellyfish drifting (glowing softly at night), now and then a leaping dolphin; never crowded, never over land. | NOT TESTED | Automated: `tests/marine-life.test.ts`; images `examples/m10/wildlife-*.png` |
+| SEA-02 | An island at stage 1–2+ | Stand where the land meets the sea and wait. | A curious seal surfaces, turns to watch the Blobbi and comes a little closer; "E  wave to the seal" — it rolls over; the first time a discovery (seal's sea glass, a journal note). | NOT TESTED | |
+| SEA-03 | Sea friends quest (after Listen to the Carrier) | Wave to the seal 3 times (over its visits). | The quest completes. | NOT TESTED | |
+| SEA-04 | Night, near deep water by the island | Watch for the rare glowing ray (it may take several nights); E near it. | A softly glowing ray glides past; E records a discovery (night-lamp sketch). | NOT TESTED | rare: about one every two or three nights |
+| PERF-01 | A reasonable desktop | Play each mode for a minute with the stats panel open. | About 60 FPS, no hitches when walking. | NOT TESTED | Proxy figures only: `docs/testing/perf/` |
+| PERF-02 | A low-end laptop or older phone | Same. | At least 30 FPS in every mode. | NOT TESTED | Never measured on such hardware |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

@@ -453,6 +453,24 @@ Details: docs/milestones/M9.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATION
 - [x] World feel: glowing windows, smoking chimneys, growth progress notices.
 - [ ] Manual validation (M9 sections of docs/testing/MANUAL-TEST-PLAN.md).
 
+### M10 phase A: The living ocean — foundation, performance, marine life (implemented, committed on `develop`)
+
+Details: docs/milestones/M10.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATION**.
+
+- [x] The listening spot follows the island at every growth stage, on every Carrier.
+- [x] Fishing: new rod art, a cast, the line from the rod's tip with correct occlusion.
+- [x] A seamless open sea beyond the world's edge.
+- [x] Performance: harness, baseline, pixel-identical optimisations, before/after (docs/testing/perf).
+- [x] Up close: a fourth camera mode (6×) with a compact HUD; the camera indicator is tappable.
+- [x] Marine life: fish, jellyfish, dolphins, a curious seal, a rare glowing ray; Sea friends quest.
+- [x] Future ocean architecture written down (docs/architecture/OCEAN-FUTURE.md, DESIGNED ONLY).
+- [ ] Manual validation (M10 section of docs/testing/MANUAL-TEST-PLAN.md).
+
+### M10 later phases (not started)
+
+Boats, free navigation, travel between Carriers, fishing regions, underwater exploration and side-view
+diving — see docs/architecture/OCEAN-FUTURE.md.
+
 ### Later (not started)
 
 Network visiting (world cards and presence, docs/architecture/NOSTR-MULTIPLAYER.md

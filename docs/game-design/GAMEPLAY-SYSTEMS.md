@@ -21,7 +21,7 @@ The game as the player meets it, system by system, with the numbers the code use
 | B | build mode (cycles buildings and decorations) | idem |
 | M | management mode (move, restyle, pick up placed things); X/Delete puts the selected one back in the bag | idem |
 | P | plant a tree (the M1 sapling) | idem |
-| Z, mouse wheel | camera: overview 1×, exploration 2×, close-up 4× | `src/render/view-camera.ts` |
+| Z, mouse wheel, tap the camera indicator | camera: overview 1×, exploration 2×, close-up 4×, up close 6× (M10, compact HUD) | `src/render/view-camera.ts` |
 | O | hide or show the goal box | idem |
 
 Menus pause the world and take every key; mouse and touch work in every menu. M8: the menu bar (and, in build,
@@ -105,6 +105,21 @@ finds, places and the Carrier's observations. Sources: `src/ui/screens/map.ts`, 
 With a rod, E facing the sea (up to 48 px over the shell's rim) or the pond casts; a bite comes after 1.5–5 s and
 must be reeled in in time; the catch is drawn by weight from that water's fish. Manta worlds have no sea fishing in
 reach (their sea is beyond the body); the pond works. Source: `LiveWorld.fish`, `src/content/tools.ts`.
+
+**The cast (M10):** the rod is wound back (0.22 s), swung (to 0.4 s), then held out over the water; the float flies
+from the rod's tip on an arc and lands at 0.78 s with a ring (`CAST`). The line is drawn from the rod's tip as drawn
+(every orientation of the rod marks its tip) to the float, in the rod's layer: behind the Blobbi when the rod is (the
+far hand, or facing away), in front otherwise; slack while waiting, taut on a bite, when the rod tugs. Source:
+`src/game/equipment.ts` (`ROD`, `attachTool().tip`), `src/render/fishing-line.ts`, `ViewRenderer.render`.
+
+### The sea (M10)
+
+Beyond the world's edge the open sea continues (the terrain painter's deep water and the live renderer's waves,
+`src/render/open-sea.ts`): zoomed out there is no rectangle. Marine life (`src/game/marine-life.ts`) is a pure function
+of the world seed and world time, never saved: fish schools in the shallows, jellyfish (glowing at night), now and
+then a leaping dolphin, a curious seal where the land meets the water (from the growth stage that brings the land
+there), and rarely, at night, a glowing ray. E waves to the seal or watches the ray; the first meeting of each is a
+discovery (`SEA_DISCOVERIES`); waves count for the side quest *Sea friends* (`waved`).
 
 ### Atmosphere
 

@@ -3,12 +3,13 @@
 This is the entry point for the documentation. The **code is the source of truth**: where a document and the code
 disagree, the code wins and the document is the bug ([maintenance rules](#maintenance-rules)).
 
-**Project state (2026-10-11):** M1–M3 are committed on `master`. M4–M7, M8 phase 0 (the playable whale), the M8
+**Project state (2026-10-12):** M1–M3 are committed on `master`. M4–M7, M8 phase 0 (the playable whale), the M8
 intro cinematic and M8 (the beginning and home progression: first-time flow, the intro in play, the first home,
 three house levels, customisation, tips, guide, touch, delete safety) and M9 (rest in bed, turtle flipper layering,
-earned home styles, four growth stages with the Sanctuary) are committed on `develop`. All are
-**IMPLEMENTED — AWAITING MANUAL VALIDATION**: the automated suite passes (see [M9](milestones/M9.md)), and no manual
-test has been run by a person yet.
+earned home styles, four growth stages with the Sanctuary) and M10 phase A (the living ocean: seamless sea,
+fishing cast and line, performance work, the up-close camera, marine life) are committed on `develop`. All are
+**IMPLEMENTED — AWAITING MANUAL VALIDATION**: the automated suite passes (see [M10](milestones/M10.md) for the
+test-run notes), and no manual test has been run by a person yet.
 
 ## Status labels
 
@@ -39,6 +40,7 @@ test has been run by a person yet.
 - [Blobbi identity](architecture/BLOBBI-IDENTITY.md): the canonical V3 Blobbi.
 - [Nostr multiplayer](architecture/NOSTR-MULTIPLAYER.md): DESIGNED ONLY.
 - [Cross-game travel](architecture/CROSS-GAME-TRAVEL.md): DESIGNED ONLY.
+- [The ocean, later](architecture/OCEAN-FUTURE.md): boats, navigation, travel, fishing regions, diving. DESIGNED ONLY.
 
 ## Specifications
 Each one has the same 13 sections, from purpose to extension points, and describes what the code does today.
@@ -60,10 +62,11 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 ## Testing
 - [Manual test plan](testing/MANUAL-TEST-PLAN.md): every test with an ID; all NOT TESTED.
 - [Known issues](testing/KNOWN-ISSUES.md).
+- [Performance](testing/perf/README.md): methodology, M9 baseline, M10 results (one machine; throttling is a proxy).
 - Automated: `npm run check` (typecheck, vitest, build).
 
 ## Milestones
-- [Milestones](milestones/README.md): M0–M9: summaries and approval status.
+- [Milestones](milestones/README.md): M0–M10 phase A: summaries and approval status.
 - [Archived reports and development logs](milestones/reports/), unchanged.
 - [Roadmap](../ROADMAP.md).
 

@@ -3,7 +3,7 @@
 //
 // Needs: `npx vite --port 5211` and a Chrome started with a FRESH profile and remote debugging, for example
 //   "Google Chrome" --headless=new --remote-debugging-port=9333 --user-data-dir=/tmp/blobbi-perf --window-size=1280,800
-// Then: node scripts/perf-browser.mjs <label> [--throttle 4] [--seconds 6]
+// Then: node scripts/perf-browser.mjs <label> [--throttle 4] [--seconds 6] [--port 5211]
 // Results: a table and docs/testing/perf/browser-<label>.json. CPU throttling is a PROXY for a slower machine,
 // not a measurement of one.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -12,6 +12,9 @@ const args = process.argv.slice(2);
 const label = args.find((a) => !a.startsWith('--') && !/^\d+$/.test(a)) ?? 'run';
 const throttle = Number(args[args.indexOf('--throttle') + 1]) || 1;
 const seconds = Number(args[args.indexOf('--seconds') + 1]) || 6;
+const port = Number(args[args.indexOf('--port') + 1]) || 5211;
+// --no-upclose: for code before M10 (no fourth camera mode).
+const modes = args.includes('--no-upclose') ? ['exploration', 'overview', 'closeup'] : ['exploration', 'overview', 'closeup', 'upclose'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function open(url, width, height) {
@@ -69,7 +72,7 @@ const MEASURE = (secs) => `
 
 const results = [];
 for (const [vp, W, H] of [['1280x720', 1280, 720], ['844x390', 844, 390]]) {
-  const page = await open('http://127.0.0.1:5211/', W, H);
+  const page = await open(`http://127.0.0.1:${port}/`, W, H);
   if (throttle > 1) await page.send('Emulation.setCPUThrottlingRate', { rate: throttle });
   // A new turtle island (first-time flow), intro skipped.
   await page.key('Enter');
@@ -84,7 +87,7 @@ for (const [vp, W, H] of [['1280x720', 1280, 720], ['844x390', 844, 390]]) {
     ['turtle-stage0-exploration', `window.__blobbi.camera().setMode('exploration')`],
     ['turtle-stage0-overview', `window.__blobbi.camera().setMode('overview')`],
     ['turtle-stage0-closeup', `window.__blobbi.camera().setMode('closeup')`],
-    ['turtle-stage0-upclose', `window.__blobbi.camera().setMode('upclose')`],
+    ...(modes.includes('upclose') ? [['turtle-stage0-upclose', `window.__blobbi.camera().setMode('upclose')`]] : []),
     // Rain: move the island's clock to its first rainy moment.
     ['rain-exploration', `window.__blobbi.camera().setMode('exploration'); const l = window.__blobbi.live(); for (let k = 0; k < 800 && l.rainNow() < 0.6; k++) l.timeOffset += 30;`],
     ['fishing-exploration', `const l = window.__blobbi.live(); l.inventory.add('blobbi-pixel:tool:fishing-rod', 1); l.equip('blobbi-pixel:tool:fishing-rod'); l.fishing = { start: l.clock.time, biteAt: 1e9, x: Math.round(l.blobbi.x), y: Math.round(l.blobbi.y + 30), water: 'sea' };`],
@@ -102,7 +105,7 @@ for (const [vp, W, H] of [['1280x720', 1280, 720], ['844x390', 844, 390]]) {
   await sleep(4000 * throttle);
   await page.key('Enter');
   await sleep(3000);
-  for (const mode of ['exploration', 'overview', 'closeup', 'upclose']) {
+  for (const mode of modes) {
     await page.evaluate(`window.__blobbi.camera().setMode('${mode}')`);
     await sleep(800);
     const r = await page.evaluate(MEASURE(seconds));
