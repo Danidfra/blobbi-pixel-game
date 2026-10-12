@@ -92,9 +92,9 @@ for (const [name, make] of CARRIERS)
         // On the land in front of the head: no further from the head than a short step past the current shore.
         const head = (live.world.turtle?.head ?? live.world.creature?.head)!;
         expect(Math.hypot(s.x - head.cx, s.y - head.cy)).toBeLessThan(shoreDistance(live) + 16);
-        // The head place is the spot.
+        // The head place is at the spot (snapped to free ground when the spot never moved).
         const place = live.places.find((p) => p.id === 'head');
-        if (place) expect(Math.hypot(place.x - s.x, place.y - s.y)).toBeLessThan(1);
+        if (place) expect(Math.hypot(place.x - s.x, place.y - s.y)).toBeLessThan(8);
         // Standing there, E listens (once whatever lies at its feet is picked up: as scripted play does).
         live.resources = live.resources.filter((n) => Math.hypot(n.x - s.x, n.y - s.y) > 20);
         stand(live, s.x, s.y, towardHead(live, s));

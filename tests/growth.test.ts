@@ -160,7 +160,8 @@ describe('the live world on grown land', () => {
     expect(JSON.stringify(notHead(live.places.slice(0, plain.places.length)))).toBe(JSON.stringify(notHead(plain.places)));
     expect(live.places.map((p) => p.id).slice(0, plain.places.length)).toEqual(plain.places.map((p) => p.id));
     expect(live.places.some((p) => p.id.startsWith('region:'))).toBe(true);
-    expect(live.places.find((p) => p.id === 'head')).toMatchObject(live.listenSpot!);
+    const head = live.places.find((p) => p.id === 'head')!;
+    expect(Math.hypot(head.x - live.listenSpot!.x, head.y - live.listenSpot!.y)).toBeLessThan(8);
   });
 
   it('buildings, collected resources and the bag survive growth exactly', () => {

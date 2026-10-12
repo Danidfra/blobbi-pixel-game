@@ -361,9 +361,11 @@ export class LiveWorld {
     if (this.inside && this.listenCache.collision) return this.listenCache.spot;
     if (this.listenCache.collision !== this.islandCollision || this.listenCache.key !== key) {
       this.listenCache = { collision: this.islandCollision, key, spot: this.findListenSpot() };
-      // The head place is the listening spot: it moves with it.
+      // The head place is at the listening spot: when the spot has moved from where the stage-0 island had it,
+      // the place moves with it (an unchanged island keeps its places exactly).
       const head = this.places.find((p) => p.id === 'head');
-      if (head && this.listenCache.spot) ((head.x = this.listenCache.spot.x), (head.y = this.listenCache.spot.y));
+      const moved = this.listenCache.spot && (this.listenCache.spot.x !== this.baseListenSpot?.x || this.listenCache.spot.y !== this.baseListenSpot?.y);
+      if (head && moved) ((head.x = this.listenCache.spot!.x), (head.y = this.listenCache.spot!.y));
     }
     return this.listenCache.spot;
   }
