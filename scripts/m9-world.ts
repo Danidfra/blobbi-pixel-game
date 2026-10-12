@@ -20,6 +20,7 @@ import { ITEMS } from '../src/game/items';
 import { doorSpot } from '../src/game/buildings';
 import { memoryStore } from '../src/game/persistence';
 import type { CarrierKind } from '../src/game/carrier';
+import { turtleBodyForWorld } from '../src/render/compose';
 
 const outDir = process.argv[2] ?? 'examples/m9-world';
 const only = process.argv[3] ?? '';
@@ -62,5 +63,44 @@ if (!only || only === 'rest') {
   run(live, 70);
   write('rest-03-in-bed-closeup.png', shot(live, view, 'closeup'));
   write('rest-04-in-bed-room.png', shot(live, view, 'exploration'));
+}
+if (!only || only === 'flippers') {
+  // The turtle's flippers where they meet the shell, Variant S (new worlds) and Variant B, at close-up, two paddle phases.
+  const label = process.env.LABEL ?? 'after';
+  for (const [name, world] of [
+    ['S', island('turtle')],
+    ['B', generateTurtleWorld('turtle-0')],
+  ] as const) {
+    const live = new LiveWorld(world, 'blobbi-9', 16);
+    const view = new ViewRenderer(live, new LiveRenderer(live));
+    const body = turtleBodyForWorld(world);
+    const sheet = new PixelBuffer(W, H);
+    // A front and a rear flipper: 4 crops of 480×270 at close-up, at two paddle phases.
+    // Framed on the joint: from the flipper's centre, part of the way toward the shell's centre.
+    const c = world.islands[0];
+    const parts = [body.flippers[0], body.flippers[3]].map((f) => {
+      const fx = f.x + f.buffer.width / 2;
+      const fy = f.y + f.buffer.height / 2;
+      // March toward the shell until the body (shell) begins: that is the joint.
+      for (let k = 0; k < 1; k += 0.01) {
+        const x = Math.round(fx + (c.cx - fx) * k);
+        const y = Math.round(fy + (c.cy - fy) * k);
+        if (body.buffer.get(x, y) >>> 24) return { cx: x, cy: y };
+      }
+      return { cx: fx, cy: fy };
+    });
+    let k = 0;
+    for (const f of parts)
+      for (const time of [0.4, 3.6]) {
+        live.clock.time = time;
+        const cam = new ViewCamera('closeup');
+        const b = worldBounds(live.world);
+        const v = cam.update(0, { x: f.cx, y: f.cy, size: 16 }, W / 2, H / 2, b, true);
+        const frame = view.render(v, cam.restScale('closeup', W / 2, H / 2, b), time, DEFAULT_LIVE_OPTIONS, { ...DEFAULT_VIEW_UI, hud: false, goals: false, prompt: false, indicator: false, lighting: false });
+        sheet.blit(frame, (k % 2) * (W / 2), Math.floor(k / 2) * (H / 2));
+        k++;
+      }
+    write(`flippers-variant-${name}-${label}.png`, sheet);
+  }
 }
 console.log(`wrote ${outDir}`);

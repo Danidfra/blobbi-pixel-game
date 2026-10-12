@@ -580,9 +580,26 @@ export class LiveRenderer {
     const body = turtleBodyForWorld(world);
     const ta = this.live.turtleAnim;
     // Flippers: a slow paddle along each flipper's axis, phased per flipper, one pixel of travel.
+    // Each flipper's base slides UNDER the shell (M9): its pixels are kept only where the body is not drawn, so the
+    // shell's rim always covers the joint, at every phase of the paddle.
+    const shell = body.buffer;
     body.flippers.forEach((f, i) => {
       const k = animate ? Math.round(Math.sin(time * (Math.PI * 2) / 6.5 + i * 1.9) * 1.2) : 0;
-      frame.blit(f.buffer, f.x + Math.round(f.axis.x * k) - ox, f.y + Math.round(f.axis.y * k) - oy);
+      const wx = f.x + Math.round(f.axis.x * k);
+      const wy = f.y + Math.round(f.axis.y * k);
+      const src = f.buffer;
+      for (let j = 0; j < src.height; j++) {
+        const ty = wy + j - oy;
+        if (ty < 0 || ty >= frame.height) continue;
+        for (let i2 = 0; i2 < src.width; i2++) {
+          const c = src.data[j * src.width + i2];
+          if (!(c >>> 24)) continue;
+          if (shell.get(wx + i2, wy + j) >>> 24) continue;
+          const tx = wx + i2 - ox;
+          if (tx < 0 || tx >= frame.width) continue;
+          frame.data[ty * frame.width + tx] = c;
+        }
+      }
     });
     // Head: breathing bob, a blink, a glance; the wind has nothing to do with it.
     const bob = animate ? Math.round(Math.sin((time * Math.PI * 2) / 4.5) * 1.1) : 0;

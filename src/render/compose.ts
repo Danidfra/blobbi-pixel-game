@@ -64,8 +64,9 @@ export function turtleUnderlay(world: WorldDescription, parts: { head: boolean; 
   if (!world.turtle) return creatureUnderlay(world);
   const body = turtleBodyForWorld(world);
   const buf = new PixelBuffer(world.options.width, world.options.height);
-  buf.blit(body.buffer, 0, 0);
+  // The flippers first: their bases emerge from UNDER the shell (M9; they used to be drawn over its rim).
   if (parts.flippers) for (const f of body.flippers) buf.blit(f.buffer, f.x, f.y);
+  buf.blit(body.buffer, 0, 0);
   if (parts.head) buf.blit(body.head.buffer, body.head.x, body.head.y);
   return buf;
 }
