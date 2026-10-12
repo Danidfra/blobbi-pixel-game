@@ -93,9 +93,11 @@ describe('the sea around the island', () => {
   });
 
   it('is cheap: a day of moments in well under a second', () => {
-    const t0 = performance.now();
+    // This process's CPU time, not the wall clock (other test processes share the machine; see KI-34).
+    const c0 = process.cpuUsage();
     for (let t = 0; t < DAY_SECONDS; t += 0.25) sea.at(t);
-    expect(performance.now() - t0).toBeLessThan(1000);
+    const c = process.cpuUsage(c0);
+    expect((c.user + c.system) / 1000).toBeLessThan(1000);
   });
 
   it('is drawn: the seal shows in the frame where it surfaces', () => {

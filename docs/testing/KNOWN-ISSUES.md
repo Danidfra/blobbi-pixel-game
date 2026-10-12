@@ -37,7 +37,6 @@ nicety).
 | KI-31 | Low | Onboarding | Typing an island name uses the tiny font's characters only (letters, digits, space, `.`, `!`, `-`); other characters are dropped as typed. | `src/game/island-name.ts` | Accept more glyphs if the font grows. |
 | KI-32 | Low | Touch | Portrait phones are not supported (a hint asks for landscape); the canvas is drawn at CSS pixels (not the device pixel ratio), so text is 2–3 device pixels per font pixel on phones. | `src/playground/styles.css`, `src/playground/main.ts` | A portrait HUD layout; render at a device-pixel scale. |
 | KI-33 | Low | Lab | A plain link now opens Play (the game) instead of the lab's World tab; lab users click World. The URL names an island only once it is played or saved. | `src/playground/main.ts` | — (by design) |
-| KI-34 | Low | Tests | With M8's added suites, a full parallel `npm run check` can push the archipelago's 1.5 s "generates a default world quickly" budget over (1.5–1.8 s seen with other work on the machine); it passes alone. The budget was left as it is so a real slowdown still shows. | `tests/world.test.ts` | Run perf budgets in a separate, serial step. |
 | KI-35 | Low | Rest | Rest is not saved: a reload while asleep in bed starts awake outside (needs are kept). Autonomy alone still naps in the doorway when tired outside (by design: no surprise scene change). | `LiveWorld.stepRestPlan` | Save the rest, or let autonomy go home when the player has been idle a long time. |
 | KI-36 | Low | Rest | The in-bed pose is the canonical Blobbi with closed eyes, tucked under the blanket; there is no lying-down pose (the kit animator has none). | `src/render/interior-render.ts` | A lying pose if the kit gains one. |
 | KI-37 | Medium | Growth | The new pacing has never been played: stage 4 asks for about 12 days on the island (about 4 hours of play) and large lifetime counts; it may feel too long or too short. | `src/game/growth-progress.ts` | Tune after GROW4-01. |
@@ -95,6 +94,13 @@ nicety).
 - The Carrier panel showed the M6 design-only growth model; it now shows the real island growth.
 - `src/carriers/species.ts` described the manta as a prototype; it is playable since M7.
 - `docs/game-design/GAMEPLAY-SYSTEMS.md` began with a second-level heading.
+
+## Fixed in M10 phase B
+
+- **KI-34** (2026-10-12): the "generates a default world quickly" budget timed one run by the wall clock, so nine
+  other test processes on the same cores could push it from 0.5 s to 3.3 s. It now measures the test process's own
+  CPU time (vitest runs each file in its own process) and keeps the fastest of three runs; the 1.5 s budget is
+  unchanged, so a real slowdown still fails. The marine-life cost test uses CPU time the same way.
 
 ## Reporting a new issue
 
