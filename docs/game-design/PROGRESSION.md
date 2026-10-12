@@ -19,8 +19,9 @@ Source: `src/content/quests.ts` (data), `src/game/objectives.ts` (engine). Full 
 
 | Track | Quests | How it unlocks |
 |---|---|---|
-| Main chapter 1 | 12: look around, meet your Blobbi, gather, first tool, wood, shelter, farm plot, plant, water, harvest, feed, make it home | prerequisites chain from gathering |
-| Main chapter 2 | 4: a warm meal, something that hums (find the Carrier Stone), listen to the Carrier, begin restoring the island | after the home and the harvest |
+| Main chapter 1, The First Home (M8) | 9: meet your Blobbi, explore the island, gather, your first tool, gather wood, building materials, build your first home, step inside, make it yours | a new island has no house: this chapter earns the first one |
+| Main chapter 2, Roots | 6: farm plot, plant, water, harvest, feed, make it home | the garden line starts after the first wood; make it home after the first furniture |
+| Main chapter 3, Whispers of the Carrier | 4: a warm meal, something that hums (find the Carrier Stone), listen to the Carrier, begin restoring the island | after the home and the harvest |
 | Side | 14: decorating, storage, shells, flowers, farming, cooking, baking, lavender, best friends, foraging, a cozy corner, mining, fishing, a favourite treat | each after a related step |
 | Discovery | 3: the bottle, the Keeper's pages, finding all eight island discoveries | by finding things |
 | Island requests | 8 in a pool, one at a time from the first shelter, a new one each dawn | `startRequest` / `finishRequest` |
@@ -67,6 +68,6 @@ teaches them, so the crafting menu grows with the story.
 
 - Minutes: gather, tend, feed, a request.
 - A session: a main quest, a building or a room, a new meal, a friendship level.
-- Several sessions: the two chapters, harmony levels, the three growth stages.
+- Several sessions: the three chapters, harmony levels, the three growth stages.
 
 These are design intentions; actual pacing has not been measured with players.

@@ -84,7 +84,7 @@ describe('map markers never reveal secrets', () => {
   it('marks the goal only when it is a known place (listening to the Carrier)', () => {
     const live = new LiveWorld(world, 'blobbi-9', 16);
     expect(mapMarkers(ui(live)).some((m) => m.kind === 'goal')).toBe(false);
-    for (const id of ['arrive', 'meet', 'gather', 'axe', 'wood', 'shelter', 'plot', 'plant', 'water', 'harvest', 'feed', 'home', 'cook', 'mystery']) live.objectives.completed[id] = 0;
+    for (const id of ['arrive', 'meet', 'gather', 'axe', 'wood', 'materials', 'shelter', 'enter-home', 'first-furniture', 'plot', 'plant', 'water', 'harvest', 'feed', 'home', 'cook', 'mystery']) live.objectives.completed[id] = 0;
     const goal = mapMarkers(ui(live)).find((m) => m.kind === 'goal');
     expect(goal).toBeDefined();
     expect({ x: goal!.x, y: goal!.y }).toEqual(live.listenSpot);

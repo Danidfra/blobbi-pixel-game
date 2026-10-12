@@ -5,10 +5,15 @@ Give the player direction and a story without pressure: goals that complete from
 with rewards that open new things to do.
 
 ## 2. Status
-**IMPLEMENTED** (M4 objectives, M5 quests, requests, lore, discoveries; M7 grown-land discoveries and lore).
+**IMPLEMENTED** (M4 objectives, M5 quests, requests, lore, discoveries; M7 grown-land discoveries and lore; M8
+chapter 1 rewritten as the first-home chain).
 **NOT TESTED** by a person.
 
 ## 3. Player-facing behaviour
+- Chapter 1, The First Home (M8): meet the Blobbi → explore (look at 3 things) → gather 5 → craft the axe → fell a
+  tree → have 6 wood and 3 stones (or a finished shelter) → build the shelter → step inside (a potted plant as a
+  housewarming gift) → place a first piece of furniture inside. Every step is an action the player does; a step done
+  early completes as soon as it becomes active. Reachable on all three Carriers (`tests/first-home.test.ts`).
 - The goal box (top right) shows the current main quest and its progress; J opens the journal: active and done
   quests with story, hint, progress and reward; notes; finds; places; Carrier observations.
 - Completing a quest shows a notice, plays a chime, grants its reward once (items, plans and recipes, journal notes,

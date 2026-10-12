@@ -21,7 +21,7 @@ describe('objectives', () => {
     const tally = newTally();
     const inventory = new Inventory('w');
     const ctx = { tally, inventory, buildings: [], worldTime: 5 };
-    expect(currentObjective(state)?.id).toBe('arrive');
+    expect(currentObjective(state)?.id).toBe('meet');
     // An axe already in the bag does not skip gathering: the axe quest needs it first.
     inventory.add(ITEMS.axe.id, 1);
     expect(advanceObjectives(state, ctx)).toEqual([]);
@@ -29,7 +29,7 @@ describe('objectives', () => {
     tally.felled = 1;
     // Gather, then axe (in the bag), then wood (felled) cascade; the shelter stops that line.
     expect(advanceObjectives(state, ctx).map((o) => o.id)).toEqual(['gather', 'axe', 'wood']);
-    expect(currentObjective(state)?.id).toBe('arrive'); // the story's first open quest is still 'look around'
+    expect(currentObjective(state)?.id).toBe('meet'); // the story's first open quest is still meeting the Blobbi
     expect(advanceObjectives(state, ctx)).toEqual([]);
     expect(state.completed).toEqual({ gather: 5, axe: 5, wood: 5 });
   });

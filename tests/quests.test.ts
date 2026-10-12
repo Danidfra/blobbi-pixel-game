@@ -29,7 +29,7 @@ const quiet = (store = memoryStore()) => {
 const ids = new Set(ALL_ITEMS.map((d) => d.id));
 
 describe('the quest catalogue', () => {
-  it('10+ main quests over two chapters, 10+ side quests, discovery quests; every reference resolves; no cycles', () => {
+  it('10+ main quests over several chapters, 10+ side quests, discovery quests; every reference resolves; no cycles', () => {
     const main = QUEST_CONTENT.filter((q) => q.type === 'main');
     expect(main.length).toBeGreaterThanOrEqual(10);
     expect(main.filter((q) => q.chapter === 1).length).toBeGreaterThanOrEqual(8);
@@ -73,7 +73,8 @@ describe('the quest catalogue', () => {
     expect(Object.keys(state.completed)).toEqual(expect.arrayContaining(['gather', 'axe', 'wood', 'plot']));
     expect('shelter' in state.completed).toBe(false);
     const active = activeQuests(state).map((q) => q.id);
-    expect(active).toEqual(expect.arrayContaining(['arrive', 'meet', 'shelter', 'plant', 'improve', 'side-shells']));
+    expect(active).toEqual(expect.arrayContaining(['arrive', 'meet', 'materials', 'plant', 'improve', 'side-shells']));
+    expect(active).not.toContain('shelter'); // the shelter waits for its materials
     expect(advanceObjectives(state, ctx)).toEqual([]);
   });
 });

@@ -15,7 +15,7 @@
 | Placeable kinds (incl. the shelter) | 44 | `game/buildings.ts` `BUILDINGS` |
 | Recipes | 66 | `game/crafting.ts` `RECIPES` |
 | Meals | 19 | `content/meals.ts` |
-| Quests | 33 | `content/quests.ts` |
+| Quests | 36 | `content/quests.ts` |
 | Island requests | 8 | `content/quests.ts` `REQUEST_POOL` |
 | Lore notes | 19 | `content/lore.ts` |
 | Discoveries (island) | 8 | `content/discoveries.ts` |
@@ -354,22 +354,25 @@
 
 | Id | Type | Chapter | Title | Requires | Reward |
 |---|---|---|---|---|---|
-| `arrive` | main | 1 | Look around |  | a journal note (J) |
 | `meet` | main | 1 | Meet your Blobbi |  | a new friend |
+| `arrive` | main | 1 | Explore the island |  | a journal note (J) |
 | `gather` | main | 1 | Gather supplies |  | +2 seeds |
 | `axe` | main | 1 | Your first tool | gather | fence plans |
 | `wood` | main | 1 | Gather wood | axe | +2 stones |
-| `shelter` | main | 1 | Build a shelter | wood | +3 seeds, house furniture plans |
-| `plot` | main | 1 | Prepare a farm plot | wood | +3 carrot seeds (new crop) |
-| `plant` | main | 1 | Plant a seed | plot | flower bed plans, +3 radish seeds |
-| `water` | main | 1 | Water a crop | plant | +2 seeds, a watering can |
-| `harvest` | main | 1 | Harvest food | water | +2 pumpkin seeds, +2 seed potatoes, stove plans |
-| `feed` | main | 1 | Feed Blobbi | harvest | lantern and bench plans, cozy furniture plans |
-| `home` | main | 1 | Make it home | shelter | +3 cloth, +2 tomato seeds, a journal note |
-| `cook` | main | 2 | A warm meal | harvest | +3 wheat seeds, new recipes, herb planter plans |
-| `mystery` | main | 2 | Something that hums | home | a painting plan |
-| `carrier` | main | 2 | Listen to the Carrier | mystery | +3 sunflower seeds, a journal note, bookshelf and fishing rod plans |
-| `restore` | main | 2 | Begin restoring the island | carrier | two journal notes, the harvest feast recipe |
+| `materials` | main | 1 | Building materials | wood | ready to build |
+| `shelter` | main | 1 | Build your first home | materials | +3 seeds, house furniture plans |
+| `enter-home` | main | 1 | Step inside | shelter | a housewarming gift: a potted plant |
+| `first-furniture` | main | 1 | Make it yours | enter-home | a cozier home |
+| `plot` | main | 2 | Prepare a farm plot | wood | +3 carrot seeds (new crop) |
+| `plant` | main | 2 | Plant a seed | plot | flower bed plans, +3 radish seeds |
+| `water` | main | 2 | Water a crop | plant | +2 seeds, a watering can |
+| `harvest` | main | 2 | Harvest food | water | +2 pumpkin seeds, +2 seed potatoes, stove plans |
+| `feed` | main | 2 | Feed Blobbi | harvest | lantern and bench plans, cozy furniture plans |
+| `home` | main | 2 | Make it home | first-furniture | +3 cloth, +2 tomato seeds, a journal note |
+| `cook` | main | 3 | A warm meal | harvest | +3 wheat seeds, new recipes, herb planter plans |
+| `mystery` | main | 3 | Something that hums | home | a painting plan |
+| `carrier` | main | 3 | Listen to the Carrier | mystery | +3 sunflower seeds, a journal note, bookshelf and fishing rod plans |
+| `restore` | main | 3 | Begin restoring the island | carrier | two journal notes, the harvest feast recipe |
 | `improve` | side |  | Make it pretty | axe | storage crate plans, garden decoration plans |
 | `side-storage` | side |  | A place for everything | shelter | cabinet plans, +2 cloth |
 | `side-shells` | side |  | Shell seeker |  | wind chime and wall clock plans, +2 strawberry runners |
