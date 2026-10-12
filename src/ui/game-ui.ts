@@ -269,7 +269,7 @@ export class GameUI {
     if (!tip && !justDone) return;
     const text = tip ? (this.touchMode ? tip.touch : tip.keys) : 'Nice!';
     const maxW = Math.min(220, Math.floor(screen.width / scale) - 16);
-    const lines = tip ? wrapLines(text.toUpperCase(), Math.floor((maxW - 52) / 4)) : ['NICE!'];
+    const lines = tip ? wrapLines(text.toUpperCase(), Math.floor((maxW - 62) / 4)) : ['NICE!'];
     const w = tip ? maxW : 30;
     const h = 6 + lines.length * 7 + 1;
     const g = new Gfx(w, h);
@@ -279,13 +279,20 @@ export class GameUI {
     if (tip) g.button('SKIP TIPS', w - 36, Math.floor((h - 11) / 2), () => live.setTips(false), { w: 34 });
     const big = g.buf.scaled(scale);
     const ox = Math.round(screen.width / 2 - big.width / 2);
-    const oy = screen.height - big.height - 30 * scale;
+    // Above the action prompt and clear of the menu bar (which may be two rows on a phone).
+    const oy = Math.max(0, Math.min(screen.height - big.height - 30 * scale, screen.height - this.menuBarHeight - big.height - 18 * scale));
     screen.blit(big, ox, oy);
     this.hits.push(...g.hits.map((hh) => ({ ...hh, x: ox + hh.x * scale, y: oy + hh.y * scale, w: hh.w * scale, h: hh.h * scale })));
     if (justDone && live.clock.time - live.tipDoneAt > 1.6) live.tipJustDone = null;
   }
 
-  /** The corner buttons that open screens with a click or a tap. */
+  /** Screen pixels the menu bar (and mode bar) take at the bottom (the touch USE button sits above them). */
+  menuBarHeight = 30;
+
+  /**
+   * The corner buttons that open screens with a click or a tap. On a touch screen they are drawn larger (3× when
+   * there is room) and wrap onto two rows rather than run off a narrow screen.
+   */
   private drawMenuBar(screen: PixelBuffer, scale: number): void {
     if (!this.live) return;
     const items: [string, ScreenId][] = [
@@ -295,19 +302,63 @@ export class GameUI {
       ['BLOBBI U', 'care'],
       ['MAP N', 'map'],
       ['HOME 1', 'home'],
+      ['GUIDE ?', 'guide'],
       ['...', 'settings'],
     ];
-    const use = 'USE E';
-    const w = items.reduce((n, [l]) => n + textWidth(l) + 7, 1) + textWidth(use) + 9;
-    const g = new Gfx(w, 11);
-    // USE presses E for a mouse or a touch screen (the same action as the key).
-    let x = g.button(use, 0, 0, () => this.onUse?.(), { w: textWidth(use) + 6, primary: true }) + 3;
-    for (const [label, id] of items) x += g.button(label, x, 0, () => this.open(id), { w: textWidth(label) + 6 }) + 1;
-    const big = g.buf.scaled(scale);
-    const ox = screen.width - big.width - 2 * scale;
-    const oy = screen.height - big.height - 2 * scale;
+    // A finger needs no key names: shorter labels, bigger buttons.
+    const label = (l: string) => (this.touchMode ? l.replace(/ (?:[A-Z1?]|E)$/, '') : l);
+    const use = label('USE E');
+    const widthOf = (l: string) => textWidth(label(l)) + 6;
+    const rowW = (list: [string, ScreenId][]) => list.reduce((n, [l]) => n + widthOf(l) + 1, 0);
+    let s = this.touchMode ? 3 : scale;
+    let rows: [string, ScreenId][][] = [items];
+    const fits = (k: number, r: [string, ScreenId][][]) => Math.max(...r.map((row, i) => rowW(row) + (i === r.length - 1 ? textWidth(use) + 9 : 0))) * k + 4 * k <= screen.width;
+    if (!fits(s, rows)) rows = [items.slice(0, 4), items.slice(4)];
+    while (s > 1 && !fits(s, rows)) s--;
+    const rowH = 11;
+    const w = Math.max(...rows.map((row, i) => rowW(row) + (i === rows.length - 1 ? textWidth(use) + 9 : 0)));
+    const g = new Gfx(w, rows.length * (rowH + 1));
+    rows.forEach((row, r) => {
+      const y = r * (rowH + 1);
+      let x = w - rowW(row) - (r === rows.length - 1 ? textWidth(use) + 9 : 0);
+      // USE presses E for a mouse or a touch screen (the same action as the key).
+      if (r === rows.length - 1) x += g.button(use, x, y, () => this.onUse?.(), { w: textWidth(use) + 6, primary: true }) + 3;
+      for (const [l, id] of row) x += g.button(label(l), x, y, () => this.open(id), { w: widthOf(l) }) + 1;
+    });
+    const big = g.buf.scaled(s);
+    const ox = screen.width - big.width - 2 * s;
+    const oy = screen.height - big.height - 2 * s;
     screen.blit(big, ox, oy);
-    this.hits = g.hits.map((h) => ({ ...h, x: ox + h.x * scale, y: oy + h.y * scale, w: h.w * scale, h: h.h * scale }));
+    this.hits = g.hits.map((h) => ({ ...h, x: ox + h.x * s, y: oy + h.y * s, w: h.w * s, h: h.h * s }));
+    this.menuBarHeight = big.height + 2 * s;
+    this.drawModeBar(screen, s, oy);
+  }
+
+  /**
+   * While building, placing or moving furniture: the mode's own buttons (so a mouse or a finger never needs Esc, B, T
+   * or X): NEXT (the next buildable), STYLE, TO BAG, DONE / CANCEL. Drawn just above the menu bar, on the left.
+   */
+  private drawModeBar(screen: PixelBuffer, s: number, menuTop: number): void {
+    const live = this.live;
+    if (!live) return;
+    const buttons: [string, () => void][] = [];
+    if (live.moving) buttons.push(['CANCEL MOVE', () => live.cancelMove()]);
+    else if (live.placing) buttons.push(['STYLE', () => live.cycleVariant()], ['DONE', () => live.stopPlacing()]);
+    else if (live.manage) buttons.push(['STYLE', () => live.restyleSelected()], ['TO BAG', () => live.removeSelected()], ['DONE', () => live.toggleManage()]);
+    else if (live.buildMode) buttons.push(['NEXT', () => live.cycleBuildMode()], ['CANCEL', () => live.setBuildMode(null)]);
+    if (!buttons.length) return;
+    const head = live.moving ? 'USE PUTS IT DOWN' : live.placing ? 'USE PLACES' : live.manage ? 'USE PICKS UP' : 'USE BUILDS';
+    const bw = buttons.reduce((n, [l]) => n + textWidth(l) + 7, 0);
+    const w = Math.max(bw, textWidth(head) + 4);
+    const g = new Gfx(w, 19);
+    g.text(head, 1, 0, UI.accent);
+    let x = 0;
+    for (const [l, run] of buttons) x += g.button(l, x, 7, run, { w: textWidth(l) + 6, primary: l === 'DONE' }) + 1;
+    const big = g.buf.scaled(s);
+    const ox = 2 * s;
+    const oy = Math.max(0, menuTop - big.height - 2 * s);
+    screen.blit(big, ox, oy);
+    this.hits.push(...g.hits.map((h) => ({ ...h, x: ox + h.x * s, y: oy + h.y * s, w: h.w * s, h: h.h * s })));
   }
 
   /** The current scale (tests and the playground). */

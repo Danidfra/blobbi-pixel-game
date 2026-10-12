@@ -352,3 +352,33 @@ button.danger:disabled {
   margin: 4px 0 8px;
   background: #2a1d22;
 }
+
+/* Phones and small tablets: the game fills the screen while playing (the lab's sidebar is for desktops). */
+#rotate-hint {
+  display: none;
+}
+@media (max-width: 900px) {
+  #app.mode-play {
+    grid-template-columns: 1fr;
+  }
+  #app.mode-play > aside {
+    display: none;
+  }
+}
+/* A portrait phone is too narrow for the game's pixel UI: ask for landscape (the game still runs behind). */
+@media (max-width: 600px) and (orientation: portrait) {
+  #app.mode-play #rotate-hint {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    background: rgba(13, 16, 22, 0.92);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+}

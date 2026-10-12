@@ -48,6 +48,7 @@ import { GrowthScreen } from '../ui/screens/growth';
 import { growLiveIsland, rebuildFromSave as rebuildLive } from '../sim/regrow';
 import { WorldsScreen } from '../ui/screens/worlds';
 import { HomeScreen } from '../ui/screens/home';
+import { GuideScreen } from '../ui/screens/guide';
 import { installCustomisation } from '../ui/screens/home-style';
 import { LocalVisitTransport, VisitSession, localPlayerId, OWNERS_KEY, type WorldRef } from '../game/visiting';
 import { AudioEngine, DEFAULT_AUDIO } from '../audio/engine';
@@ -310,6 +311,7 @@ app.innerHTML = `
   </aside>
   <main>
     <canvas id="view" tabindex="0"></canvas>
+    <div id="rotate-hint" role="status">Turn your device sideways to play Blobbi: the island needs a wide screen.</div>
     <div id="gallery" class="hidden"></div>
     <div id="blobbi-view" class="hidden"></div>
     <div id="growth-view" class="hidden"></div>
@@ -357,6 +359,12 @@ function toCanvas(buf: PixelBuffer, reuse?: HTMLCanvasElement): HTMLCanvasElemen
 }
 
 function saveHash(): void {
+  // In Play, the link names an island only once it is being played or has a save: a reload of the title alone stays
+  // a plain link (so it never looks like a shared island).
+  if (state.mode === 'play' && !playStarted && !(live && hasSave(live.identity, storeGet))) {
+    if (location.hash !== '#mode=play') history.replaceState(null, '', '#mode=play');
+    return;
+  }
   const b = state.blobbi;
   const blobbi = b.kind === 'v3-address' ? `pubkey=${b.pubkey}&d=${encodeURIComponent(b.d)}` : `blobbi=${encodeURIComponent(b.seed)}`;
   location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}${state.options.generatedHouse === false ? '&house=none' : ''}`;
@@ -498,6 +506,7 @@ gameUI.register(new MapScreen());
 const growthScreen = new GrowthScreen();
 gameUI.register(growthScreen);
 growthScreen.onGrow = () => regrow();
+gameUI.register(new GuideScreen());
 const homeScreen = new HomeScreen();
 installCustomisation(homeScreen);
 gameUI.register(homeScreen);
@@ -594,6 +603,7 @@ function beginPlay(): void {
   gameUI.close();
   if (live) {
     playStarted = true;
+    saveHash();
     touchWorld();
     if (live.intro.state === 'pending' && !live.visitor) {
       startWorldIntro();
@@ -1145,12 +1155,12 @@ function playFrame(now: number): void {
   viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
   const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
-  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: gameUI.settings.largeText ? 3 : 2 });
+  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: gameUI.settings.largeText ? 3 : 2, bottom: gameUI.menuBarHeight });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;
   gameUI.render(frame, now / 1000);
-  if (!gameUI.capturing) touch.draw(frame, 15 * 2);
+  if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
   // Sound: the world's events to the audio director (and to any other listener as events), then cleared.
   if (gameUI.settings.sound) {
     for (const name of live.sounds) window.dispatchEvent(new CustomEvent('blobbi-sound', { detail: name }));
@@ -1432,7 +1442,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -2201,6 +2211,8 @@ function zoomAt(next: number, sx: number, sy: number): void {
 let drag: { x: number; y: number; panX: number; panY: number } | null = null;
 view.addEventListener('pointerdown', (e) => {
   view.focus();
+  // Any touch (on the title, the intro or a menu too) switches the game to touch: bigger buttons, "tap" in tips.
+  if (e.pointerType === 'touch' || e.pointerType === 'pen') touch.enabled = true;
   if (state.mode === 'play') {
     // Menus and the menu bar take clicks and taps (client position → canvas pixels, robust to CSS scaling).
     const rect = view.getBoundingClientRect();
@@ -2305,6 +2317,7 @@ window.addEventListener('resize', resize);
 
 function setMode(mode: Mode): void {
   state.mode = mode;
+  app.classList.toggle('mode-play', mode === 'play');
   for (const m of ['world', 'play', 'blobbi', 'growth', 'gallery', 'fidelity'] as Mode[]) $(`tab-${m}`).setAttribute('aria-selected', String(mode === m));
   $('view').classList.toggle('hidden', mode !== 'world' && mode !== 'play');
   $('gallery').classList.toggle('hidden', mode !== 'gallery');

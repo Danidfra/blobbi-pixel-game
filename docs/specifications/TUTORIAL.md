@@ -51,7 +51,7 @@ Unknown step ids in a save are kept but ignored; a malformed record loads as tip
 
 ## 12. Known limitations
 Tips are English capitals in the tiny font. Steps beyond the first hours (fishing, growth itself, visiting) are in
-the in-game player guide, not tips.
+the [player guide](../game-design/PLAYER-GUIDE.md), not tips.
 
 ## 13. Extension points
 A step is one entry in `TUTORIAL_STEPS`.

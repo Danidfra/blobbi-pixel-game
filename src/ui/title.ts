@@ -437,7 +437,7 @@ export class TitleScreen {
     if (named) this.drawChosen(g, px + panelW + 10, 40, time);
     if (this.scroll > 0) g.text('MORE', px + panelW + 3, 66, UI.muted);
     if (this.scroll + rows < items.length) g.text('MORE', px + panelW + 3, y - 8, UI.muted);
-    const foot = named ? 'TYPE A NAME, OR LEAVE IT EMPTY. ENTER CREATES.' : this.page === 'islands' ? 'ENTER OPENS. X DELETES (IT ASKS FIRST). ESC GOES BACK.' : 'ARROWS AND ENTER, OR CLICK. ESC GOES BACK.';
+    const foot = named ? 'TYPE A NAME, OR LEAVE IT EMPTY. ENTER CREATES.' : this.page === 'islands' ? 'ENTER OPENS. X DELETES (IT ASKS FIRST). ESC GOES BACK.' : 'ARROWS AND ENTER, OR CLICK OR TAP. ESC GOES BACK.';
     g.text(foot, Math.floor((W - textWidth(foot)) / 2), H - 9, UI.muted);
   }
 

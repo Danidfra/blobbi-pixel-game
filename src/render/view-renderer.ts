@@ -108,6 +108,8 @@ export interface ViewUiOptions {
   goals?: boolean;
   /** What E would do now, bottom centre; follows `hud` when unset. */
   prompt?: boolean;
+  /** Screen pixels kept free at the bottom (the menu bar): the action prompt sits above them. */
+  bottom?: number;
   /** Day and night lighting (presentation only; off unless set: the game's defaults turn it on). */
   lighting?: boolean;
   /** The camera mode indicator. */
@@ -318,7 +320,7 @@ export class ViewRenderer {
     if (ui.hud) this.drawHud(screen, ui.uiScale);
     // The goal box, the prompt and goal notices are part of the HUD unless set on their own.
     if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale);
-    if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale);
+    if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale, ui.bottom ?? 0);
     if (ui.hud) this.drawNotice(screen, ui.uiScale);
     if (ui.indicator) this.drawIndicator(screen, view, ui.uiScale);
     const t5 = performance.now();
@@ -453,7 +455,7 @@ export class ViewRenderer {
   }
 
   /** What E would do now, centred at the bottom. */
-  private drawPrompt(screen: PixelBuffer, ui: number): void {
+  private drawPrompt(screen: PixelBuffer, ui: number, bottom = 0): void {
     const text = this.live.prompt();
     if (!text) return;
     const buf = this.cachedText(`prompt|${text}`, () => {
@@ -467,7 +469,7 @@ export class ViewRenderer {
       if (key) drawTinyText(b, key[0].trim(), 3, 3, hex('#ffe07a'));
       return b;
     }, ui);
-    screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), screen.height - buf.height - 14 * ui);
+    screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), screen.height - buf.height - Math.max(14 * ui, bottom + 3 * ui));
   }
 
   /** A completed objective and its reward, centred at the top for a few seconds. */
