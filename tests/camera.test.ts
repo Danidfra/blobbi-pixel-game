@@ -364,8 +364,8 @@ describe('the camera never touches the game', () => {
     expect(viewedStore.get(key)).toBe(plainStore.get(key));
     const record = JSON.parse(viewedStore.get(key)!);
     expect(record.version).toBe(SAVE_VERSION);
-    expect(SAVE_VERSION).toBe(9);
-    expect(Object.keys(record).sort()).toEqual(['buildings', 'care', 'carrier', 'collected', 'collectedAt', 'companion', 'containers', 'equipped', 'found', 'generator', 'growth', 'interiors', 'inventory', 'objectives', 'owner', 'places', 'plots', 'producers', 'rocks', 'species', 'tally', 'trees', 'version', 'world', 'worldTime']);
+    expect(SAVE_VERSION).toBe(10);
+    expect(Object.keys(record).sort()).toEqual(['buildings', 'care', 'carrier', 'collected', 'collectedAt', 'companion', 'containers', 'equipped', 'found', 'generator', 'growth', 'interiors', 'intro', 'inventory', 'name', 'objectives', 'owner', 'places', 'plots', 'producers', 'rocks', 'species', 'tally', 'trees', 'tutorial', 'version', 'world', 'worldTime']);
   });
 
   it('a save made in one mode loads to the same world in another', () => {

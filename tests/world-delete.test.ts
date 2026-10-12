@@ -67,7 +67,6 @@ describe('deleting from MY ISLANDS', () => {
       current: () => ({ identity: '', name: '', saved: false }),
       continueGame: () => {},
       openWorld: () => {},
-      newWorld: () => {},
       settings: () => {},
       deleteWorld: (w) => deleted.push(w.identity),
     };

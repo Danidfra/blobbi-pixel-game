@@ -83,19 +83,20 @@ describe('saved worlds', () => {
 describe('title screen', () => {
   const make = (saved = true) => {
     const calls: string[] = [];
+    const world = { identity: 'id', params: parseIdentity('seed=s|kind=turtle|turtle=t|variant=0|10x10|scale=1|palette=cozy|density=1|islands=auto')!, name: 'Mossy Cove', day: 3, quests: 2, buildings: 1, lastPlayed: 1 };
     const actions: TitleActions = {
-      worlds: () => [{ identity: 'id', params: parseIdentity('seed=s|kind=turtle|turtle=t|variant=0|10x10|scale=1|palette=cozy|density=1|islands=auto')!, name: 'Mossy Cove', day: 3, quests: 2, buildings: 1, lastPlayed: 1 }],
+      worlds: () => (saved ? [world] : []),
       current: () => ({ identity: 'id', name: 'Mossy Cove', saved }),
       continueGame: () => calls.push('continue'),
       openWorld: (w) => calls.push(`open ${w.name}`),
-      newWorld: () => calls.push('new'),
       settings: () => calls.push('settings'),
     };
     return { title: new TitleScreen(actions), calls };
   };
 
-  it('keyboard: continue, islands, new island (with a confirmation page), back', () => {
+  it('keyboard: continue, my islands, new island (Carrier, then name, then create once), back', () => {
     const { title, calls } = make();
+    expect(title.page).toBe('main');
     title.key('Enter');
     expect(calls).toEqual(['continue']);
     title.key('ArrowDown');
@@ -108,22 +109,31 @@ describe('title screen', () => {
     title.key('ArrowDown');
     title.key('ArrowDown');
     title.key('Enter');
-    expect(title.page).toBe('new');
-    expect(calls).not.toContain('new'); // one step more: nothing happens by accident
-    title.key('Enter');
-    expect(calls.at(-1)).toBe('new');
+    expect(title.page).toBe('carrier');
+    title.key('Enter'); // the turtle
+    expect(title.page).toBe('name');
+    expect(title.pendingCreate).toBeNull(); // nothing is made by accident
+    title.key('Enter'); // CREATE ISLAND (unnamed)
+    title.key('Enter'); // a second press while creating does nothing more
+    expect(title.page).toBe('creating');
+    expect(title.takeCreate()).toEqual({ kind: 'turtle', name: '' });
+    expect(title.takeCreate()).toBeNull(); // taken exactly once
   });
 
-  it('says START for a world with no save, and draws with clickable rows', () => {
+  it('a first-time player is welcomed, and the main menu needs a saved island', () => {
     const { title, calls } = make(false);
+    expect(title.page).toBe('welcome');
     const screen = new PixelBuffer(960, 540);
     title.render(screen, 0);
-    // The first row is CONTINUE/START: click its middle.
+    // The first row is BEGIN: click its middle.
     const s = TitleScreen.scaleFor(960, 540);
     const ox = Math.floor((960 - 320 * s) / 2);
     const oy = Math.floor((540 - 180 * s) / 2);
-    title.pointer(ox + 160 * s, oy + 60 * s);
-    expect(calls).toEqual(['continue']);
+    const begin = title.regions.find((h) => h.y > oy + 80 * s && h.w > 150 * s)!;
+    title.pointer(begin.x + 4, begin.y + 4);
+    expect(title.page).toBe('carrier');
+    expect(calls).toEqual([]);
+    void ox;
     expect(title.key('KeyI')).toBe(true); // owns the keyboard
   });
 

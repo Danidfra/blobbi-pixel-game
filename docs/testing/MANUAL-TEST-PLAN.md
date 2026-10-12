@@ -25,11 +25,14 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
 |---|---|---|---|---|---|
-| TITLE-01 | Any | Open Play. Use arrows, Enter and Esc; open ISLANDS and ABOUT. | The title appears; every entry responds; Esc goes back. | NOT TESTED | |
-| TITLE-02 | At least one save | NEW ISLAND → A TURTLE ISLAND; confirm. | Asks first, then makes a new world; earlier islands remain listed in ISLANDS. | NOT TESTED | |
-| TITLE-03 | — | NEW ISLAND → A MANTA ISLAND. | A manta world starts; ISLANDS shows its species. | NOT TESTED | |
-| TITLE-05 | — | NEW ISLAND: move through the three entries. | Turtle, manta and whale each with a one-line description and an animated picture of that Carrier beside the list. | NOT TESTED | Scripted browser pass only |
-| TITLE-04 | A save | CONTINUE. | The Blobbi arrives by teleport (TELE-02). | NOT TESTED | |
+| TITLE-01 | Any | Open the game (a plain link opens Play). Use arrows, Enter and Esc; open MY ISLANDS and ABOUT. | The title appears; every entry responds; Esc goes back. | NOT TESTED | M8 |
+| TITLE-02 | A fresh browser profile (no saves) | Open the game. | WELCOME with BEGIN, SETTINGS, ABOUT; no CONTINUE; opening the game creates no save by itself. | NOT TESTED | M8 |
+| TITLE-03 | WELCOME | BEGIN; move between the three Carriers (keys, mouse, tap). | Three animated cards (turtle, manta, whale) each with a name and a personality line; the chosen one is raised with a yellow frame and a mark; NEXT names it; a second tap on the chosen card goes on. | NOT TESTED | M8 |
+| TITLE-04 | A save | CONTINUE. | The most recently played island opens; the Blobbi arrives by teleport (TELE-02); no intro. | NOT TESTED | |
+| TITLE-05 | Carrier chosen | Type a name (letters, digits, space); Backspace; SURPRISE ME; on a phone TYPE A NAME. | The name shows with a caret and a count up to 16; unsupported characters never appear; SURPRISE ME suggests a name; a phone keyboard opens for TYPE A NAME. | NOT TESTED | M8 |
+| TITLE-06 | Name page | CREATE ISLAND (press it twice quickly). | "THE SEA STIRS…", then the intro of the chosen Carrier on the new island, ending directly in play on that island. Exactly one new island in MY ISLANDS, with the typed name (or a generated one when left empty). | NOT TESTED | M8 |
+| TITLE-07 | A saved island | ABOUT → WATCH THE WHALE INTRO; let it end or skip it. | The intro plays on a preview island; afterwards the title returns; the saved island is unchanged. | NOT TESTED | M8 |
+| TITLE-08 | Saves exist | NEW ISLAND → … → CREATE. | Same steps as the first time; earlier islands remain listed in MY ISLANDS. | NOT TESTED | M8 |
 
 ## Gathering and tools (GATHER)
 
@@ -144,6 +147,9 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 
 ## Intro cinematic (INTRO)
 
+Since M8 the intro plays when a new island is made (TITLE-06) and from ABOUT → WATCH THE … INTRO.
+
+
 The cinematic is not in the start flow yet: every test uses the dev preview (dev tools → **Intro cinematic**, or
 `#mode=play&intro=<turtle|manta|whale>`), which plays on a preview world with no save. Frames for comparison:
 `examples/intro-cinematic/`.
@@ -238,6 +244,11 @@ refuses them (GROW-09).
 | SAVE-02 | An M3/M4 save (schema ≤ 5) | Load. | Loads; earned goals complete with notices in the first frames. | NOT TESTED | |
 | SAVE-03 | An M6 save (schema 8) | Load. | Stage 0, everything in place. | NOT TESTED | |
 | SAVE-04 | A schema-7 save | Load. | The Carrier bond starts fresh; everything else as before. | NOT TESTED | |
+| SAVE-05 | NEW ISLAND, intro playing | Reload the page during the intro; then CONTINUE. | The island exists (MY ISLANDS lists it); CONTINUE plays its intro again from the start, then play. | NOT TESTED | M8 |
+| SAVE-06 | A world made before M8 | Open it. | No intro, its buildings (and generated cottage) exactly as before, no tips. | NOT TESTED | M8 |
+| INTRO-INT-01 | NEW ISLAND, intro playing | Skip with a key, a click and a tap (three islands). | Play begins at once on the new island; the intro never plays again for it. | NOT TESTED | M8 |
+| INTRO-INT-02 | NEW ISLAND, reduced motion on | Make an island. | The shorter intro, then play. | NOT TESTED | M8 |
+| INTRO-INT-03 | NEW ISLAND, intro playing | Switch to another tab for a while, come back. | The intro continues where it was (it does not jump ahead); sound resumes. | NOT TESTED | M8 |
 | SAVE-DEL-01 | Play tab, a played world | Sidebar: "Delete this island's progress…", then double-click quickly where the button was. | A confirmation names the island and its Carrier; Cancel has focus; Delete stays greyed for about half a second; the double click deletes nothing. Cancel closes it with the world untouched. | NOT TESTED | M8 (KI-01) |
 | SAVE-DEL-02 | Two saved islands | Title → ISLANDS → a row's DELETE (or X). Press Enter at once; then choose DELETE FOREVER after a second. | A DELETE THIS ISLAND? page names it; Enter at once keeps it (KEEP IT is selected); DELETE FOREVER is grey for a moment, then erases only that island; the other is untouched. | NOT TESTED | M8 |
 | SAVE-DEL-03 | Touch device, two saved islands | ISLANDS → DELETE, then tap twice fast in the same place. | The second tap lands on the question, not on a delete; nothing is erased without a deliberate later tap on DELETE FOREVER. | NOT TESTED | M8 |

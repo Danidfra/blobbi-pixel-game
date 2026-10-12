@@ -131,7 +131,7 @@ describe('save schema 6 and migration', () => {
     expect(live.inventory.count(ITEMS.seed.id)).toBe(2);
     expect(live.inventory.count(ITEMS.stone.id)).toBe(2);
     const written = JSON.parse(store.get(saveKey(identity))!);
-    expect(written.version).toBe(9);
+    expect(written.version).toBe(SAVE_VERSION);
     expect(written.owner).toBe('local-world');
     expect(written.objectives.completed).toMatchObject({ gather: expect.any(Number), axe: expect.any(Number), wood: expect.any(Number) });
   });

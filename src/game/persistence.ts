@@ -11,6 +11,7 @@ import type { WorldDescription } from '../world/types';
 import { CROP_KINDS, type CropKind } from './farming';
 import { careFromSave, careToSave, type CareState } from './care';
 import { newObjectives, newTally, objectivesFromSave, tallyFromSave, type ObjectiveState, type Tally } from './objectives';
+import { sanitizeIslandName } from './island-name';
 
 export interface KeyValueStore {
   get(key: string): string | null;
@@ -30,8 +31,12 @@ export interface KeyValueStore {
  * container key, producer timers, the island companion's friendship and tried foods (`companion`; with `care` it
  * is the Blobbi-specific state, kept with the island and never keyed by a Blobbi, so no save names one),
  * discoveries found, the full quest state (requests, journal notes). Records 1-6 migrate with none of these.
+ * 8: the Carrier bond and places (M6). 9: growth, species, generator (M7).
+ * 10 (M8): the island's own name, the intro cinematic's state and the tutorial's state. Records 1-9 migrate as
+ * worlds that are already under way: no name, the intro counted as seen (it never replays for them) and tips off
+ * (a player can turn them back on in the guide).
  */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 /**
  * Who a world record belongs to. Everything in it (inventory, equipment, buildings, resources, world time) is the
@@ -122,6 +127,40 @@ export interface WorldSave {
   /** The World Carrier's species and the world generator's version (schema 9; records only, for compatibility). */
   species: 'turtle' | 'whale' | 'manta';
   generator: string;
+  /** The island's own name (schema 10), or null: then it is called by its generated name. */
+  name: string | null;
+  /** The intro cinematic (schema 10; older records: seen). */
+  intro: IntroSave;
+  /** The contextual tutorial (schema 10; older records: tips off). */
+  tutorial: TutorialSave;
+}
+
+/** The intro cinematic of a new island: still to play (a reload mid-intro plays it again), seen, or skipped. */
+export type IntroState = 'pending' | 'done' | 'skipped';
+export interface IntroSave {
+  state: IntroState;
+  /** World time it was seen or skipped (0 while pending). */
+  at: number;
+}
+
+/** The contextual tutorial: the steps done (ids) and whether the player turned tips off. */
+export interface TutorialSave {
+  done: string[];
+  skipped: boolean;
+}
+
+export const INTRO_SEEN: IntroSave = { state: 'done', at: 0 };
+export const newTutorialSave = (): TutorialSave => ({ done: [], skipped: false });
+
+export function introFromSave(raw: unknown): IntroSave {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as { state?: unknown; at?: unknown };
+  const state = r.state === 'pending' || r.state === 'done' || r.state === 'skipped' ? r.state : 'done';
+  return { state, at: finite(r.at) && r.at >= 0 ? r.at : 0 };
+}
+
+export function tutorialFromSave(raw: unknown): TutorialSave {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as { done?: unknown; skipped?: unknown };
+  return { done: Array.isArray(r.done) ? [...new Set(r.done.filter((x): x is string => typeof x === 'string'))] : [], skipped: r.skipped === true };
 }
 
 export interface GrowthSave {
@@ -240,7 +279,7 @@ function plotsFromSave(raw: unknown): PlotSave[] {
   return plots;
 }
 
-/** Read a record; versions 1-8 are migrated, anything else unknown or malformed is ignored whole. */
+/** Read a record; versions 1-9 are migrated, anything else unknown or malformed is ignored whole. */
 export function loadSave(store: KeyValueStore, identity: string): LoadedSave | null {
   const raw = store.get(saveKey(identity));
   if (!raw) return null;
@@ -317,6 +356,10 @@ export function loadSave(store: KeyValueStore, identity: string): LoadedSave | n
       interiors: parsed.version >= 7 ? interiorsFromSave(parsed.interiors) : {},
       containers: parsed.version >= 7 ? containersFromSave(parsed.containers) : {},
       producers: parsed.version >= 7 && parsed.producers && typeof parsed.producers === 'object' ? Object.fromEntries(Object.entries(parsed.producers as Record<string, unknown>).filter((e): e is [string, number] => finite(e[1]))) : {},
+      // Schema 10: a world from before is under way: no name, its intro seen, no tips.
+      name: parsed.version >= 10 ? sanitizeIslandName((parsed as { name?: unknown }).name) || null : null,
+      intro: parsed.version >= 10 ? introFromSave((parsed as { intro?: unknown }).intro) : { ...INTRO_SEEN },
+      tutorial: parsed.version >= 10 ? tutorialFromSave((parsed as { tutorial?: unknown }).tutorial) : { done: [], skipped: true },
     };
   } catch {
     return null;

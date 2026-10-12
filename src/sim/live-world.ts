@@ -30,7 +30,7 @@ import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
 import { Brain, NavGrid } from './brain';
 import { BASIC_KINDS, generateResources, isShore, REACH, RESOURCE_ITEM, RESOURCE_LABEL, type ResourceNode } from '../game/resources';
 import { Inventory } from '../game/inventory';
-import { loadSave, storeSave, clearSave, worldIdentity, newGrowthSave, SAVE_VERSION, WORLD_OWNER, type GrowthSave, type KeyValueStore, type TreeSaveState } from '../game/persistence';
+import { loadSave, storeSave, clearSave, worldIdentity, newGrowthSave, newTutorialSave, INTRO_SEEN, SAVE_VERSION, WORLD_OWNER, type GrowthSave, type IntroSave, type IntroState, type KeyValueStore, type TreeSaveState, type TutorialSave } from '../game/persistence';
 import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } from '../game/items';
 import { canCraft, craft, type Recipe } from '../game/crafting';
 import { HITS_TO_FELL, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
@@ -418,6 +418,12 @@ export class LiveWorld {
   visitLabel = '';
   /** Set when a save's growth cannot be reproduced (an unknown generator version): the world is then read-only. */
   growthError: string | null = null;
+  /** The island's own name (M8), or null: it is then called by its generated name. */
+  islandName: string | null = null;
+  /** The intro cinematic's state (M8). A world with no save counts it as seen; NEW ISLAND marks it pending. */
+  intro: IntroSave = { ...INTRO_SEEN };
+  /** The contextual tutorial's state (M8, `game/tutorial.ts`). */
+  tutorial: TutorialSave = newTutorialSave();
 
   constructor(
     base: WorldDescription,
@@ -528,6 +534,9 @@ export class LiveWorld {
       for (const [key, t] of Object.entries(save.producers)) this.producers.set(key, t);
       this.carrier = save.carrier;
       for (const id of save.places) if (this.places.some((p) => p.id === id)) this.visited.add(id);
+      this.islandName = save.name;
+      this.intro = save.intro;
+      this.tutorial = save.tutorial;
     }
     this.resources = this.allResources.filter((n) => !this.collected.has(n.id));
     if (this.visitor) {
@@ -2994,8 +3003,17 @@ export class LiveWorld {
       growth: { stage: this.growth.stage, version: this.growth.version, history: this.growth.history.map((h) => ({ ...h })), regions: [...(this.world.growth?.regions.map((r) => r.id) ?? [])] },
       species: this.species,
       generator: GENERATOR_VERSION,
+      name: this.islandName,
+      intro: { ...this.intro },
+      tutorial: { done: [...this.tutorial.done], skipped: this.tutorial.skipped },
     });
     this.lastAutosave = this.clock.time;
+  }
+
+  /** The intro cinematic ended (seen or skipped) or must play on the next opening (pending); saved at once. */
+  setIntro(state: IntroState): void {
+    this.intro = { state, at: state === 'pending' ? 0 : this.worldTime };
+    this.save();
   }
 
   /** Stop writing this world's save (it was deleted): nothing this world does afterwards is stored. */

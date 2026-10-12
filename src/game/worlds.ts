@@ -9,7 +9,7 @@
  */
 import { saveKey } from './persistence';
 import { dayAt } from './daylight';
-import { hash32 } from '../core/rng';
+import { sanitizeIslandName, worldName } from './island-name';
 
 export const SAVE_PREFIX = 'blobbi-pixel-lab:save:v1:';
 export const WORLD_INDEX_KEY = 'blobbi-pixel-lab:worlds';
@@ -74,14 +74,8 @@ export function parseIdentity(identity: string): WorldParams | null {
   };
 }
 
-const ADJECTIVES = ['Mossy', 'Sunny', 'Quiet', 'Drifting', 'Gentle', 'Misty', 'Clover', 'Amber', 'Willow', 'Pebble', 'Dewy', 'Starlit', 'Hazel', 'Breezy', 'Tidal', 'Sleepy'];
-const NOUNS = ['Shell', 'Hollow', 'Meadow', 'Cove', 'Grove', 'Haven', 'Isle', 'Knoll', 'Glade', 'Rest', 'Harbour', 'Garden'];
-
-/** A stable friendly name for a world ("Mossy Cove"). */
-export function worldName(identity: string): string {
-  const h = hash32(identity);
-  return `${ADJECTIVES[h % ADJECTIVES.length]} ${NOUNS[(h >>> 8) % NOUNS.length]}`;
-}
+/** A stable friendly name for a world ("Mossy Cove"); kept in `island-name.ts` with the player's own names. */
+export { worldName } from './island-name';
 
 /** The last-played index (identity → ms). */
 export function readIndex(get: (k: string) => string | null): Record<string, number> {
@@ -107,7 +101,7 @@ export function listWorlds(keys: readonly string[], get: (k: string) => string |
     const identity = key.slice(SAVE_PREFIX.length);
     const params = parseIdentity(identity);
     if (!params) continue;
-    let save: { worldTime?: unknown; objectives?: { completed?: Record<string, unknown> }; buildings?: unknown[] } | null = null;
+    let save: { worldTime?: unknown; objectives?: { completed?: Record<string, unknown> }; buildings?: unknown[]; name?: unknown } | null = null;
     try {
       save = JSON.parse(get(key) ?? 'null');
     } catch {
@@ -118,7 +112,7 @@ export function listWorlds(keys: readonly string[], get: (k: string) => string |
     out.push({
       identity,
       params,
-      name: worldName(identity),
+      name: sanitizeIslandName(save.name) || worldName(identity),
       day: dayAt(t),
       quests: Object.keys(save.objectives?.completed ?? {}).length,
       buildings: Array.isArray(save.buildings) ? save.buildings.length : 0,

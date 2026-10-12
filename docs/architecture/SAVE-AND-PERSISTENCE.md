@@ -24,7 +24,7 @@
   hide or unload.
 - Nothing is published or sent anywhere.
 
-## 2. Fields (schema 9)
+## 2. Fields (schema 10)
 
 | Field | Since | What |
 |---|---|---|
@@ -38,7 +38,8 @@
 | `plots`, `care`, `tally`, `objectives` | 6 | farm plots and crops; needs; what the player did; quests, request, lore found |
 | `companion`, `found`, `interiors`, `containers`, `producers` | 7 | friendship and tasted foods; discoveries found; house interiors; chest contents; producer timers |
 | `carrier`, `places` | 8 | Carrier bond, observations, likes found, counts; named places visited |
-| `growth`, `species`, `generator` | 9 | `{ stage, version, history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`; base generator version (`m6.0`) |
+| `growth`, `species`, `generator` | 9 | `{ stage, version, history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`/`'whale'`; base generator version (`m6.0`) |
+| `name`, `intro`, `tutorial` | 10 | the island's own name or null; `{ state: 'pending' \| 'done' \| 'skipped', at }`; `{ done: [step ids], skipped }` |
 
 ## 3. Loading and migration
 
@@ -46,7 +47,7 @@
 
 1. Reads the record; malformed JSON, an unknown or future version, a different `world`, or (from schema 5) a
    different owner → `null` (the world starts fresh **in memory**).
-2. Migrates any version 1–8 forward: each field added later gets a safe default, and some are derived from what the
+2. Migrates any version 1–9 forward: each field added later gets a safe default, and some are derived from what the
    record shows (for example a schema-5 tally seeded from collected, felled, mined and built counts).
 3. Sanitises every field (unknown ids dropped, numbers checked, lists deduplicated).
 
@@ -58,6 +59,10 @@ Guarantees (tested):
 - An unknown **growth** version makes the world read-only for that session (no store), so it is neither regrown
   differently nor overwritten.
 - Quest rewards are never granted twice after a migration (quest ids are stable).
+- **A world from before schema 10 never plays the intro** (its `intro` loads as seen), has no name (it keeps its
+  generated one) and has tips off (`tutorial.skipped`), because it is already under way.
+- A new island is saved the moment it is made, with `intro: pending`: if the page goes away during its intro, the
+  island is kept and its intro plays again the next time it is opened (`tests/onboarding.test.ts`).
 
 Known risk (pre-existing, documented in [known issues](../testing/KNOWN-ISSUES.md)): a record whose **schema**
 version is newer than the code is ignored and the world starts fresh; autosave would then write a new record over
@@ -65,7 +70,9 @@ it. This only happens when an older build opens a newer save.
 
 ## 4. Writing
 
-`LiveWorld.save()` writes the whole record at once (no partial writes). Not saved: presence (teleport), the camera,
+`LiveWorld.save()` writes the whole record at once (no partial writes). Leaving the page saves only a world that has
+been played (or a new island): an island shown behind the title but never played is never written, so opening the
+game never creates a save by itself. Not saved: presence (teleport), the camera,
 UI state, the visit session, particles, the brain's plan. A visitor (`LiveWorld({ visitor: true })`) has no store
 and never writes.
 

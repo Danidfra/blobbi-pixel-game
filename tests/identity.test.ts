@@ -188,7 +188,7 @@ describe('persisting the selected Blobbi', () => {
     const live = new LiveWorld(world, 'blobbi-9', 16, { store });
     live.save();
     const written = JSON.parse(store.get(saveKey(identity))!);
-    expect(written).toMatchObject({ version: 9, owner: 'local-world', inventory: { items: v4.inventory.items } });
+    expect(written).toMatchObject({ version: SAVE_VERSION, owner: 'local-world', inventory: { items: v4.inventory.items } });
     store.set(saveKey(identity), JSON.stringify({ ...written, owner: 'blobbi:abc' }));
     expect(loadSave(store, identity)).toBeNull();
     store.set(saveKey(identity), JSON.stringify({ ...written, owner: undefined }));

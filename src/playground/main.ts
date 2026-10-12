@@ -50,7 +50,8 @@ import { WorldsScreen } from '../ui/screens/worlds';
 import { LocalVisitTransport, VisitSession, localPlayerId, OWNERS_KEY, type WorldRef } from '../game/visiting';
 import { AudioEngine, DEFAULT_AUDIO } from '../audio/engine';
 import { GameAudio } from '../audio/director';
-import { TitleScreen } from '../ui/title';
+import { TitleScreen, CARD_PIC } from '../ui/title';
+import { displayName } from '../game/island-name';
 import { generateMantaWorld } from '../carriers/manta-world';
 import { generateWhaleWorld } from '../carriers/whale-world';
 import { speciesThumbnail } from '../carriers/species';
@@ -123,13 +124,14 @@ const startupBlobbi: { source: BlobbiSource; message: string; error: boolean } =
 
 const state: State = {
   seed: params.get('seed') ?? 'blobbi',
-  options: { ...DEFAULT_WORLD_OPTIONS, kind: (params.get('kind') as 'island' | 'turtle' | 'manta' | 'whale') ?? 'turtle' },
+  options: { ...DEFAULT_WORLD_OPTIONS, kind: (params.get('kind') as 'island' | 'turtle' | 'manta' | 'whale') ?? 'turtle', ...(params.get('house') === 'none' ? { generatedHouse: false } : {}) },
   render: { ...DEFAULT_RENDER_OPTIONS },
   live: { ...DEFAULT_LIVE_OPTIONS },
   zoom: 2,
   panX: 0,
   panY: 0,
-  mode: (params.get('mode') as Mode) ?? 'world',
+  // The game is the front door: a plain link opens Play (the title); the lab tabs are one click away.
+  mode: (params.get('mode') as Mode) ?? 'play',
   galleryPrefix: 'gallery',
   galleryCount: 12,
   blobbiSeed: startupBlobbi.source.seed,
@@ -355,7 +357,7 @@ function toCanvas(buf: PixelBuffer, reuse?: HTMLCanvasElement): HTMLCanvasElemen
 function saveHash(): void {
   const b = state.blobbi;
   const blobbi = b.kind === 'v3-address' ? `pubkey=${b.pubkey}&d=${encodeURIComponent(b.d)}` : `blobbi=${encodeURIComponent(b.seed)}`;
-  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}`;
+  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}${state.options.generatedHouse === false ? '&house=none' : ''}`;
 }
 
 // ─── World mode ──────────────────────────────────────────────────────────────
@@ -432,6 +434,11 @@ function showWorldStats(): void {
 // ─── Play mode ───────────────────────────────────────────────────────────────
 
 let live: LiveWorld | null = null;
+/**
+ * The loaded world has been played (or is a new island): only then does leaving the page save it. A world shown
+ * behind the title but never played is not written, so looking at the title never creates a save.
+ */
+let playStarted = false;
 let liveRenderer: LiveRenderer | null = null;
 let viewRenderer: ViewRenderer | null = null;
 let bounds: WorldBounds | null = null;
@@ -536,7 +543,9 @@ settingsScreen.onChange = () => {
 
 function startLive(): void {
   if (!world) return;
+  playStarted = false;
   live = new LiveWorld(world, state.blobbi, state.blobbiSize, { store: localStore() });
+  if (linkedWorld && linkedIdentity === null) linkedIdentity = live.identity;
   liveRenderer = new LiveRenderer(live);
   viewRenderer = new ViewRenderer(live, liveRenderer);
   bounds = worldBounds(world);
@@ -571,15 +580,23 @@ function touchWorld(): void {
     /* not stored */
   }
 }
-/** Leave the title: the Blobbi teleports in, then play begins. */
+/**
+ * Leave the title and play. An island whose intro is still to be seen (a new island, or one reloaded during its
+ * intro) plays the intro cinematic; any other island begins with the Blobbi's teleport arrival.
+ */
 function beginPlay(): void {
   title.active = false;
   gameUI.close();
   if (live) {
+    playStarted = true;
+    touchWorld();
+    if (live.intro.state === 'pending' && !live.visitor) {
+      startWorldIntro();
+      return;
+    }
     live.teleport.reducedMotion = gameUI.settings.reducedMotion;
     live.teleport.state = 'absent';
     live.enterBlobbi();
-    touchWorld();
   }
   view.focus();
 }
@@ -608,28 +625,27 @@ function openWorldParams(w: WorldEntry): boolean {
   regenerate();
   return true;
 }
+/** The link named a world (`#seed=…`): the title offers to play it even before it has a save. */
+const linkedWorld = params.has('seed');
+let linkedIdentity: string | null = null;
+/** The island most recently played, if any. */
+const recentWorld = (): WorldEntry | null => listWorlds(storeKeys(), storeGet)[0] ?? null;
 const title = new TitleScreen({
   worlds: () => listWorlds(storeKeys(), storeGet),
   current: () => {
     const identity = live?.identity ?? (world ? worldIdentity(world) : '');
-    return { identity, name: identity ? worldName(identity) : 'this island', saved: !!identity && hasSave(identity, storeGet) };
+    return { identity, name: identity ? islandLabel(identity) : 'this island', saved: !!identity && hasSave(identity, storeGet), linked: linkedWorld && !!identity && identity === linkedIdentity };
   },
-  continueGame: () => beginPlay(),
+  continueGame: () => {
+    const recent = recentWorld();
+    if (!recent) return;
+    if (live && live.identity === recent.identity) beginPlay();
+    else if (openWorldParams(recent)) beginPlay();
+  },
+  playCurrent: () => beginPlay(),
   openWorld: (w) => {
-    if (openWorldParams(w)) beginPlay();
-  },
-  newWorld: (kind) => {
-    // A new world has no generated cottage: the player builds the first home (M8).
-    state.options = { ...state.options, kind, generatedHouse: false };
-    // A new turtle starts small (Variant S); worlds made before keep the variant in their identity.
-    if (kind === 'turtle') state.shellVariant = NEW_WORLD_SHELL_VARIANT;
-    const identityOf = (seed: string, turtleSeed: string) => worldIdentity(makeWorldFor(seed, turtleSeed));
-    const { seed, turtleSeed } = newWorldSeeds(() => randomSeed('world'), identityOf, (id) => hasSave(id, storeGet));
-    state.seed = seed;
-    state.turtleSeed = turtleSeed;
-    syncControls();
-    regenerate();
-    beginPlay();
+    if (live && live.identity === w.identity) beginPlay();
+    else if (openWorldParams(w)) beginPlay();
   },
   settings: () => gameUI.open('settings'),
   deleteWorld: (w) => {
@@ -642,13 +658,15 @@ const title = new TitleScreen({
       startLive();
     }
   },
+  watchIntro: (kind) => startIntroPreview(kind),
+  requestTextInput: (current) => openNameInput(current),
   preview: (kind, time) => {
     // Each species' picture once per animation step (the title redraws every frame).
     const step = Math.floor(time * 4);
     const key = `${kind}|${step % 48}`;
     let pic = titlePictures.get(key);
     if (!pic) {
-      pic = speciesThumbnail(kind, `${kind}-title`, 96, 64, (step % 48) / 4, paletteFor('cozy'));
+      pic = speciesThumbnail(kind, `${kind}-title`, CARD_PIC.w, CARD_PIC.h, (step % 48) / 4, paletteFor('cozy'));
       titlePictures.set(key, pic);
     }
     return pic;
@@ -656,10 +674,80 @@ const title = new TitleScreen({
 });
 const titlePictures = new Map<string, PixelBuffer>();
 title.onSound = (n) => gameUI.onSound?.(n);
-/** The name players see for an island. */
+/** The name players see for an island: its own (saved) name, else its generated one. */
 function islandLabel(identity: string): string {
-  return worldName(identity);
+  if (live && live.identity === identity) return displayName(live.islandName, identity);
+  return listWorlds(storeKeys(), storeGet).find((w) => w.identity === identity)?.name ?? worldName(identity);
 }
+
+/**
+ * Make a new island (the title's CREATE ISLAND, taken once): new seeds whose identity has no save, the world
+ * generated without the cottage (and a small turtle shell), saved at once with its name and its intro pending (so a
+ * reload during the intro plays it again rather than losing the island), then the intro on the real world. On any
+ * failure the playground's previous world and settings are restored and nothing is saved.
+ */
+function createWorld(kind: CarrierKind, name: string): string | null {
+  const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant };
+  const keepWorld = { world, live, liveRenderer, viewRenderer, bounds };
+  try {
+    // A new world has no generated cottage: the player builds the first home (M8).
+    state.options = { ...state.options, kind, generatedHouse: false };
+    // A new turtle starts small (Variant S); worlds made before keep the variant in their identity.
+    if (kind === 'turtle') state.shellVariant = NEW_WORLD_SHELL_VARIANT;
+    const identityOf = (seed: string, turtleSeed: string) => worldIdentity(makeWorldFor(seed, turtleSeed));
+    const { seed, turtleSeed } = newWorldSeeds(() => randomSeed('world'), identityOf, (id) => hasSave(id, storeGet));
+    state.seed = seed;
+    state.turtleSeed = turtleSeed;
+    world = makeWorld(seed);
+    const store = localStore();
+    const made = new LiveWorld(world, state.blobbi, state.blobbiSize, { store });
+    if (hasSave(made.identity, storeGet)) throw new Error('that island already exists');
+    made.islandName = name || null;
+    made.intro = { state: 'pending', at: 0 };
+    made.save();
+    if (store && !hasSave(made.identity, storeGet)) throw new Error('this browser would not keep the island (storage is full or disabled)');
+    live = made;
+    liveRenderer = new LiveRenderer(live);
+    viewRenderer = new ViewRenderer(live, liveRenderer);
+    bounds = worldBounds(world);
+    live.clock.speed = state.speed;
+    syncControls();
+    saveHash();
+    rerender();
+    showInventory();
+    return null;
+  } catch (e) {
+    Object.assign(state, keep);
+    ({ world, live, liveRenderer, viewRenderer, bounds } = keepWorld);
+    syncControls();
+    return `The island could not be made: ${(e as Error).message}. Nothing was saved.`;
+  }
+}
+
+// Touch: a hidden text field brings up the device keyboard for the island name; what is typed mirrors into the title.
+const nameInput = document.createElement('input');
+nameInput.type = 'text';
+nameInput.maxLength = 32;
+nameInput.autocomplete = 'off';
+nameInput.setAttribute('aria-label', 'Island name');
+nameInput.style.cssText = 'position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0';
+document.body.appendChild(nameInput);
+function openNameInput(current: string): void {
+  nameInput.value = current;
+  nameInput.focus();
+}
+nameInput.addEventListener('input', () => {
+  title.setName(nameInput.value);
+  nameInput.value = title.name;
+});
+nameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === 'Escape') {
+    e.preventDefault();
+    view.focus();
+    if (e.key === 'Enter') title.key('Enter');
+  }
+});
+
 /** A world for other seeds, without touching the playground's state (identity checks for a new world). */
 function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
   const keep = state.turtleSeed;
@@ -835,16 +923,75 @@ let revealCameraReturn: CameraModeId | null = null;
 function stopLive(): void {
   gameAudio.silence();
   endIntroPreview();
+  if (intro) {
+    intro.dispose();
+    intro = null;
+  }
   live = null;
   liveRenderer = null;
   viewRenderer = null;
   liveCanvas = null;
 }
 
-// ─── The intro cinematic, previewed (dev): its own throwaway world, never the player's save ───────────
-/** The cinematic playing over the view, if any (a preview; the production flow does not start it yet). */
+// ─── The intro cinematic ──────────────────────────────────────────────────────────────────────────────
+/**
+ * The cinematic playing over the view, if any: either a new island's own intro (`introMode` 'world', on the real
+ * live world, ending in play) or a preview (WATCH THE INTRO, dev tools: a throwaway world with no store, ending back
+ * on the title).
+ */
 let intro: IntroCinematic | null = null;
+let introMode: 'world' | 'preview' = 'preview';
 let introResult: IntroResult | null = null;
+
+/**
+ * A new island's intro, on the real world: the cinematic never steps or saves the world; when it ends (seen or
+ * skipped) the intro is marked in the save, the camera takes the cinematic's last view and play begins at once.
+ */
+function startWorldIntro(): void {
+  const target = live;
+  if (!target || !liveRenderer || !viewRenderer) return;
+  endIntroPreview();
+  try {
+    intro = new IntroCinematic(
+      { live: target, renderer: liveRenderer, view: viewRenderer },
+      {
+        reducedMotion: gameUI.settings.reducedMotion,
+        audio: gameUI.settings.sound ? audioEngine : null,
+        renderOptions: state.live,
+        uiScale: gameUI.settings.largeText ? 3 : 2,
+        onComplete: (r) => finishWorldIntro(target, r),
+      },
+    );
+    introMode = 'world';
+  } catch (e) {
+    // The intro could not start: the island is fine, so play begins the usual way and the intro counts as seen.
+    console.error('[intro] could not start', e);
+    intro = null;
+    target.setIntro('done');
+    beginPlay();
+    return;
+  }
+  title.active = false;
+  gameUI.close();
+  lastFrameTime = 0;
+  view.focus();
+}
+
+/** The new island's intro ended: mark it, take its camera, and play. */
+function finishWorldIntro(target: LiveWorld, r: IntroResult): void {
+  introResult = r;
+  const done = intro;
+  intro = null;
+  done?.dispose();
+  if (live !== target) return;
+  target.setIntro(r.skipped ? 'skipped' : 'done');
+  setCameraMode(r.cameraMode);
+  if (bounds) viewCamera.update(0, target.cameraTarget(), view.width, view.height, bounds, true);
+  playStarted = true;
+  touchWorld();
+  lastFrameTime = 0;
+  if (import.meta.env.DEV) console.info('[intro] complete', r);
+}
 /**
  * Play the intro on a preview world of a species. The preview world has no store (nothing is read or written),
  * the player's own live world is left exactly as it is, and the title screen returns when the cinematic ends.
@@ -868,6 +1015,7 @@ function startIntroPreview(kind: CarrierKind, reduced = gameUI.settings.reducedM
       },
     },
   );
+  introMode = 'preview';
   title.active = false;
   gameUI.close();
   lastFrameTime = 0;
@@ -875,7 +1023,7 @@ function startIntroPreview(kind: CarrierKind, reduced = gameUI.settings.reducedM
 }
 /** Leave the preview (ended, skipped or abandoned): dispose it and return to the title. */
 function endIntroPreview(): void {
-  if (!intro) return;
+  if (!intro || introMode !== 'preview') return;
   const done = intro;
   intro = null;
   done.dispose();
@@ -884,7 +1032,18 @@ function endIntroPreview(): void {
 function introFrame(real: number): void {
   const playing = intro;
   if (!playing) return;
-  const frame = playing.frame(real, view.width, view.height);
+  let frame: PixelBuffer;
+  try {
+    frame = playing.frame(real, view.width, view.height);
+  } catch (e) {
+    // A failing frame never strands the player: a preview returns to the title, a new island goes on into play.
+    console.error('[intro] frame failed', e);
+    if (introMode === 'preview') endIntroPreview();
+    else if (!playing.done) playing.skip();
+    else intro = null;
+    return;
+  }
+  if (!intro) return; // it ended during this frame and handed over
   liveCanvas = toCanvas(frame, liveCanvas ?? undefined);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(liveCanvas, 0, 0);
@@ -912,6 +1071,7 @@ const push = (a: number[], v: number) => {
   if (a.length > 90) a.shift();
 };
 
+let titleCreateFrames = 0;
 /** The title: the world paused, the camera drifting slowly over the island, the menu on top. */
 function titleFrame(now: number, real: number): void {
   if (!live || !bounds) return;
@@ -924,8 +1084,19 @@ function titleFrame(now: number, real: number): void {
   const rest = titleCamera.restScale('exploration', view.width, view.height, b);
   const v = titleCamera.update(real, target, view.width, view.height, b);
   const frame = viewRenderer!.render(v, rest, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: false, goals: false, prompt: false, indicator: false, lighting: gameUI.settings.daylight });
+  title.reducedMotion = gameUI.settings.reducedMotion;
   title.render(frame, t);
   if (gameUI.capturing) gameUI.render(frame, t);
+  // CREATE ISLAND: the "creating" page has been drawn once; now make the island (taken once: never twice).
+  if (title.page === 'creating' && title.pendingCreate && titleCreateFrames++ >= 1) {
+    const req = title.takeCreate()!;
+    titleCreateFrames = 0;
+    const error = createWorld(req.kind, req.name);
+    if (error) title.createFailed(error);
+    else beginPlay();
+    return;
+  }
+  if (title.page !== 'creating') titleCreateFrames = 0;
   if (gameUI.settings.sound) gameAudio.update(live, Math.min(0.25, real), []);
   live.sounds.length = 0;
   liveCanvas = toCanvas(frame, liveCanvas ?? undefined);
@@ -948,6 +1119,7 @@ function playFrame(now: number): void {
     return;
   }
   const t0 = performance.now();
+  playStarted = true;
   // An open menu pauses the world: no steps, no input.
   const steps = gameUI.capturing ? (readInput(), 0) : live.update(real, readInput());
   const t1 = performance.now();
@@ -1212,7 +1384,8 @@ view.addEventListener('keydown', (e) => {
   }
   // The title screen owns the keyboard (unless its settings panel is open).
   if (title.active && !gameUI.capturing) {
-    if (!e.repeat) title.key(e.code);
+    if (!e.repeat || title.page === 'name') title.key(e.code, e.key);
+    if (e.code === 'Backspace') e.preventDefault();
     return;
   }
   // Menus first: an open screen takes every key (held keys let go, so the Blobbi stops), and I/K/J/U/Esc open them.
@@ -1292,9 +1465,11 @@ if (import.meta.env.DEV)
       },
     }),
   );
-window.addEventListener('beforeunload', () => live?.save());
+window.addEventListener('beforeunload', () => {
+  if (playStarted) live?.save();
+});
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) live?.save();
+  if (document.hidden && playStarted) live?.save();
   // A hidden tab is silent; showing it again resumes (the world itself pauses with the animation frames).
   if (document.hidden) audioEngine.suspend();
   else if (gameUI.settings.sound) audioEngine.resume();
@@ -2145,9 +2320,13 @@ function setMode(mode: Mode): void {
   if (mode === 'play') {
     resize();
     if (!live) {
-      startLive();
-      // A fresh entry into play starts at the title screen.
+      // Behind the title: the most recent island (unless a link named one), so CONTINUE picks up right there.
+      const recent = linkedWorld ? null : recentWorld();
+      if (recent) openWorldParams(recent);
+      if (!live) startLive();
+      // A fresh entry into play starts at the title screen: WELCOME the first time, the main menu after.
       title.active = true;
+      title.reset();
     }
     lastFrameTime = 0;
     view.focus();

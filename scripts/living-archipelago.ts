@@ -49,7 +49,6 @@ const shot = (mode: CameraModeId, ui = DEFAULT_VIEW_UI, target = live.cameraTarg
     current: () => ({ identity: id, name: worldName(id), saved: true }),
     continueGame: () => {},
     openWorld: () => {},
-    newWorld: () => {},
     settings: () => {},
   });
   const sheet = new PixelBuffer(W * 2, H);

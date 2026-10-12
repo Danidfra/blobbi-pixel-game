@@ -275,18 +275,18 @@ describe('the whale world: playable', () => {
       current: () => ({ identity: 'id', name: 'x', saved: false }),
       continueGame: () => {},
       openWorld: () => {},
-      newWorld: (k) => calls.push(k),
       settings: () => {},
       preview: () => null,
     };
     const title = new TitleScreen(actions);
-    title.key('ArrowDown');
-    title.key('ArrowDown');
-    title.key('Enter'); // NEW ISLAND
-    expect(title.page).toBe('new');
-    title.key('ArrowDown');
-    title.key('ArrowDown');
-    title.key('Enter');
+    expect(title.page).toBe('welcome'); // no saved island yet
+    title.key('Enter'); // BEGIN
+    expect(title.page).toBe('carrier');
+    title.key('ArrowRight');
+    title.key('ArrowRight');
+    title.key('Enter'); // the whale card
+    title.key('Enter'); // CREATE ISLAND
+    calls.push(title.takeCreate()!.kind);
     expect(calls).toEqual(['whale']);
   });
 });

@@ -178,7 +178,7 @@ describe('carrier save (schema 8)', () => {
     expect(again.carrier.bond).toBe(live.carrier.bond);
     expect(again.carrier.observations).toEqual(live.carrier.observations);
     const raw = JSON.parse(store.get(saveKey(live.identity))!);
-    expect(raw.version).toBe(9);
+    expect(raw.version).toBe(10);
     const v7 = { ...raw, version: 7 };
     delete v7.carrier;
     store.set(saveKey(live.identity), JSON.stringify(v7));
