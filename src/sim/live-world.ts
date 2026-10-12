@@ -2441,6 +2441,24 @@ export class LiveWorld {
     return null;
   }
 
+  /** Open water straight ahead, past the line's reach (up to 140 px away), with nothing but shore and shell between. */
+  seaAheadOutOfReach(): boolean {
+    if (this.inside) return false;
+    const b = this.blobbi;
+    const dir = b.animator.state.direction;
+    const fx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+    const fy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
+    const { width, height, cls } = this.world.terrain;
+    for (let reach = 50; reach <= 140; reach += 2) {
+      const x = Math.round(b.x + fx * reach);
+      const y = Math.round(b.y + fy * reach * 0.8);
+      if (x < 0 || y < 0 || x >= width || y >= height) return false;
+      const c = cls[y * width + x];
+      if (c === T.SHALLOW || c === T.WATER || c === T.DEEP || c === T.FOAM) return true;
+    }
+    return false;
+  }
+
   /**
    * E with a rod: cast at the water in front; when the fish bites (an "!"), E again within the moment reels it in.
    * Too early or too late, it swims off (nothing is lost). Returns true when the press was spent on fishing.
@@ -2454,7 +2472,15 @@ export class LiveWorld {
     const f = this.fishing;
     if (!f) {
       const target = this.fishTarget();
-      if (!target) return false;
+      if (!target) {
+        // Water ahead, but out of the line's reach (M10 phase B): say so, and that growth brings the sea closer.
+        const far = this.seaAheadOutOfReach();
+        if (!far) return false;
+        const grows = this.growth.stage < 4;
+        say(grows ? 'too far to cast. the island will grow closer to the sea' : 'too far to cast from here. try another shore');
+        b.animator.react('neutral', time, 0.6, 0);
+        return true;
+      }
       const rng = stream(this.world.seed, 'fishing', this.casts++);
       this.fishing = { start: time, biteAt: time + rng.range(1.5, 5), ...target };
       this.brain.manual(time);
