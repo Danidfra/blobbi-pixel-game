@@ -17,7 +17,8 @@ import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex } from '../core/color';
 import { paletteFor } from '../world/generate';
 import { poseKey, buildBlobbiSprite, type BlobbiPose } from '../blobbi/sprite';
-import { attachTool, EquipmentRig, EQUIPMENT } from '../game/equipment';
+import { attachTool, EquipmentRig, EQUIPMENT, type Attachment } from '../game/equipment';
+import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { ITEMS, FOODS, itemLabel, itemPlural } from '../game/items';
 import { currentObjective, OBJECTIVES } from '../game/objectives';
 import { BASIC_KINDS } from '../game/resources';
@@ -274,14 +275,35 @@ export class ViewRenderer {
     // The anchor pixel sits in the world ground pixel's block: centre column, bottom row.
     const ax = Math.floor((bx - originX) * s + s / 2);
     const ay = Math.floor((by - originY) * s + s - 1) + Math.round(b.animator.hop(time) * s);
-    let tool: { sprite: Sprite; dx: number; dy: number; behind: boolean } | null = null;
+    let tool: Attachment | null = null;
     if (live.equipped && EQUIPMENT[live.equipped]) {
       const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), native ? native.rig : live.rig, spriteOf, palette);
       if (at.visible) tool = at;
     }
+    // A fish on the line tugs the rod: a pixel down and back, a few times a second.
+    const float = away ? null : floatAt(live, time);
+    const tug = float?.bite && Math.floor(time * 8) % 2 ? Math.max(1, Math.round(ratio)) : 0;
     // A tool in front sits one world pixel right of its hand point, as the classic renderer has always drawn it
     // (its painter's-order nudge of +0.5 rounds up): the approved M2.3 look, kept in every mode.
-    const drawTool = () => tool && blitAt(screen, tool.sprite, ax + Math.round(tool.dx * ratio) + (tool.behind ? 0 : Math.round(s)), ay + Math.round(tool.dy * ratio), ratio);
+    const toolX = () => ax + Math.round(tool!.dx * ratio) + (tool!.behind ? 0 : Math.round(s));
+    const toolY = () => ay + Math.round(tool!.dy * ratio) + tug;
+    const drawTool = () => tool && blitAt(screen, tool.sprite, toolX(), toolY(), ratio);
+    // The fishing line (M10): from the rod's tip as drawn, in the rod's own layer (behind the Blobbi when the rod
+    // is), to the float; the float flies there on the cast. At screen resolution, one pixel thin.
+    const drawFishing = (layer: 'behind' | 'front') => {
+      if (!float) return;
+      const fx = Math.floor((float.x - originX) * s);
+      const fy = Math.floor((float.y - originY) * s);
+      const px = Math.max(1, Math.round(s));
+      const floatBehind = float.y <= b.y;
+      // The tip on screen: the rod's grip (its anchor, where it is blitted) plus the tip's offset from the grip.
+      const tx = tool?.tip ? toolX() + Math.round((tool.tip.dx - tool.dx) * ratio) : fx;
+      const ty = tool?.tip ? toolY() + Math.round((tool.tip.dy - tool.dy) * ratio) : fy;
+      const k = live.castProgress(time) ?? 1;
+      const at = float.landed ? { x: fx, y: fy } : flight(tx, ty, fx, fy, k, 14 * s);
+      if ((tool?.behind ? 'behind' : 'front') === layer && tool?.tip && live.equipmentAnimation(time) !== 'raise') drawLine(screen, tx, ty, at.x + (px >> 1), at.y - 2 * px, float.bite || !float.landed ? 0 : Math.max(1, Math.round(2 * s)));
+      if ((floatBehind && float.landed ? 'behind' : 'front') === layer) drawFloat(screen, at.x, at.y, px);
+    };
     if (away) {
       // No tool in hand while teleporting; the shadow first (on the ground), then whatever of the body shows.
       const groundY = ay - Math.round(b.animator.hop(time) * s);
@@ -292,8 +314,10 @@ export class ViewRenderer {
     } else {
       this.teleportAnchor = null;
       if (tool?.behind) drawTool();
+      drawFishing('behind');
       blitAt(screen, sprite, ax, ay, ratio);
       if (tool && !tool.behind) drawTool();
+      drawFishing('front');
     }
     this.lastBlobbi = { x: ax, y: ay, size, ratio, sprite: canonical };
     const t3 = performance.now();

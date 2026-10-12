@@ -17,9 +17,12 @@ import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { ITEMS } from './items';
 
 /** How the tool is held: at rest, pulled back, or striking (sideways, down toward the viewer, up away). */
-export type ToolOrientation = 'rest' | 'carry' | 'raised' | 'strike' | 'strike-down' | 'strike-up';
-/** The swing's phases, from the live world. */
-export type EquipmentAnimation = 'idle' | 'raise' | 'strike' | 'recover';
+export type SwingOrientation = 'rest' | 'carry' | 'raised' | 'strike' | 'strike-down' | 'strike-up';
+/** A rod held out over the water (M10): forward and up (side), down toward the viewer, up away from them. */
+export type FishOrientation = 'fish' | 'fish-down' | 'fish-up';
+export type ToolOrientation = SwingOrientation | FishOrientation;
+/** The swing's phases, from the live world; a rod's cast (wound back with `raise`, then `cast`) and its hold. */
+export type EquipmentAnimation = 'idle' | 'raise' | 'strike' | 'recover' | 'cast' | 'fishing';
 
 export interface Attachment {
   sprite: Sprite;
@@ -34,6 +37,8 @@ export interface Attachment {
   arm: string;
   orientation: ToolOrientation;
   mirrored: boolean;
+  /** A rod's tip (where the line leaves it), as an offset from the Blobbi's ground point like `dx`, `dy`. */
+  tip: { dx: number; dy: number } | null;
 }
 
 /** The Blobbi's anatomical hands. Tools are held in one hand in every view; the kit names arms by screen side. */
@@ -51,10 +56,14 @@ export function armForHand(pose: BlobbiPose, hand: Hand): string {
   return near ? 'near-arm' : 'far-arm';
 }
 
-/** Template characters: h/H/d handle mid/light/dark, s/S/k steel mid/light/dark, g the grip pixel (handle). */
+/**
+ * Template characters: h/H/d handle mid/light/dark, s/S/k steel mid/light/dark, g the grip pixel (handle); a rod's
+ * c cork, r/R reel (dark/light), t its tip (the top guide, where the line leaves it).
+ */
 type Template = readonly string[];
+type Templates = Record<SwingOrientation, Template> & Partial<Record<FishOrientation, Template>>;
 
-const AXE: Record<ToolOrientation, Template> = {
+const AXE: Templates = {
   // Handle up, head on top, the cutting edge (k) outward (to the right; mirrored when needed).
   rest: ['..Ssk..', '.Ssssk.', '..hssk.', '..h....', '..H....', '..h....', '..g....'],
   // Carried over the shoulder (the side views' rest): head up and behind, away from the face, edge forward.
@@ -70,7 +79,7 @@ const AXE: Record<ToolOrientation, Template> = {
 };
 
 // The pickaxe: the same handle and grip conventions, a curved two-pointed steel head across the handle's end.
-const PICKAXE: Record<ToolOrientation, Template> = {
+const PICKAXE: Templates = {
   rest: ['.sSSs.', 'k.h..k', '..h...', '..H...', '..h...', '..g...'],
   carry: ['....k..', '...S...', '..s....', '.s.h...', 'k...H..', '.....h.', '......g'],
   raised: ['.sSs...', 'k.h.k..', '..h....', '..H....', '...h...', '...g...'],
@@ -80,7 +89,7 @@ const PICKAXE: Record<ToolOrientation, Template> = {
 };
 
 // The hoe: the same handle, a flat steel blade bent down at the end (its edge, k, cuts the soil).
-const HOE: Record<ToolOrientation, Template> = {
+const HOE: Templates = {
   rest: ['.hSsk', '.h..k', '.h...', '.H...', '.h...', '.g...'],
   carry: ['kSs....', 'k.h....', '...h...', '....H..', '.....h.', '......g'],
   raised: ['ksS....', 'k.h....', '..h....', '..H....', '...h...', '...g...'],
@@ -90,7 +99,7 @@ const HOE: Record<ToolOrientation, Template> = {
 };
 
 // The watering can: a steel can (s/S), its spout (k), held by the handle on top (g).
-const CAN: Record<ToolOrientation, Template> = {
+const CAN: Templates = {
   rest: ['..g..', '.sss.', 'sSSsk', 'sSSs.', 'ssss.'],
   carry: ['..g..', '.sss.', 'sSSsk', 'sSSs.', 'ssss.'],
   raised: ['..g..', '.sss.', 'sSSsk', 'sSSs.', 'ssss.'],
@@ -99,19 +108,31 @@ const CAN: Record<ToolOrientation, Template> = {
   'strike-up': ['..k..', 'ssss.', 'sSSs.', '.sss.', '..g..'],
 };
 
-// The fishing rod: a long thin rod (h/H) with a line (k) at its tip.
-const ROD: Record<ToolOrientation, Template> = {
-  rest: ['....k', '...hk', '..h..', '.H...', '.h...', 'g....'],
-  carry: ['k.....', 'kh....', '..h...', '...H..', '....h.', '.....g'],
-  raised: ['kh....', '.h....', '..h...', '..H...', '...h..', '...g..'],
-  strike: ['gHhhhhk', '......k', '......k'],
-  'strike-down': ['..g..', '..h..', '..H..', '..h..', '..h..', '..k..', '..k..'],
-  'strike-up': ['..k..', '..h..', '..h..', '..H..', '..h..', '..g..'],
+// The fishing rod (M10): a cork grip in the hand, a little reel just above it, a long tapering blank, a pale tip.
+// Every orientation has a `t`: the line is drawn from there. Unmirrored the rod points right (mirrored for left).
+const ROD: Templates = {
+  // Hanging at the side, tip up.
+  rest: ['...t', '...h', '..h.', '..h.', '.H..', 'rc..', 'Rg..'],
+  // Over the shoulder (side views), tip up and back, clear of the face.
+  carry: ['t.....', '.h....', '..h...', '...H..', '....cr', '.....g'],
+  // Wound back for the cast, tip high behind.
+  raised: ['t.....', '.h....', '.h....', '..h...', '..H...', '...cr.', '...g..'],
+  // The cast's swing, sideways, down toward the viewer, up away.
+  strike: ['.r.......', 'gcHhhhhht'],
+  'strike-down': ['g.', 'cr', 'H.', 'h.', 'h.', 'h.', 't.'],
+  'strike-up': ['t.', 'h.', 'h.', 'h.', 'H.', 'cr', 'g.'],
+  // Held out over the water: forward and up, then the line falls from the tip.
+  fish: ['.........t', '.......hh.', '.....Hh...', '...cH.....', '.rc.......', '.Rg.......'],
+  // Facing the viewer: down and a little out.
+  'fish-down': ['g.....', 'cr....', '.cR...', '..H...', '..h...', '...h..', '...h..', '....h.', '....t.'],
+  // Facing away: up from the hand and in over the head (drawn mirrored for the hand on the left, so it leans in),
+  // mostly hidden by the body, its tip showing above the head.
+  'fish-up': ['t........', 't........', '.h.......', '.h.......', '.h.......', '..h......', '..h......', '..h......', '...h.....', '...H.....', '...H.....', '....H....', '....H....', '.....cR..', '.....cr..', '......g..'],
 };
 
 export interface EquipmentVisual {
   item: string;
-  templates: Record<ToolOrientation, Template>;
+  templates: Templates;
   /** The anatomical hand that holds it, in every view. */
   hand: Hand;
   /** The metal of its head (steel unless set: copper tools). */
@@ -133,11 +154,17 @@ export const EQUIPMENT: Record<string, EquipmentVisual> = {
 };
 
 export const STEEL: Ramp = ramp(hex('#aeb7c2'), { step: 0.1, hueShift: 4 });
+/** A rod's cork grip and its pale tip guide. */
+const CORK = hex('#c99a62');
+const ROD_TIP = hex('#f4efe4');
 
 export interface ToolSprite extends Sprite {
   /** The grip pixel inside the buffer. */
   gripX: number;
   gripY: number;
+  /** A rod's tip pixel inside the buffer (the centre of its block when scaled), or null. */
+  tipX: number | null;
+  tipY: number | null;
 }
 
 const toolCache = new Map<string, ToolSprite>();
@@ -149,14 +176,18 @@ export function toolSprite(item: string, orientation: ToolOrientation, palette: 
   if (hit) return hit;
   const visual = EQUIPMENT[item];
   if (!visual) throw new Error(`no equipment visual for ${item}`);
-  const rows = visual.templates[orientation].map((r) => (mirrored ? [...r].reverse().join('') : r));
+  // A tool without fishing orientations holds them as its strike (nothing else ever asks it to).
+  const template = visual.templates[orientation] ?? visual.templates.strike;
+  const rows = template.map((r) => (mirrored ? [...r].reverse().join('') : r));
   const w = rows[0].length;
   const h = rows.length;
   const buf = new PixelBuffer(w + 2, h + 2);
   const metal = visual.metal ?? STEEL;
-  const colours: Record<string, Color> = { h: palette.wood.mid, H: palette.wood.light, d: palette.wood.dark, g: palette.wood.dark, s: metal.mid, S: metal.light, k: metal.dark };
+  const colours: Record<string, Color> = { h: palette.wood.mid, H: palette.wood.light, d: palette.wood.dark, g: palette.wood.dark, s: metal.mid, S: metal.light, k: metal.dark, c: CORK, r: STEEL.dark, R: STEEL.light, t: ROD_TIP };
   let gripX = 1;
   let gripY = h;
+  let tipX: number | null = null;
+  let tipY: number | null = null;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const ch = rows[y][x];
@@ -165,6 +196,10 @@ export function toolSprite(item: string, orientation: ToolOrientation, palette: 
       if (ch === 'g') {
         gripX = x + 1;
         gripY = y + 1;
+      }
+      if (ch === 't') {
+        tipX = x + 1;
+        tipY = y + 1;
       }
     }
   const mask = buf.opaqueMask();
@@ -176,12 +211,13 @@ export function toolSprite(item: string, orientation: ToolOrientation, palette: 
       let steel = false;
       for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const c = buf.get(x + ox, y + oy);
-        if (c === metal.mid || c === metal.light || c === metal.dark) steel = true;
+        if (c === metal.mid || c === metal.light || c === metal.dark || c === STEEL.dark || c === STEEL.light) steel = true;
       }
       buf.set(x, y, steel ? metal.outline : palette.wood.outline);
     }
-  let sprite: ToolSprite = { buffer: buf, anchorX: gripX, anchorY: gripY, footRx: 0, footRy: 0, gripX, gripY };
-  if (scale > 1) sprite = { ...sprite, buffer: buf.scaled(scale), anchorX: gripX * scale, anchorY: gripY * scale, gripX: gripX * scale, gripY: gripY * scale };
+  let sprite: ToolSprite = { buffer: buf, anchorX: gripX, anchorY: gripY, footRx: 0, footRy: 0, gripX, gripY, tipX, tipY };
+  const half = Math.floor(scale / 2);
+  if (scale > 1) sprite = { ...sprite, buffer: buf.scaled(scale), anchorX: gripX * scale, anchorY: gripY * scale, gripX: gripX * scale, gripY: gripY * scale, tipX: tipX === null ? null : tipX * scale + half, tipY: tipY === null ? null : tipY * scale + half };
   toolCache.set(key, sprite);
   return sprite;
 }
@@ -262,12 +298,15 @@ export function attachTool(item: string, pose: BlobbiPose, animation: EquipmentA
   let orientation: ToolOrientation = pose.view === 'side' ? 'carry' : 'rest';
   let behind = hand.behind || farSide;
   if (animation === 'raise') orientation = 'raised';
-  else if (animation === 'strike') orientation = pose.view === 'front' ? 'strike-down' : pose.view === 'back' ? 'strike-up' : 'strike';
-  // Striking or raising from the back view brings the axe above the head, in front of the body.
-  if (pose.view === 'back' && (animation === 'raise' || animation === 'strike')) behind = false;
+  else if (animation === 'strike' || animation === 'cast') orientation = pose.view === 'front' ? 'strike-down' : pose.view === 'back' ? 'strike-up' : 'strike';
+  else if (animation === 'fishing') orientation = pose.view === 'front' ? 'fish-down' : pose.view === 'back' ? 'fish-up' : 'fish';
+  // Striking or raising from the back view brings the axe above the head, in front of the body. A rod held out
+  // while facing away stays beyond the body (behind it), its tip showing above the head.
+  if (pose.view === 'back' && (animation === 'raise' || animation === 'strike' || animation === 'cast')) behind = false;
   // In the far hand the tool is occluded by the body: not drawn while it hangs or walks there; during a swing it
   // is drawn behind the body, so only what the swing carries past the silhouette shows.
   const visible = !farSide || animation !== 'idle';
   const sprite = toolSprite(item, orientation, palette, mirrored, scale);
-  return { sprite, dx: hand.dx, dy: hand.dy, behind, visible, arm, orientation, mirrored };
+  const tip = sprite.tipX === null || sprite.tipY === null ? null : { dx: hand.dx + sprite.tipX - sprite.anchorX, dy: hand.dy + sprite.tipY - sprite.anchorY };
+  return { sprite, dx: hand.dx, dy: hand.dy, behind, visible, arm, orientation, mirrored, tip };
 }

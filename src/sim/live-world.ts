@@ -190,6 +190,8 @@ export const HERB_SECONDS = 240;
 export const HERB_MAX = 3;
 /** Seconds a fish's bite lasts: E within them reels it in. */
 export const BITE_SECONDS = 1.2;
+/** A cast (M10), in seconds from E: the rod wound back until `back`, swung until `release`, the float down at `land`. */
+export const CAST = { back: 0.22, release: 0.4, land: 0.78 };
 
 /** Prompt names for ground resources. */
 const RESOURCE_SINGULAR: Record<string, string> = { fibre: 'wild fibre', berry: 'wild berries', herb: 'wild herb', shell: 'shell' };
@@ -1145,6 +1147,11 @@ export class LiveWorld {
 
   /** The equipment layer's animation state now. */
   equipmentAnimation(time: number): EquipmentAnimation {
+    // A rod with its line out: wound back, cast, then held out over the water (M10).
+    if (this.fishing && this.equipped && toolSupports(this.equipped, 'fish')) {
+      const t = time - this.fishing.start;
+      return t < CAST.back ? 'raise' : t < CAST.release ? 'cast' : 'fishing';
+    }
     if (!this.swing) return 'idle';
     const t = time - this.swing.start;
     if (t < SWING.raise) return 'raise';
@@ -2094,6 +2101,13 @@ export class LiveWorld {
 
   // ─── Fishing ─────────────────────────────────────────────────────────────
 
+  /** Where the cast's float is (0 at the rod's tip, 1 on the water), or null when no line is out. */
+  castProgress(time: number): number | null {
+    const f = this.fishing;
+    if (!f) return null;
+    return Math.max(0, Math.min(1, (time - f.start - CAST.release + 0.06) / (CAST.land - CAST.release + 0.06)));
+  }
+
   /** A cast in progress: where the bobber floats, when the fish bites, and how long the bite lasts. */
   fishing: { start: number; biteAt: number; x: number; y: number; water: 'sea' | 'pond' } | null = null;
   private casts = 0;
@@ -2138,7 +2152,6 @@ export class LiveWorld {
       this.fishing = { start: time, biteAt: time + rng.range(1.5, 5), ...target };
       this.brain.manual(time);
       say('cast...');
-      this.particles.ripple(target.x, target.y, hex('#eaf8ff'));
       this.sound('cast');
       return true;
     }
@@ -2179,6 +2192,8 @@ export class LiveWorld {
       this.fishing = null;
       return;
     }
+    // The float lands: a ring on the water.
+    if (time >= f.start + CAST.land && time - this.clock.dt < f.start + CAST.land) this.particles.ripple(f.x, f.y, hex('#eaf8ff'));
     if (time >= f.biteAt && time - this.clock.dt < f.biteAt) {
       this.particles.exclaim(this.blobbi.x, this.blobbi.y - this.blobbi.size - 4);
       this.particles.ripple(f.x, f.y, hex('#eaf8ff'));

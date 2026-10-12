@@ -18,7 +18,8 @@ import { paintTerrain } from './paint-terrain';
 import { turtleUnderlay, turtleBodyForWorld } from './compose';
 import { resourceSprite, BASIC_KINDS } from '../game/resources';
 import { ITEMS } from '../game/items';
-import { attachTool, toolIcon, EQUIPMENT } from '../game/equipment';
+import { attachTool, toolIcon, EQUIPMENT, type Attachment } from '../game/equipment';
+import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { BUILDINGS, buildingSprite } from '../game/buildings';
 import { drawPlacementOverlay } from './placement-overlay';
 import { itemIcon } from '../ui/icons';
@@ -210,6 +211,25 @@ export class LiveRenderer {
       }
   }
 
+  /**
+   * The fishing line and its float (flying on a cast, then on the water), as a sprite anchored at the Blobbi's ground point
+   * (`gx`, `gy`, with the rod's +1 nudge when it is in front) — null when no line is out.
+   */
+  private fishingLine(at: Attachment, gx: number, gy: number, time: number): Sprite | null {
+    const float = floatAt(this.live, time);
+    if (!float || !at.tip) return null;
+    const tx = gx + at.tip.dx;
+    const ty = gy + at.tip.dy;
+    const k = this.live.castProgress(time) ?? 1;
+    const f = float.landed ? { x: float.x, y: float.y } : flight(tx, ty, float.x, float.y, k, 14);
+    const x0 = Math.min(tx, f.x) - 2;
+    const y0 = Math.min(ty, f.y) - 4;
+    const buf = new PixelBuffer(Math.max(tx, f.x) - x0 + 3, Math.max(ty, f.y) - y0 + 5);
+    if (this.live.equipmentAnimation(time) !== 'raise') drawLine(buf, tx - x0, ty - y0, f.x - x0, f.y - 2 - y0, float.bite || !float.landed ? 0 : 2);
+    drawFloat(buf, f.x - x0, f.y - y0, 1);
+    return { buffer: buf, anchorX: gx - x0, anchorY: gy - y0, footRx: 0, footRy: 0 };
+  }
+
   /** Render the viewport (viewW × viewH world pixels) whose top-left is the camera position. */
   render(viewW: number, viewH: number, camX: number, camY: number, time: number, o: LiveRenderOptions, split?: SplitLayers): PixelBuffer {
     const t0 = performance.now();
@@ -377,6 +397,10 @@ export class LiveRenderer {
       if (live.equipped && EQUIPMENT[live.equipped]) {
         const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), live.rig, (p) => live.blobbiSprite(p), palette);
         if (at.visible) drawables.push({ y: by, x: bx + (at.behind ? -0.5 : 0.5), sprite: at.sprite, sway: 0, dy: hop, offset: { x: at.dx, y: at.dy } });
+        // The fishing line from the rod's tip, in the rod's place in the painter's order (behind the Blobbi with
+        // the rod), as a sprite of its own.
+        const line = at.visible ? this.fishingLine(at, bx + (at.behind ? 0 : 1), by, time) : null;
+        if (line) drawables.push({ y: by, x: bx + (at.behind ? -0.25 : 0.75), sprite: line, sway: 0, dy: hop });
       }
     }
     drawables.sort((a, c) => a.y - c.y || a.x - c.x);
@@ -398,17 +422,6 @@ export class LiveRenderer {
 
     // ── Placement: build mode, placing from the bag, moving; management highlights ──
     drawPlacementOverlay(live, out, ox, oy, palette, world.options.scale, split);
-    // ── Fishing: the line from the Blobbi's hand to a bobbing float (it dips when a fish bites) ──
-    if (live.fishing) {
-      const f = live.fishing;
-      const bite = time >= f.biteAt;
-      const fy = f.y + (bite ? 1 : Math.round(Math.sin(time * 3)));
-      const hx = Math.round(live.blobbi.x) - ox;
-      const hy = Math.round(live.blobbi.y - live.blobbi.size * 0.7) - oy;
-      out.line(hx, hy, f.x - ox, fy - 2 - oy, hex('#e8ecf4'));
-      out.set(f.x - ox, fy - 2 - oy, hex('#ff3b5c'));
-      out.set(f.x - ox, fy - 1 - oy, hex('#ffffff'));
-    }
     // ── The farm: the target cell, water drops over dry crops, a glint on ripe ones, harvests rising ──
     this.drawFarmOverlay(out, ox, oy, viewW, viewH, time);
     // ── Pickups floating up, the reach marker, the resource counter ──────
