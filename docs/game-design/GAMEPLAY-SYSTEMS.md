@@ -112,6 +112,29 @@ from the rod's tip on an arc and lands at 0.78 s with a ring (`CAST`). The line 
 far hand, or facing away), in front otherwise; slack while waiting, taut on a bite, when the rod tugs. Source:
 `src/game/equipment.ts` (`ROD`, `attachTool().tip`), `src/render/fishing-line.ts`, `ViewRenderer.render`.
 
+**Variety (M10 phase B):** the sea's catch depends on where the float lands — the **coast** (shallow water by the
+island) or **open water** (the deep, and the sea past the world's edge, reached from the canoe) — and on day or night:
+flounder (coast, by day), mackerel (open water), moonfish (open water, at night, rare), beside minnow, sea bream,
+rainbow fish and the pond perch. The journal's **FISH** tab is the fish log (each species caught, and where to look).
+Sea fishing comes with growth: a cast at a sea in sight but out of the line's reach says *too far to cast. the island
+will grow closer to the sea* (turtle from stage 1, manta from stage 2, whale from stage 3 on the test seeds).
+
+### The canoe (M10 phase B)
+
+Made at a workbench after *Gone fishing*; launched at the shore (E), boarded (E), paddled (arrows or the stick) on
+open water round the Carrier, landed by the shore (E). Rough water and a current mark the edge of its sea. Fishing,
+greeting the seal and visiting the ocean's features work from it. [Canoe](../specifications/CANOE.md).
+
+Out at sea (pure functions of the seed and time, never missable): **a bottle adrift** somewhere new each day until it
+is fished out (a letter from another Carrier), **the kelp garden** (seaweed, back in a day; kelp soup), **the silver
+shoal** at dawn and dusk. Each first meeting is a discovery.
+
+### Land clearing (M10 phase B)
+
+Felling, breaking or clearing (trees, rocks, small rocks, bushes, natural stumps and mushrooms) frees the ground for
+building; resources come back on their own spot only when it is free; driftwood keeps wood within reach.
+[Land clearing](../specifications/LAND-CLEARING.md).
+
 ### The sea (M10)
 
 Beyond the world's edge the open sea continues (the terrain painter's deep water and the live renderer's waves,

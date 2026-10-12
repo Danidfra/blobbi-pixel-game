@@ -24,7 +24,7 @@
   hide or unload.
 - Nothing is published or sent anywhere.
 
-## 2. Fields (schema 10)
+## 2. Fields (schema 11)
 
 | Field | Since | What |
 |---|---|---|
@@ -41,6 +41,10 @@
 | `growth`, `species`, `generator` | 9 | `{ stage (0–4 since M9), version (1–3), history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`/`'whale'`; base generator version (`m6.0`) |
 | `buildings[].level`, `.look`, `.upgradedAt`; `interiors[].style.finish` | 10 | the home's level, look and upgrade time; the rooms' wall finish ([housing](../specifications/HOUSING.md)) |
 | `name`, `intro`, `tutorial` | 10 | the island's own name or null; `{ state: 'pending' \| 'done' \| 'skipped', at }`; `{ done: [step ids], skipped }` |
+| `trees[].regrowAt`, `rocks[].reformAt` | 11 | when a felled tree's seedling came up / a broken rock surfaced again; `null` while its ground is clear and it waits for a free spot; absent: felled or broken before schema 11 (the old timeline) ([land clearing](../specifications/LAND-CLEARING.md)) |
+| `cleared` | 11 | bushes, small rocks and natural stumps or mushrooms the player cleared: `{ "<index>": { at, returnedAt } }` |
+| `boat` | 11 | the canoe or null: `{ x, y, heading, aboard }` in island-frame coordinates ([canoe](../specifications/CANOE.md)) |
+| `caught` | 11 | the fish species ever caught (item ids, sorted): the journal's fish log |
 
 ## 3. Loading and migration
 
@@ -48,7 +52,7 @@
 
 1. Reads the record; malformed JSON, an unknown or future version, a different `world`, or (from schema 5) a
    different owner → `null` (the world starts fresh **in memory**).
-2. Migrates any version 1–9 forward: each field added later gets a safe default, and some are derived from what the
+2. Migrates any version 1–10 forward: each field added later gets a safe default, and some are derived from what the
    record shows (for example a schema-5 tally seeded from collected, felled, mined and built counts).
 3. Sanitises every field (unknown ids dropped, numbers checked, lists deduplicated).
 
@@ -65,6 +69,11 @@ Guarantees (tested):
   land and objects (`tests/growth-stage4.test.ts`).
 - **A world from before schema 10 never plays the intro** (its `intro` loads as seen), has no name (it keeps its
   generated one) and has tips off (`tutorial.skipped`), because it is already under way.
+- **Schema 11 (M10 phase B)**: a record from before has no `regrowAt` / `reformAt` on its felled trees and broken
+  rocks, so they keep the old timelines exactly (a seedling right after the stump; rubble for 300 s, then whole);
+  nothing cleared; no canoe; no species recorded (`tests/clearing.test.ts`, `tests/canoe.test.ts`). A canoe saved
+  somewhere that is water no more (the island grew under it) is moved to the nearest open water on load, or put
+  back into the bag with the Blobbi ashore.
 - A new island is saved the moment it is made, with `intro: pending`: if the page goes away during its intro, the
   island is kept and its intro plays again the next time it is opened (`tests/onboarding.test.ts`).
 

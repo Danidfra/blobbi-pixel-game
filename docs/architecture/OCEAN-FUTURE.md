@@ -1,6 +1,6 @@
 # The ocean, later: boats, navigation, travel, fishing regions and diving
 
-**Status: DESIGNED ONLY.** Nothing on this page is implemented. M10 phase A built the foundations it relies on
+**Status: DESIGNED ONLY** — except what M10 phase B built (below). M10 phase A built the foundations it relies on
 (a seamless open sea, marine life as a pure function of time, a rod with a real cast, a fourth camera scale); this
 page records where the next phases plug in, so they extend those systems instead of adding parallel ones.
 
@@ -14,6 +14,17 @@ page records where the next phases plug in, so they extend those systems instead
 | Fishing | `LiveWorld.fishTarget`, `fish`, `CAST`; `src/render/fishing-line.ts` | Water class per cast (`sea` / `pond`), a deterministic catch per cast from `FISH_CONTENT` weights, a rod tip known in every orientation. |
 | Camera | `src/render/view-camera.ts` | Four integer scales; the view is a rectangle of world pixels and may lie beyond the world (the sea fills it). |
 | World coordinates | `WorldDescription`, `LiveWorld` | The Carrier's world is a bounded canvas; positions are world pixels. |
+
+## 1b. Built in M10 phase B
+
+- **The canoe** ([spec](../specifications/CANOE.md)): a moored/aboard `BoatState` saved in the island frame, `SeaNav`
+  (open water only, never the Carrier or its moving parts) over a bounded region round the Carrier that reaches past
+  the world's edge, a soft current at its edge, landing on reachable shore, fishing from it.
+- **Camera bounds with an offset** (`WorldBounds.x0/y0`): the camera may follow past the world's edge.
+- **Fishing regions, first step**: `coast` / `open` per cast (`seaRegionAt`), species by region and time.
+- **Ocean features** (`src/game/ocean-features.ts`): finds at sea as pure functions of seed and time.
+
+What follows still holds for the next boats, travel and diving.
 
 ## 2. Boats (extension points)
 

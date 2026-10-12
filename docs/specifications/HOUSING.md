@@ -5,7 +5,7 @@ Give the player a home that is earned, grows with the island and becomes theirs:
 upgrades (Cottage, Dream Home) earned through play, rooms to furnish, and a look to choose.
 
 ## 2. Status
-**IMPLEMENTED** (M5 interior; M8 levels, upgrades, room layouts, customisation). **NOT TESTED** by a person.
+**IMPLEMENTED** (M5 interior; M8 levels, upgrades, room layouts, customisation; M10 phase B upgrade feedback). **NOT TESTED** by a person.
 
 ## 3. Player-facing behaviour
 - **No house at the start (M8).** A new island has no house; chapter 1 (The First Home) leads to the first shelter
@@ -27,8 +27,18 @@ upgrades (Cottage, Dream Home) earned through play, rooms to furnish, and a look
   - Dream Home: *A bigger home* and *Listen to the Carrier* done; island harmony 35; 3 discoveries; 16 wood, 10 stones,
     4 cloth; an armchair comes with the living room.
   - Refused (with the reason, nothing changes) from inside the house, while it is being built, or when the bigger
-    house does not fit (a neighbour, a farm plot, water, a slope, a tree: the message names it). Paths and meadows
-    under the new walls are fine; loose sticks and stones there are cleared. The house can be moved (M) to make room.
+    house does not fit. Paths, rugs and meadows under the new walls are fine (M10 phase B: paths no longer refuse
+    it); loose sticks and stones there are cleared. Nothing is ever removed or moved automatically.
+  - **What is in the way (M10 phase B).** When natural things stand where the bigger house would go, the HOME panel
+    says all of them, where and with what: *Clear the two trees and the small rock behind your house to make room
+    (axe, pickaxe).* — and the world marks each with an orange arrow while the panel is open and for 4 s after.
+    Clearing them frees the ground ([land clearing](LAND-CLEARING.md)). Pieces that cannot be cleared (a sign, a
+    well) are named with the other way out: *move the house (M) to a roomier spot*. When the land itself is in the
+    way (the map's edge, ground that is not flat grass, a slope, the edge of the high ground) or a building or plot
+    is, it says so and **where a move would give room** (*there is room a little to the east*), from a search of the
+    nearby ground — advice only: the house moves only when the player moves it.
+  - The house still grows round its own centre: shifting it to make it fit would move it silently, which the game
+    never does.
 - **Furniture is never lost.** On an upgrade every piece keeps its id, colourway and (chests) contents and is moved
   into the new rooms (`relocateFurniture`): beds to the bedroom, stoves to the kitchen, bookshelves to the study,
   others to the same place in the matching room; if that spot is taken or would cut a room off, the nearest free
@@ -82,7 +92,7 @@ shelter (level 1) ─UPGRADE + CONFIRM─► level 2 under construction ─(20 s
 island ─E at door─► room (layout of the level) ─walk out─► island.
 
 ## 7. Persistence
-Save schema 10: shelter `level`, `look`, `upgradedAt` in `buildings`; interior `style.finish` and `level` in
+Save schema 10 (unchanged in 11): shelter `level`, `look`, `upgradedAt` in `buildings`; interior `style.finish` and `level` in
 `interiors`. Older records load as level 1 with their room and furniture unchanged. The interior keeps its id across
 levels, so chests indoors (`room/<shelter>/<id>`) keep their contents.
 
@@ -103,7 +113,9 @@ level's defaults; a malformed level loads as 1.
 ## 11. Automated tests
 `tests/housing.test.ts` (layouts, the M5 room pinned pixel for pixel, relocation, art, upgrades on turtle and whale
 islands, saves, schema 9, the HOME panel's confirmation), `tests/customisation.test.ts`, `tests/first-home.test.ts`,
-`tests/quests.test.ts` (the scripted story earns both upgrades), `tests/placeables.test.ts`.
+`tests/quests.test.ts` (the scripted story earns both upgrades), `tests/placeables.test.ts`, `tests/clearing.test.ts`
+(M10 phase B: what is in the way, on difficult seeds of every Carrier; every test island can grow its first house —
+at once, after clearing, or after the suggested move).
 
 ## 12. Known limitations
 Customisation covers the home (the first shelter) only. Wall items hang on the back wall only (not on partitions).

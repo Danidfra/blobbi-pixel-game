@@ -341,6 +341,28 @@ refuses them (GROW-09).
 | PERF-01 | A reasonable desktop | Play each mode for a minute with the stats panel open. | About 60 FPS, no hitches when walking. | NOT TESTED | Proxy figures only: `docs/testing/perf/` |
 | PERF-02 | A low-end laptop or older phone | Same. | At least 30 FPS in every mode. | NOT TESTED | Never measured on such hardware |
 
+## The living ocean, phase B (HUD, CLEAR, EXPAND, FISHB, CANOE, SEAB, PERFB) — M10 phase B
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| HUD-01 | Desktop and phone | Press Z through all four camera modes. | The status card (portrait, health, hunger, energy), the goal box and the time look the same at every zoom. | NOT TESTED | Automated: `tests/camera-upclose.test.ts`; images `examples/m10b/browser-*-hud-*.png` |
+| CLEAR-01 | An axe | Fell a tree; wait 20 s. | A stump, then clear ground: nothing drawn, the Blobbi walks over it. | NOT TESTED | Automated: `tests/clearing.test.ts`; `examples/m10b/clearing-*.png` |
+| CLEAR-02 | A cleared spot | Place a bench, a path or a plot on it. | Allowed. Wait a long time: the tree never grows through it; remove the bench and the tree comes back later. | NOT TESTED | |
+| CLEAR-03 | Axe and pickaxe | Clear a bush, a small rock, a natural stump or mushroom. | One swing each; a little stick/fibre, stone, wood or mushroom; their ground is free. Signs and wells cannot be cleared. | NOT TESTED | small rocks used to be "too small to mine" (KI-48) |
+| CLEAR-04 | Fell most trees on an island | Look at the shore. | Driftwood appears on the shore while fewer than 8 trees stand; picking it up gives wood. | NOT TESTED | |
+| EXPAND-01 | A first house with trees or rocks round it, the Cottage's needs met | Open HOME. | It says what to clear and where ("Clear the tree to the left of your house to make room (axe)."); orange arrows mark them in the world. After clearing, UPGRADE works. | NOT TESTED | `examples/m10b/upgrade-obstruction.png` |
+| EXPAND-02 | A house on a cramped spot (slope, high ground) | Open HOME. | It says the land is in the way and where a move would give room; nothing moves until you move the house (M). | NOT TESTED | |
+| FISHB-01 | A young island (turtle stage 0) with a rod | Face the sea across the shell and press E. | "too far to cast. the island will grow closer to the sea". After growing, casting works. | NOT TESTED | Automated: `tests/fishing-access.test.ts` |
+| FISHB-02 | Fishing by day and night, from the shore and the canoe | Catch fish in many places. | Flounder by day in the shallows; mackerel in open water; moonfish only at night out at sea; the journal's FISH tab fills in. | NOT TESTED | `tests/ocean-features.test.ts` |
+| CANOE-01 | *Gone fishing* done, a workbench, 8 wood, 4 sticks, 2 cloth | Craft the canoe; launch it at the shore (E). | It floats by the shore; the prompt says E get in the canoe. | NOT TESTED | Automated: `tests/canoe.test.ts` |
+| CANOE-02 | Moored canoe | E to board; paddle with keys and with the touch stick; zoom through the camera modes. | A smooth hop in; gentle paddling; the camera follows without jitter; the overview still frames the Carrier. | NOT TESTED | `examples/m10b/canoe-*.png`, `browser-*-canoe-*.png` |
+| CANOE-03 | Aboard | Paddle into the Carrier, its flippers/wings/flukes, and the island; then far out. | Never on land or the animal; rough water and the current at the edge, with the message; no invisible wall elsewhere. | NOT TESTED | |
+| CANOE-04 | Aboard by the shore | E to go ashore; try a blocked shore. | The Blobbi hops onto reachable ground; with no landing in reach, E says to paddle to the shore. | NOT TESTED | |
+| CANOE-05 | Aboard | Reload the page; grow the island while the canoe is moored. | Aboard again where it was; a canoe on ground that became land is moved to water (or back to the bag). | NOT TESTED | |
+| CANOE-06 | Aboard with a rod | Cast in each direction; reel in. | The line leaves the rod's tip; casting works only on open water. | NOT TESTED | |
+| SEAB-01 | Aboard, over several days | Find the bottle adrift, the kelp garden, the silver shoal (dawn/dusk). | Each can be reached and visited (E); first visits are discoveries; seaweed grows back in a day; the bottle is gone once found. | NOT TESTED | `examples/m10b/canoe-sea-features.png` |
+| PERFB-01 | A reasonable desktop and a lower-end device | Play on foot and in the canoe at every zoom. | 60 FPS on the desktop, ≥ 30 on the lower-end device; no hitches when paddling. | NOT TESTED | proxy figures only: `docs/testing/perf/` |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

@@ -7,9 +7,10 @@ disagree, the code wins and the document is the bug ([maintenance rules](#mainte
 intro cinematic and M8 (the beginning and home progression: first-time flow, the intro in play, the first home,
 three house levels, customisation, tips, guide, touch, delete safety) and M9 (rest in bed, turtle flipper layering,
 earned home styles, four growth stages with the Sanctuary) and M10 phase A (the living ocean: seamless sea,
-fishing cast and line, performance work, the up-close camera, marine life) are committed on `develop`. All are
-**IMPLEMENTED — AWAITING MANUAL VALIDATION**: the automated suite passes (see [M10](milestones/M10.md) for the
-test-run notes), and no manual test has been run by a person yet.
+fishing cast and line, performance work, the up-close camera, marine life) and M10 phase B (land clearing and
+regrowth, house-expansion advice, the canoe, fishing variety, ocean finds) are committed on `develop`. M9 has been
+played by the project owner; M10 has not. Everything since M8 is **IMPLEMENTED — AWAITING MANUAL VALIDATION**: the
+automated suite passes (see [M10 phase B](milestones/M10B.md)).
 
 ## Status labels
 
@@ -56,6 +57,8 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 | [Audio](specifications/AUDIO.md) | IMPLEMENTED · NOT TESTED |
 | [World growth](specifications/WORLD-GROWTH.md) | IMPLEMENTED (M7; M9 stage 4 and rebalance) · NOT TESTED |
 | [World visiting](specifications/WORLD-VISITING.md) | PROTOTYPE (local only) · NOT TESTED |
+| [Land clearing and regrowth](specifications/LAND-CLEARING.md) | IMPLEMENTED (M10 phase B) · NOT TESTED |
+| [The canoe](specifications/CANOE.md) | IMPLEMENTED (M10 phase B) · NOT TESTED |
 | [Tutorial (tips)](specifications/TUTORIAL.md) | IMPLEMENTED (M8) · NOT TESTED |
 | [Intro cinematic](specifications/INTRO-CINEMATIC.md) | IMPLEMENTED (dev preview only; not in the start flow; reworked after the first review, with the turtle's small start) · NOT TESTED |
 
@@ -66,7 +69,7 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 - Automated: `npm run check` (typecheck, vitest, build).
 
 ## Milestones
-- [Milestones](milestones/README.md): M0–M10 phase A: summaries and approval status.
+- [Milestones](milestones/README.md): M0–M10 phase B: summaries and approval status.
 - [Archived reports and development logs](milestones/reports/), unchanged.
 - [Roadmap](../ROADMAP.md).
 

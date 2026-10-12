@@ -201,3 +201,98 @@ tiles for the largest view seen (about 20 MB at 2560×1440, 4 MB minimum).
 | ≥ 30 FPS on a lower-end target | 4× throttled proxy: 38–60 FPS in every scene at 1280×720, 59.5–60 at 844×390, no long tasks (second pair). Not measured on real hardware. |
 | No sustained memory growth | None seen. |
 | No severe spikes | p99 under 10 ms headless in every scene; no long tasks unthrottled; none at 4× in the final second pair. First-time pose rasterization remains a small hitch (KI-43). |
+
+## M10 phase B (coastal life, the canoe)
+
+Same method, phase A's final commit (`1b39d31`) against phase B, run back to back. Two measuring fixes on the way:
+every browser run now starts from cleared saves (the new canoe scene left the Blobbi afloat in the save, and the next
+run's title continued that island — which first looked like an overview regression, because afloat the overview
+framed the whole canoe sea; that framing is fixed too: the overview frames the Carrier afloat as on foot).
+
+Headless frame CPU, phase A → phase B (no regression; equal within noise, several scenes faster):
+
+| Scene | Viewport | Mean ms | p95 ms | p99 ms | Max ms |
+|---|---|---|---|---|---|
+| turtle-stage0 | 1280x720 | 1.90 → 1.79 | 3.76 → 3.70 | 5.65 → 4.91 | 9.2 → 11.8 |
+| turtle-stage0 | 1920x1080 | 3.12 → 2.65 | 5.26 → 4.49 | 6.33 → 5.99 | 7.6 → 9.2 |
+| turtle-stage0 | phone-844x390 | 1.13 → 0.83 | 2.05 → 0.98 | 5.65 → 3.46 | 7.0 → 4.4 |
+| turtle-stage4 | 1280x720 | 2.46 → 1.82 | 4.74 → 2.19 | 5.92 → 4.35 | 8.1 → 5.4 |
+| turtle-stage4 | 1920x1080 | 3.83 → 2.90 | 6.04 → 3.38 | 7.21 → 5.35 | 9.3 → 6.4 |
+| turtle-stage4 | phone-844x390 | 1.37 → 1.01 | 3.01 → 1.34 | 4.45 → 3.42 | 7.5 → 4.6 |
+| manta-stage4 | 1280x720 | 3.55 → 2.96 | 5.83 → 4.54 | 6.82 → 5.93 | 9.7 → 8.5 |
+| manta-stage4 | 1920x1080 | 5.67 → 4.62 | 9.10 → 6.62 | 12.94 → 7.87 | 29.4 → 9.2 |
+| manta-stage4 | phone-844x390 | 1.88 → 1.58 | 3.80 → 3.22 | 4.72 → 4.18 | 6.2 → 7.9 |
+| whale-stage4 | 1280x720 | 1.82 → 1.92 | 3.56 → 3.82 | 4.45 → 5.12 | 5.3 → 6.3 |
+| whale-stage4 | 1920x1080 | 3.50 → 3.43 | 6.08 → 5.86 | 7.60 → 7.66 | 12.6 → 13.9 |
+| whale-stage4 | phone-844x390 | 1.18 → 0.88 | 3.14 → 1.02 | 4.61 → 3.50 | 6.1 → 4.9 |
+| interior | 1280x720 | 1.44 → 1.10 | 3.75 → 2.97 | 4.73 → 3.35 | 6.2 → 4.1 |
+| interior | 1920x1080 | 2.14 → 1.97 | 3.98 → 3.57 | 5.05 → 4.21 | 7.0 → 5.0 |
+| interior | phone-844x390 | 0.66 → 0.65 | 2.52 → 2.32 | 3.34 → 2.93 | 3.9 → 3.7 |
+| rain | 1280x720 | 1.96 → 1.92 | 3.34 → 3.42 | 4.55 → 4.57 | 6.0 → 5.9 |
+| rain | 1920x1080 | 3.54 → 3.50 | 4.96 → 4.99 | 5.96 → 5.89 | 7.4 → 7.2 |
+| rain | phone-844x390 | 1.08 → 1.09 | 2.45 → 2.49 | 3.34 → 3.30 | 4.6 → 4.7 |
+| fishing | 1280x720 | 1.31 → 1.47 | 1.38 → 1.63 | 4.78 → 5.65 | 6.2 → 6.5 |
+| fishing | 1920x1080 | 3.11 → 2.59 | 5.71 → 2.98 | 7.43 → 6.43 | 12.4 → 8.5 |
+| fishing | phone-844x390 | 0.87 → 0.78 | 1.10 → 0.86 | 4.68 → 4.20 | 6.4 → 5.8 |
+| carrier-anim-overview | 1280x720 | 2.25 → 2.22 | 3.51 → 3.37 | 4.34 → 4.30 | 5.4 → 4.7 |
+| carrier-anim-overview | 1920x1080 | 4.53 → 4.53 | 5.73 → 5.76 | 6.54 → 6.61 | 6.9 → 7.0 |
+| carrier-anim-overview | phone-844x390 | 1.21 → 1.54 | 2.34 → 3.38 | 3.20 → 4.46 | 3.8 → 10.5 |
+| min-zoom-overview | 1280x720 | 2.56 → 2.56 | 3.19 → 3.28 | 4.73 → 4.63 | 5.9 → 6.0 |
+| min-zoom-overview | 1920x1080 | 4.67 → 4.69 | 5.93 → 5.94 | 6.86 → 6.90 | 8.0 → 7.9 |
+| min-zoom-overview | phone-844x390 | 1.91 → 1.86 | 2.67 → 2.51 | 4.00 → 4.05 | 5.3 → 5.2 |
+| max-zoom-closeup | 1280x720 | 1.13 → 1.15 | 1.27 → 1.21 | 3.88 → 4.07 | 5.8 → 5.7 |
+| max-zoom-closeup | 1920x1080 | 2.22 → 1.94 | 4.49 → 2.27 | 5.38 → 4.81 | 6.7 → 6.5 |
+| max-zoom-closeup | phone-844x390 | 0.71 → 0.65 | 1.44 → 0.65 | 3.59 → 3.34 | 5.7 → 5.1 |
+| max-zoom-upclose | 1280x720 | 0.99 → 0.88 | 1.96 → 1.04 | 5.19 → 3.86 | 11.3 → 4.9 |
+| max-zoom-upclose | 1920x1080 | 1.72 → 1.54 | 3.58 → 1.63 | 5.51 → 4.63 | 8.6 → 6.2 |
+| max-zoom-upclose | phone-844x390 | 0.72 → 0.58 | 1.53 → 0.63 | 5.43 → 3.55 | 9.6 → 5.2 |
+
+New scenes (phase B only), headless:
+
+| Scene | Viewport | Mean ms | p95 ms | p99 ms |
+|---|---|---|---|---|
+| canoe-navigation | 1280x720 | 1.50 | 1.57 | 3.40 |
+| canoe-navigation | 1920x1080 | 2.89 | 3.08 | 4.80 |
+| canoe-navigation | phone-844x390 | 0.70 | 0.69 | 2.44 |
+| canoe-fishing | 1280x720 | 0.73 | 0.73 | 0.81 |
+| canoe-fishing | 1920x1080 | 1.30 | 1.31 | 1.48 |
+| canoe-fishing | phone-844x390 | 0.48 | 0.48 | 0.56 |
+
+Chrome, phase A → phase B at 4× CPU throttling (a proxy for a slower machine, not a measurement of one):
+
+| Scene | Viewport | FPS | p95 interval ms | Long tasks | View ms |
+|---|---|---|---|---|---|
+| turtle-stage0-exploration | 1280x720 | 60.0 → 60.0 | 16.8 → 16.7 | 0 → 0 | 4.2 → 3.0 |
+| turtle-stage0-overview | 1280x720 | 60.0 → 60.0 | 16.7 → 16.8 | 0 → 0 | 6.8 → 6.3 |
+| turtle-stage0-closeup | 1280x720 | 60.0 → 60.0 | 16.7 → 16.8 | 0 → 0 | 2.2 → 2.8 |
+| turtle-stage0-upclose | 1280x720 | 60.0 → 60.0 | 16.8 → 16.8 | 0 → 0 | 1.7 → 2.3 |
+| rain-exploration | 1280x720 | 60.0 → 60.0 | 16.7 → 16.7 | 0 → 0 | 5.4 → 5.6 |
+| fishing-exploration | 1280x720 | 60.0 → 59.8 | 16.7 → 16.7 | 0 → 0 | 5.3 → 5.9 |
+| turtle-stage4-exploration | 1280x720 | 59.8 → 59.8 | 16.7 → 16.7 | 0 → 0 | 7.4 → 6.5 |
+| turtle-stage4-overview | 1280x720 | 59.2 → 58.2 | 16.7 → 16.8 | 0 → 0 | 14.0 → 12.8 |
+| turtle-stage4-closeup | 1280x720 | 59.8 → 60.0 | 16.8 → 16.7 | 0 → 0 | 3.2 → 3.1 |
+| turtle-stage4-upclose | 1280x720 | 59.8 → 59.5 | 16.7 → 16.8 | 0 → 0 | 2.3 → 2.4 |
+| turtle-stage0-exploration | 844x390 | 60.0 → 60.0 | 16.7 → 16.8 | 0 → 0 | 2.1 → 2.0 |
+| turtle-stage0-overview | 844x390 | 60.0 → 60.0 | 16.7 → 16.7 | 0 → 0 | 5.5 → 5.3 |
+| turtle-stage0-closeup | 844x390 | 60.0 → 60.0 | 16.8 → 16.8 | 0 → 0 | 1.0 → 0.9 |
+| turtle-stage0-upclose | 844x390 | 60.0 → 60.0 | 16.7 → 16.7 | 0 → 0 | 0.9 → 1.0 |
+| rain-exploration | 844x390 | 60.0 → 60.0 | 16.8 → 16.8 | 0 → 0 | 2.4 → 2.9 |
+| fishing-exploration | 844x390 | 60.0 → 60.0 | 16.7 → 16.8 | 0 → 0 | 2.5 → 3.0 |
+| turtle-stage4-exploration | 844x390 | 60.0 → 59.8 | 16.7 → 16.7 | 0 → 0 | 3.6 → 4.4 |
+| turtle-stage4-overview | 844x390 | 59.3 → 59.7 | 16.7 → 16.7 | 0 → 0 | 23.1 → 11.1 |
+| turtle-stage4-closeup | 844x390 | 60.0 → 60.0 | 16.7 → 16.8 | 0 → 0 | 1.4 → 1.6 |
+| turtle-stage4-upclose | 844x390 | 59.5 → 60.0 | 16.8 → 16.8 | 0 → 0 | 1.3 → 1.3 |
+
+The canoe in Chrome:
+
+| Scene | Viewport | Throttle | FPS | Long tasks |
+|---|---|---|---|---|
+| canoe-exploration | 1280x720 | 4x | 60.0 | 0 |
+| canoe-exploration | 844x390 | 4x | 60.0 | 0 |
+| canoe-exploration | 1280x720 | 1x | 60.0 | 0 |
+| canoe-exploration | 844x390 | 1x | 60.0 | 0 |
+
+Unthrottled Chrome, phase B: **60 FPS and no long tasks in every scene** (`browser-final-m10b.json`). Phase B adds
+no per-frame simulation: cleared land is checked once a second of world time (a collision and navigation rebuild,
+3–10 ms, only when something changes), the canoe is two or three hull checks per step, the ocean features are three hashes a
+frame, rough water is drawn only aboard and only its band's strips in view.

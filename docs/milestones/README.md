@@ -17,5 +17,6 @@ One summary per milestone; the full reports and development logs are archived, u
 | [M9](M9.md) | Living world and progression: rest in bed, turtle flipper layering, earned home styles, four growth stages with the Sanctuary, small world-feel details | `develop` `6b1bc74` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M8](M8.md) | The beginning and home progression: first-time flow, the intro in play, no house at the start, the first-home chapter, three house levels, customisation, tips, guide, touch, delete safety | `develop` `e432f38` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M10](M10.md) | The living ocean, phase A: the listening spot after growth, fishing cast and line, a seamless sea, performance, the up-close camera, marine life | `develop` `0d02916` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
+| [M10 phase B](M10B.md) | Coastal life, building freedom and navigation: the original HUD at every zoom, land clearing and regrowth, house-expansion advice, fishing access, the canoe, fishing variety, ocean finds | `develop` `ddc2c74` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 
 "Committed" means the work is in git history; it does not mean a person ran the [manual test plan](../testing/MANUAL-TEST-PLAN.md).

@@ -466,10 +466,24 @@ Details: docs/milestones/M10.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATIO
 - [x] Future ocean architecture written down (docs/architecture/OCEAN-FUTURE.md, DESIGNED ONLY).
 - [ ] Manual validation (M10 section of docs/testing/MANUAL-TEST-PLAN.md).
 
+### M10 phase B: Coastal life, building freedom and navigation (implemented, committed on `develop`)
+
+Details: docs/milestones/M10B.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATION**.
+
+- [x] The original HUD at every camera zoom.
+- [x] Land clearing: cleared ground is buildable; resources return only to free spots (wait in place); driftwood.
+- [x] House expansion: what is in the way and what to do, marked in the world; where a move gives room.
+- [x] Fishing access as a reward of growth, explained.
+- [x] The canoe: craft, launch, board, paddle, land; bounded sea with a visible edge; saved; never stranded.
+- [x] Fishing from the canoe; three new fish, a fish log, two meals.
+- [x] Ocean finds: a bottle adrift, the kelp garden, the silver shoal.
+- [x] KI-34 fixed (CPU-time budget).
+- [ ] Manual validation (M10 phase B section of docs/testing/MANUAL-TEST-PLAN.md).
+
 ### M10 later phases (not started)
 
-Boats, free navigation, travel between Carriers, fishing regions, underwater exploration and side-view
-diving — see docs/architecture/OCEAN-FUTURE.md.
+Travel between Carriers, more boats, fishing regions beyond the coast/open split, underwater exploration and
+side-view diving — see docs/architecture/OCEAN-FUTURE.md.
 
 ### Later (not started)
 
