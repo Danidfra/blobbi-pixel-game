@@ -14,7 +14,7 @@ import { PixelBuffer } from '../core/pixel';
 import type { WorldPalette } from '../core/palette';
 import type { LiveWorld } from '../sim/live-world';
 import type { Building } from '../game/buildings';
-import { Gfx, UI, textWidth, type Hit } from './gfx';
+import { Gfx, UI, textWidth, wrap as wrapLines, type Hit } from './gfx';
 import { card } from './hud';
 
 export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide';
@@ -107,6 +107,7 @@ export class GameUI {
     }
     this.screen = s;
     this.message = null;
+    this.live?.noteEvent(`open:${id}`);
     s.opened?.(this);
     return true;
   }
@@ -204,6 +205,7 @@ export class GameUI {
     const scale = (this.lastScale = this.scaleFor(screen.width, screen.height));
     if (!this.screen) {
       this.drawMenuBar(screen, Math.max(1, Math.min(2, scale)));
+      this.drawTip(screen, this.settings.largeText ? 3 : 2);
       return;
     }
     // Dim the world behind the panel.
@@ -250,6 +252,37 @@ export class GameUI {
     this.panelOrigin = { x: ox, y: oy, scale };
     screen.blit(big, ox, oy);
     this.hits = g.hits.map((h) => ({ ...h, x: ox + h.x * scale, y: oy + h.y * scale, w: h.w * scale, h: h.h * scale }));
+  }
+
+  /** Touch is in use (tips say "tap" instead of naming keys). */
+  touchMode = false;
+
+  /**
+   * The tutorial's tip (M8): one short card above the action prompt, with SKIP TIPS. A step just done shows "NICE!"
+   * for a moment instead. Never shown while a menu is open.
+   */
+  private drawTip(screen: PixelBuffer, scale: number): void {
+    const live = this.live;
+    if (!live || live.visitor) return;
+    const tip = live.tutorialTip();
+    const justDone = !tip && live.tipJustDone && !live.tutorial.skipped;
+    if (!tip && !justDone) return;
+    const text = tip ? (this.touchMode ? tip.touch : tip.keys) : 'Nice!';
+    const maxW = Math.min(220, Math.floor(screen.width / scale) - 16);
+    const lines = tip ? wrapLines(text.toUpperCase(), Math.floor((maxW - 52) / 4)) : ['NICE!'];
+    const w = tip ? maxW : 30;
+    const h = 6 + lines.length * 7 + 1;
+    const g = new Gfx(w, h);
+    g.buf.blit(card(w, h, tip ? UI.accent : UI.good), 0, 0);
+    g.text(tip ? 'TIP' : '', 4, 3, UI.accent);
+    lines.forEach((l, i) => g.text(l, tip ? 20 : 6, 3 + i * 7, tip ? UI.ink : UI.good));
+    if (tip) g.button('SKIP TIPS', w - 36, Math.floor((h - 11) / 2), () => live.setTips(false), { w: 34 });
+    const big = g.buf.scaled(scale);
+    const ox = Math.round(screen.width / 2 - big.width / 2);
+    const oy = screen.height - big.height - 30 * scale;
+    screen.blit(big, ox, oy);
+    this.hits.push(...g.hits.map((hh) => ({ ...hh, x: ox + hh.x * scale, y: oy + hh.y * scale, w: hh.w * scale, h: hh.h * scale })));
+    if (justDone && live.clock.time - live.tipDoneAt > 1.6) live.tipJustDone = null;
   }
 
   /** The corner buttons that open screens with a click or a tap. */

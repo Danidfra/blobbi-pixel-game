@@ -39,13 +39,14 @@ import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, typ
 import { RESPAWN_SECONDS } from '../game/resources';
 import type { RockSaveState } from '../game/persistence';
 import { houseLevelInfo, MAX_HOUSE_LEVEL, type HouseLevel } from '../content/houses';
+import { currentTip, TIP_PAUSE, updateTutorial, type TutorialContext, type TutorialStep } from '../game/tutorial';
 import { optionUnlocked, type UnlockContext } from '../content/home-styles';
 import type { HouseLook } from '../game/house-art';
 import { doorSpot, doorwayRect, footOf, footprintRect, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
 import { JOY, addHappiness, eat, isHungry, isRested, isTired, mood, newCare, pet as petCare, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
-import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById } from '../game/objectives';
+import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { nextDawn, clockLabel, lightAt, rainAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES } from '../content/discoveries';
@@ -1404,6 +1405,7 @@ export class LiveWorld {
 
   /** Tap to walk: the Blobbi walks to a world point (current scene) along a path. */
   walkTo(x: number, y: number): boolean {
+    this.walkingToClick = true;
     if (this.brain.state === 'rest') this.brain.wake(this.clock.time);
     this.fishing = null;
     return this.brain.goTo(this.clock.time, { x: this.blobbi.x, y: this.blobbi.y }, { x, y });
@@ -3245,6 +3247,47 @@ export class LiveWorld {
     this.save();
   }
 
+  // ─── The contextual tutorial (M8, `game/tutorial.ts`) ──────────────────
+
+  /** UI and play events seen this session (`open:inventory`, `walked`...): the tutorial reads them. */
+  readonly events = new Set<string>();
+  private playerWalked = 0;
+  private walkingToClick = false;
+  /** Clock time the last tutorial step was done (the next tip waits a moment). */
+  tipDoneAt = -Infinity;
+  /** The step just done, for a short "nice!" on the tip card. */
+  tipJustDone: string | null = null;
+
+  /** Something happened the tutorial may care about (a menu opened...). */
+  noteEvent(e: string): void {
+    this.events.add(e);
+  }
+
+  tutorialContext(): TutorialContext {
+    const active = new Set(activeQuests(this.objectives).map((q) => q.id));
+    return { tally: this.tally, completed: this.objectives.completed, active, events: this.events, hasShelter: this.buildings.some((b) => b.kind === 'shelter' && this.buildingAt(b) >= 1), inside: this.inside };
+  }
+
+  private stepTutorial(): void {
+    const fresh = updateTutorial(this.tutorial, this.tutorialContext());
+    if (fresh.length) {
+      this.tipDoneAt = this.clock.time;
+      this.tipJustDone = fresh.at(-1)!;
+    }
+  }
+
+  /** The tip to show now (none while a finished step's moment lasts, with tips off, or all done). */
+  tutorialTip(): TutorialStep | null {
+    if (this.visitor || this.clock.time - this.tipDoneAt < TIP_PAUSE) return null;
+    return currentTip(this.tutorial, this.tutorialContext());
+  }
+
+  /** Tips off (SKIP TIPS) or on again (the guide): saved with the island. */
+  setTips(on: boolean): void {
+    this.tutorial.skipped = !on;
+    this.save();
+  }
+
   /** Stop writing this world's save (it was deleted): nothing this world does afterwards is stored. */
   detachStore(): void {
     this.store = null;
@@ -3421,6 +3464,12 @@ export class LiveWorld {
     }
     const walked = Math.hypot(b.x - before.x, b.y - before.y);
     this.movedLastStep = walked > 0.01;
+    // The tutorial's first step: the player walked (keys, the stick, or a click to walk).
+    if (manualNow || this.walkingToClick) {
+      this.playerWalked += walked;
+      if (this.playerWalked > 24) this.events.add('walked');
+    }
+    if (!this.brain.target) this.walkingToClick = false;
     // Footsteps: one every few pixels walked, named for the ground underfoot.
     this.stride += walked;
     if (this.stride >= 7) {
@@ -3458,6 +3507,7 @@ export class LiveWorld {
     this.stepPlaces();
     // A visitor neither advances the host's story nor receives its rewards.
     if (!this.visitor) this.stepObjectives();
+    if (!this.visitor) this.stepTutorial();
     while (this.harvestPops.length && time - this.harvestPops[0].start > HARVEST_POP_SECONDS) this.harvestPops.shift();
     while (this.notices.length && time >= this.notices[0].until) this.notices.shift();
     // The swing: the hit lands part-way through, the axe is back at rest at the end.

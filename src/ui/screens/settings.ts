@@ -52,6 +52,8 @@ export class SettingsScreen implements Screen {
         { label: `REDUCED MOTION: ${s.reducedMotion ? 'ON' : 'OFF'}`, run: change(() => (s.reducedMotion = !s.reducedMotion)) },
         { label: `LARGE HUD TEXT: ${s.largeText ? 'ON' : 'OFF'}`, run: change(() => (s.largeText = !s.largeText)) },
         { label: `MENU SCALE: ${s.scale ? `${s.scale}X` : 'AUTO'}`, run: change(() => (s.scale = (s.scale + 1) % 4)) },
+        // Tips belong to the island (saved with it), so a new island starts with them on.
+        ...(ui.live && !ui.live.visitor ? [{ label: `TIPS ON THIS ISLAND: ${ui.live.tutorial.skipped ? 'OFF' : 'ON'}`, run: () => ui.live!.setTips(ui.live!.tutorial.skipped) }] : []),
       ];
     const a = this.audio;
     if (!a) return [];

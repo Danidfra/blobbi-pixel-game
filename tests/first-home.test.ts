@@ -80,6 +80,8 @@ describe('the first home quest', () => {
       expect(live.world.objects.some((o) => o.kind === 'house')).toBe(false);
       playChapter1(live);
       for (const id of CHAPTER_1) expect(Object.keys(live.objectives.completed), id).toContain(id);
+      // The tutorial followed along: every step those actions teach is done.
+      expect(live.tutorial.done).toEqual(expect.arrayContaining(['move', 'blobbi', 'gather', 'craft', 'tool', 'build', 'enter', 'furnish']));
       // The gift went into the room, not lost.
       expect(live.interiors.get(live.buildings.find((b) => b.kind === 'shelter')!.id)!.furniture.some((f) => f.kind === 'potted-plant')).toBe(true);
     });

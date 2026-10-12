@@ -44,12 +44,13 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 | [Inventory](specifications/INVENTORY.md) | IMPLEMENTED · NOT TESTED |
 | [Farming](specifications/FARMING.md) | IMPLEMENTED · NOT TESTED |
 | [Building](specifications/BUILDING.md) | IMPLEMENTED · NOT TESTED |
-| [Housing](specifications/HOUSING.md) | IMPLEMENTED · NOT TESTED |
+| [Housing](specifications/HOUSING.md) | IMPLEMENTED (M5 rooms; M8 levels, upgrades, customisation) · NOT TESTED |
 | [Quests](specifications/QUESTS.md) | IMPLEMENTED · NOT TESTED |
 | [Teleportation](specifications/TELEPORTATION.md) | IMPLEMENTED · NOT TESTED |
 | [Audio](specifications/AUDIO.md) | IMPLEMENTED · NOT TESTED |
 | [World growth](specifications/WORLD-GROWTH.md) | IMPLEMENTED · NOT TESTED |
 | [World visiting](specifications/WORLD-VISITING.md) | PROTOTYPE (local only) · NOT TESTED |
+| [Tutorial (tips)](specifications/TUTORIAL.md) | IMPLEMENTED (M8) · NOT TESTED |
 | [Intro cinematic](specifications/INTRO-CINEMATIC.md) | IMPLEMENTED (dev preview only; not in the start flow; reworked after the first review, with the turtle's small start) · NOT TESTED |
 
 ## Testing

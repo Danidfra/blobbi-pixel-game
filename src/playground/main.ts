@@ -1148,6 +1148,7 @@ function playFrame(now: number): void {
   const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: gameUI.settings.largeText ? 3 : 2 });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
+  gameUI.touchMode = touch.enabled;
   gameUI.render(frame, now / 1000);
   if (!gameUI.capturing) touch.draw(frame, 15 * 2);
   // Sound: the world's events to the audio director (and to any other listener as events), then cleared.
