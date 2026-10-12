@@ -373,7 +373,7 @@ Images: `examples/living-worlds/` (`scripts/growth.ts`, `scripts/manta-world.ts`
 - [x] Save schema 9 (growth, species, generator); migration never grows.
 - [ ] Manual validation (M4-M7 together); then commit.
 
-### M8 phase 0: the playable whale (implemented, uncommitted)
+### M8 phase 0: the playable whale (implemented, committed `fcf8549`)
 
 Unfinished M7 work, done first in the M8 session.
 
@@ -391,7 +391,7 @@ Unfinished M7 work, done first in the M8 session.
       docs (WORLD-CARRIERS, WORLD-GROWTH, the test plan, known issues).
 - [ ] Manual validation (WHALE-01...12 in docs/testing/MANUAL-TEST-PLAN.md).
 
-### M8 cinematic: the species-aware intro (implemented, uncommitted)
+### M8 cinematic: the species-aware intro (implemented, committed `fcf8549`)
 
 - [x] IMPLEMENTED: `src/cinematic/` — a reusable intro of about 32 s (19.5 s
       with reduced motion) for the turtle, the manta and the whale on the
@@ -412,19 +412,39 @@ Unfinished M7 work, done first in the M8 session.
       frames (`scripts/intro-cinematic.ts` → `examples/intro-cinematic/`),
       tests (`tests/cinematic.test.ts`), docs (CINEMATIC-DIRECTION,
       INTRO-CINEMATIC, M8-CINEMATIC, the test plan, known issues).
-- [ ] Integration into START / NEW ISLAND (a later session), then the
-      onboarding it hands over to.
+- [x] Integrated into the first-time flow and NEW ISLAND (M8, below).
 - [ ] Manual validation (INTRO-01...10 in docs/testing/MANUAL-TEST-PLAN.md).
 
-### M8: First steps and player experience (not started)
+### M8: The beginning and home progression (implemented, committed on `develop`)
 
-The onboarding brief for this milestone has not been written into the repository yet;
-the intro cinematic above is its first piece.
+Details: docs/milestones/M8.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATION**.
+
+- [x] Delete safety: every world deletion asks first, names the island, refuses a
+      too-quick confirm (KI-01 fixed); MY ISLANDS can delete.
+- [x] New islands start without the generated cottage (`|house=none` in the
+      identity; older worlds byte-identical).
+- [x] First-time flow: WELCOME → choose a Carrier (animated cards, a
+      personality each) → optional island name → the island is made and its
+      intro plays on it → play. Returning: CONTINUE (most recent), MY ISLANDS,
+      NEW ISLAND; ABOUT replays the intro on a preview island.
+- [x] Save schema 10 (name, intro state, tutorial state, house level and
+      look, wall finish); every older schema migrates (tested 1-9).
+- [x] Chapter 1 "The First Home": meet, explore, gather, tool, materials,
+      build, step inside, first furniture (all three Carriers, tested).
+- [x] Three house levels (Cozy Shelter, Cottage, Dream Home) with their own art
+      and room layouts; upgrades earned through quests, harmony and finds,
+      confirmed on the HOME panel; furniture never lost.
+- [x] Home customisation (roof, walls, door, windows, floors, wall colours,
+      finishes) with progressive unlocks and previews.
+- [x] Contextual tutorial (14 short tips, skippable, saved per island).
+- [x] Player guide (16 pages) and touch-first controls (full-screen phones,
+      larger wrapped menu bar, mode bar, rotate hint).
+- [ ] Manual validation (M8 sections of docs/testing/MANUAL-TEST-PLAN.md).
 
 ### Later (not started)
 
 Network visiting (world cards and presence, docs/architecture/NOSTR-MULTIPLAYER.md
 step 2 onward, each needing approval); biome quests; a
-migrated turtle shell enlargement if wanted; house upgrades (`level`);
+migrated turtle shell enlargement if wanted;
 furniture grid and rotation; seasons; chapter 3; shared expressions with the
 Standalone; baby and egg stages; multiple Blobbis.

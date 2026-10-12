@@ -253,6 +253,45 @@ refuses them (GROW-09).
 | SAVE-DEL-02 | Two saved islands | Title → ISLANDS → a row's DELETE (or X). Press Enter at once; then choose DELETE FOREVER after a second. | A DELETE THIS ISLAND? page names it; Enter at once keeps it (KEEP IT is selected); DELETE FOREVER is grey for a moment, then erases only that island; the other is untouched. | NOT TESTED | M8 |
 | SAVE-DEL-03 | Touch device, two saved islands | ISLANDS → DELETE, then tap twice fast in the same place. | The second tap lands on the question, not on a delete; nothing is erased without a deliberate later tap on DELETE FOREVER. | NOT TESTED | M8 |
 
+## The first home and housing (FIRST, HOME) — M8
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| FIRST-01 | A new island of each Carrier | Play chapter 1 from the start without help beyond the tips. | No house at first; meet, explore, gather, axe, wood, materials, build, step inside, place the potted plant all complete; about 15 minutes; nothing feels like a chore. | NOT TESTED | estimate only |
+| HOME-01 | No shelter | Open HOME (1 or the menu bar). | Says how to build the first home. | NOT TESTED | |
+| HOME-02 | A shelter; chapter 2 not done | HOME → UPGRADE. | Requirements listed with OK/--; UPGRADE refuses and says what is missing; nothing changes. | NOT TESTED | |
+| HOME-03 | Requirements met | UPGRADE, then press CONFIRM twice quickly. | A confirmation names the cost and the furniture; CONFIRM is grey for a moment; one upgrade happens; scaffold, walls, roof, sparkles and a chime. | NOT TESTED | |
+| HOME-04 | A furnished shelter (incl. a chest with items) | Upgrade to Cottage, go inside. | Nook, main room and tiled kitchen; every piece is there (bed in the nook), the chest keeps its items; a stove came with the kitchen. | NOT TESTED | |
+| HOME-05 | Cottage, harmony 35, 3 finds | Upgrade to Dream Home; walk through every room. | Bedroom, study, kitchen and living room through openings; no room blocked; an armchair came with the living room. | NOT TESTED | |
+| HOME-06 | A shelter close to trees or a fence | Try to upgrade. | Refused with what is in the way; moving the house (M) to open ground lets it upgrade. | NOT TESTED | |
+| HOME-07 | Inside the house | Try to upgrade. | Asks to step outside first. | NOT TESTED | |
+| HOME-08 | Some styles unlocked | HOME → LOOK and ROOMS: change parts, REVERT, then APPLY. | The preview changes with each choice; nothing changes in the world until APPLY; locked options say what unlocks them and cannot be applied. | NOT TESTED | |
+| HOME-09 | Styles applied | Reload the page. | House level, look, room style and furniture all kept. | NOT TESTED | |
+| HOME-10 | Look at each house level at the three camera modes, day and night | — | Each level reads as its own house, same pixel scale as the island and the Blobbi; nothing clipped. | NOT TESTED | visual |
+
+## Tips and guide (TIP, GUIDE) — M8
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| TIP-01 | A new island | Play the first minutes. | One tip at a time above the prompt; each disappears when done ("NICE!"), the next after a moment. | NOT TESTED | |
+| TIP-02 | A new island | Pick things up before the walk tip ends; craft before its tip. | Steps already done never show. | NOT TESTED | |
+| TIP-03 | A tip showing | SKIP TIPS; reload. | No more tips on that island; SETTINGS → TIPS ON THIS ISLAND brings them back. | NOT TESTED | |
+| TIP-04 | Touch screen | Watch the tips. | They say "tap" and name buttons, never keys. | NOT TESTED | |
+| TIP-05 | An island from before M8 | Open it. | No tips (turn them on in the guide's Tips page if wanted). | NOT TESTED | |
+| GUIDE-01 | — | ? (or F1, or GUIDE); read every page. | 16 short pages; everything they describe exists in the game. | NOT TESTED | |
+| GUIDE-02 | Phone | GUIDE; tap topics. | Readable; topics change by tap. | NOT TESTED | |
+
+## Touch on phones (TOUCH-M8) — M8
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| TOUCH-M8-01 | Phone, landscape | Open the game. | Full screen (no lab sidebar); the title readable; every page works by tap. | NOT TESTED | emulated only (KI-12) |
+| TOUCH-M8-02 | Phone, portrait | Open the game. | A hint asks to turn the device sideways. | NOT TESTED | |
+| TOUCH-M8-03 | Phone | Walk (drag and tap), pick up (USE), open BAG, CRAFT an axe, EQUIP it, chop. | All by touch; buttons large enough; nothing overlaps. | NOT TESTED | |
+| TOUCH-M8-04 | Phone, 6 wood 3 stones | CRAFT → BUILD → move → USE builds; NEXT; CANCEL. | The mode bar shows NEXT and CANCEL; no key needed. | NOT TESTED | |
+| TOUCH-M8-05 | Phone, inside the house | BAG → potted plant → PLACE → USE; HOME → ROOMS → ARRANGE → USE, STYLE, TO BAG, DONE. | Placing and moving furniture fully by touch. | NOT TESTED | |
+| TOUCH-M8-06 | Phone | NEW ISLAND: TYPE A NAME, create; tap during the intro. | The phone keyboard opens; the name shows; a tap skips the intro into play. | NOT TESTED | |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

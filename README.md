@@ -5,9 +5,10 @@ World Carrier (a turtle, a manta or a whale); a canonical pixel **Blobbi** lives
 farms, builds a home, cooks, follows quests, listens to the Carrier, grows the island and visits other islands. Every
 pixel is generated from a seed: no sprite packs, no downloaded or AI-generated raster assets.
 
-It is a research prototype, not a package. **M1–M3 are committed; M4–M7 and the playable whale (M8 phase 0)
-are implemented but await manual validation**, as are the intro cinematic (dev preview only) and the turtle's small
-start for new worlds (see [milestones](docs/milestones/README.md)).
+It is a research prototype, not a package. **M1–M3 are committed; M4–M8 are committed on `develop` and await manual
+validation** — M8 adds the first-time flow (choose a World Carrier, name the island, watch it begin), the first home
+earned in play, three house levels with customisation, tips, a player guide and touch-first controls (see
+[milestones](docs/milestones/README.md)). `npm run dev` opens the game; the lab's other tabs are one click away.
 
 ## Quick start
 

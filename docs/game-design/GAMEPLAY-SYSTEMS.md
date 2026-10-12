@@ -12,7 +12,7 @@ The game as the player meets it, system by system, with the numbers the code use
 | WASD / arrows | move (autonomy resumes 5 s after the last input) | `src/playground/main.ts`, `src/sim/brain.ts` |
 | E / Space | the context action: pick up, harvest / water / plant / till, chop, mine, fish, use, enter a door, listen to or open the Carrier | `LiveWorld.step` |
 | Click / tap the world | walk there (tap-to-walk); drag on touch: floating stick | `src/ui/touch.ts` |
-| I · K · J · U · N · L · Y | bag · crafting · journal · Blobbi panel · map · island growth · worlds | `OPEN_KEYS` in `src/ui/game-ui.ts` |
+| I · K · J · U · N · L · Y · 1 · ? / F1 | bag · crafting · journal · Blobbi panel · map · island growth · worlds · home (M8) · guide (M8) | `OPEN_KEYS` in `src/ui/game-ui.ts` |
 | Esc | leave a mode (move, place, manage, build), else settings; in a menu: back | `src/ui/game-ui.ts` |
 | F · H · R | feed · pet · rest (R again wakes) | `src/playground/main.ts` |
 | T | next seed (farming), or the style of what is placed / managed | idem |
@@ -24,7 +24,10 @@ The game as the player meets it, system by system, with the numbers the code use
 | Z, mouse wheel | camera: overview 1×, exploration 2×, close-up 4× | `src/render/view-camera.ts` |
 | O | hide or show the goal box | idem |
 
-Menus pause the world and take every key; mouse and touch work in every menu.
+Menus pause the world and take every key; mouse and touch work in every menu. M8: the menu bar (and, in build,
+place and move modes, a mode bar with NEXT, STYLE, TO BAG, DONE, CANCEL) gives every action a button, larger and
+without key names once touch is used; tips teach the basics ([tutorial](../specifications/TUTORIAL.md)); the HOME
+panel holds upgrades and styles ([housing](../specifications/HOUSING.md)).
 
 ### Gathering and forage
 

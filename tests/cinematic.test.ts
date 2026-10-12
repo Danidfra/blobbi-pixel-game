@@ -667,7 +667,7 @@ describe('intro cinematic: sound', () => {
       expect(calls.filter((c) => c.startsWith('mood:'))).toEqual(['mood:mystery', 'mood:day', 'mood:special']);
       expect(calls.some((c) => c.startsWith('bed:ocean:'))).toBe(true);
     }
-  });
+  }, 180_000); // three full cinematics with audio: slow under a fully parallel run
 
   it('is silent without an engine, and ignores unknown names', () => {
     const quiet = new IntroAudio(null, 'x');

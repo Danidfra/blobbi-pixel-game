@@ -12,7 +12,8 @@ One summary per milestone; the full reports and development logs are archived, u
 | [M5](M5.md) | Living world: home, quests, cooking | `develop` checkpoint `2273168` (unvalidated) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M6](M6.md) | Living archipelago: teleport, audio, UI, Carrier | `develop` checkpoint `2273168` (unvalidated) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M7](M7.md) | Living worlds: growth, manta, visiting | `develop` checkpoint `2273168` (unvalidated) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
-| [M8 phase 0](M8-PHASE-0.md) | The playable whale (unfinished M7 work) | uncommitted | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
-| [M8 cinematic](M8-CINEMATIC.md) | The species-aware intro cinematic (the birth of a world; dev preview, not in the start flow) and the turtle's small start (shell Variant S for new worlds) | uncommitted | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
+| [M8 phase 0](M8-PHASE-0.md) | The playable whale (unfinished M7 work) | `develop` `fcf8549` | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
+| [M8 cinematic](M8-CINEMATIC.md) | The species-aware intro cinematic and the turtle's small start (shell Variant S for new worlds) | `develop` `fcf8549` | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
+| [M8](M8.md) | The beginning and home progression: first-time flow, the intro in play, no house at the start, the first-home chapter, three house levels, customisation, tips, guide, touch, delete safety | `develop` `e432f38` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 
 "Committed" means the work is in git history; it does not mean a person ran the [manual test plan](../testing/MANUAL-TEST-PLAN.md).

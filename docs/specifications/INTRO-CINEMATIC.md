@@ -6,14 +6,17 @@ Design rationale and the scene board: [Cinematic direction](../game-design/CINEM
 A reusable, species-aware opening of about half a minute that shows, without exposition, the birth of a small living
 world: a vast ocean, a World Carrier surfacing bare, an island forming on its back and coming alive, a Blobbi arriving
 on it by the game's own teleport, noticing you and saying hello, then "Every little world has a story. This one begins
-with you." It ends on the game's own exploration camera, in a state the (future) onboarding can take over.
+with you." It ends on the game's own exploration camera, where play (and the tutorial's first tip) begins.
 
 ## 2. Status
 **IMPLEMENTED** (M8 cinematic session, 2026-10-11; reworked the same day after the first manual review: bare
 Carrier, island formation, teleport arrival, the manta's wing framing, a smaller starting island for new turtles),
-**NOT TESTED by a person at real speed**. It is **not attached to the production flow**: START, CONTINUE and
-NEW ISLAND still begin play with the teleport arrival as before. It can be watched from the dev tools and the
-`#intro=` link (dev server only). Integration is a later session's work.
+**NOT TESTED by a person at real speed**. **Integrated in M8**: making a new island (WELCOME → BEGIN, or NEW
+ISLAND) saves the island with its intro pending and plays this cinematic on the real world (`startWorldIntro` in
+`src/playground/main.ts`); it ends directly in play and is marked seen or skipped in the save (`intro`, schema 10).
+A reload during it keeps the island and plays it again on the next opening; existing islands never replay it.
+ABOUT → WATCH THE … INTRO replays it on a preview island (no store). The dev tools and the `#intro=` link (dev server
+only) still preview it.
 
 ## 3. Player-facing behaviour
 Five scenes, one timeline for all three species (`fullTiming`, `src/cinematic/script.ts`; seconds for the turtle
