@@ -27,6 +27,8 @@ export interface WorldParams {
   palette: string;
   density: number;
   islands: number | 'auto';
+  /** `false` for an M8 world made without the generated cottage (identity `|house=none`); absent before. */
+  generatedHouse?: false;
 }
 
 export interface WorldEntry {
@@ -68,6 +70,7 @@ export function parseIdentity(identity: string): WorldParams | null {
     palette: fields.get('palette') ?? 'cozy',
     density: num('density'),
     islands: islands === 'auto' || islands === undefined ? 'auto' : Number(islands),
+    ...(fields.get('house') === 'none' ? { generatedHouse: false as const } : {}),
   };
 }
 

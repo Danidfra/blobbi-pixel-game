@@ -98,6 +98,8 @@ export interface PlacementContext {
   occupancy: Occupancy;
   /** World scale (`WorldOptions.scale`): every size and distance below is stated at scale 1 and multiplied. */
   scale: number;
+  /** Place the procedural cottage on large islands (default true; M8 new worlds: false, see `generatedHouse`). */
+  houses?: boolean;
 }
 
 /** Island area in pixels, from the terrain owner map. */
@@ -166,7 +168,7 @@ export function placeObjects(ctx: PlacementContext): Placement[] {
 
     // ── Structures ──────────────────────────────────────────────────────
     const houseRng = stream(ctx.seed, 'place', 'island', island.id, 'house');
-    if (island.radius >= 34 * S && houseRng.chance(0.85)) {
+    if (ctx.houses !== false && island.radius >= 34 * S && houseRng.chance(0.85)) {
       const size = Math.round(houseRng.int(20, Math.min(30, Math.round(island.radius * 0.6 / S))) * S);
       const placed = tryPlace(ctx, houseRng, island, 'house', 'structures', size, 'house', { tries: 40, depth: 6 * S, margin: CORRIDOR, near: { x: hub.x, y: hub.y - 6 * S, r: island.radius * 0.45 } });
       if (placed) {

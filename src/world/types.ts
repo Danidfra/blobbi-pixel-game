@@ -31,6 +31,12 @@ export interface WorldOptions {
   turtleSeed?: string;
   /** The World Carrier's shell variant (turtle worlds): 0 = the M1 shell, 1-3 = the enlarged shells. Default: Variant B (2). */
   shellVariant?: import('../carrier/types').ShellVariant;
+  /**
+   * The procedural cottage (with its fence, garden and path) that M1–M7 islands are generated with. `false` (M8 new
+   * worlds) leaves the island without it: the player builds the first home. Absent means true, so every world made
+   * before keeps its identity and regenerates byte for byte; `false` is part of the world identity (`|house=none`).
+   */
+  generatedHouse?: boolean;
 }
 
 export const DEFAULT_WORLD_OPTIONS: WorldOptions = { width: 704, height: 448, palette: 'cozy', islands: 0, density: 1, scale: 1.6, kind: 'island' };

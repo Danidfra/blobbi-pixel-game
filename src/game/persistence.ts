@@ -167,7 +167,9 @@ function companionFromSave(raw: unknown): WorldSave['companion'] {
 export function worldIdentity(world: WorldDescription): string {
   const o = world.options;
   const turtle = o.kind === 'turtle' ? `|turtle=${world.carrier?.seed ?? o.turtleSeed ?? world.seed}|variant=${world.carrier?.variant ?? o.shellVariant ?? 0}` : o.kind === 'manta' || o.kind === 'whale' ? `|carrier=${world.creature?.seed ?? o.carrierSeed ?? world.seed}` : '';
-  return `seed=${world.seed}|kind=${o.kind}${turtle}|${o.width}x${o.height}|scale=${o.scale}|palette=${o.palette}|density=${o.density}|islands=${o.islands}`;
+  // M8: a world made without the generated cottage says so (worlds made before have no such field and keep their key).
+  const house = o.generatedHouse === false ? '|house=none' : '';
+  return `seed=${world.seed}|kind=${o.kind}${turtle}|${o.width}x${o.height}|scale=${o.scale}|palette=${o.palette}|density=${o.density}|islands=${o.islands}${house}`;
 }
 
 export function saveKey(identity: string): string {

@@ -360,11 +360,14 @@ function saveHash(): void {
 
 // ─── World mode ──────────────────────────────────────────────────────────────
 
+/** The generated cottage option, only when it is off (worlds made before M8 never carry the field). */
+const houseOption = (): { generatedHouse?: false } => (state.options.generatedHouse === false ? { generatedHouse: false } : {});
+
 /** The world for the current options: a turtle carrying the land, or the phase 1-3 archipelago. */
 function makeWorld(seed: string): WorldDescription {
   // A creature world has its own canvas (the manta and the whale need the room): only the look options carry over.
-  if (state.options.kind === 'manta') return generateMantaWorld(seed, { palette: state.options.palette, density: state.options.density, scale: state.options.scale, carrierSeed: state.turtleSeed });
-  if (state.options.kind === 'whale') return generateWhaleWorld(seed, { palette: state.options.palette, density: state.options.density, scale: state.options.scale, carrierSeed: state.turtleSeed });
+  if (state.options.kind === 'manta') return generateMantaWorld(seed, { palette: state.options.palette, density: state.options.density, scale: state.options.scale, carrierSeed: state.turtleSeed, ...houseOption() });
+  if (state.options.kind === 'whale') return generateWhaleWorld(seed, { palette: state.options.palette, density: state.options.density, scale: state.options.scale, carrierSeed: state.turtleSeed, ...houseOption() });
   if (state.options.kind === 'turtle') return generateTurtleWorld(seed, { ...state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant, width: state.options.width, height: Math.max(state.options.height, DEFAULT_TURTLE_OPTIONS.height) });
   return generateWorld(seed, state.options);
 }
@@ -585,7 +588,7 @@ function openWorldParams(w: WorldEntry): boolean {
   const p = w.params;
   const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant };
   state.seed = p.seed;
-  state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands };
+  state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands, generatedHouse: p.generatedHouse };
   if (p.kind === 'manta' || p.kind === 'whale') state.turtleSeed = p.carrierSeed ?? p.seed;
   if (p.kind === 'turtle') {
     state.turtleSeed = p.turtleSeed ?? p.seed;
@@ -616,7 +619,8 @@ const title = new TitleScreen({
     if (openWorldParams(w)) beginPlay();
   },
   newWorld: (kind) => {
-    state.options = { ...state.options, kind };
+    // A new world has no generated cottage: the player builds the first home (M8).
+    state.options = { ...state.options, kind, generatedHouse: false };
     // A new turtle starts small (Variant S); worlds made before keep the variant in their identity.
     if (kind === 'turtle') state.shellVariant = NEW_WORLD_SHELL_VARIANT;
     const identityOf = (seed: string, turtleSeed: string) => worldIdentity(makeWorldFor(seed, turtleSeed));
@@ -749,7 +753,7 @@ function worldFor(ref: WorldRef): WorldDescription {
   try {
     const p = ref.params;
     state.seed = p.seed;
-    state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands };
+    state.options = { ...state.options, kind: p.kind, scale: p.scale, palette: p.palette as typeof state.options.palette, density: p.density, islands: p.islands as typeof state.options.islands, generatedHouse: p.generatedHouse };
     if (p.kind === 'manta' || p.kind === 'whale') state.turtleSeed = p.carrierSeed ?? p.seed;
     if (p.kind === 'turtle') {
       state.turtleSeed = p.turtleSeed ?? p.seed;
@@ -1274,6 +1278,8 @@ if (import.meta.env.DEV)
       // A separate world seed: experiments never touch the player's own save.
       openTestWorld: (kind) => {
         state.seed = 'm5-test-world';
+        // Test worlds keep the pre-M8 generation (a stable identity for the test plan).
+        state.options = { ...state.options, generatedHouse: undefined };
         if (kind) {
           state.options = { ...state.options, kind };
           if (kind !== 'turtle') state.turtleSeed = `${kind}-test`;

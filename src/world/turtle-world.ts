@@ -206,7 +206,7 @@ function generateTurtleBase(seed: string, partial: Partial<WorldOptions>, island
   // 3. Placement on the shell top.
   const occupancy = new Occupancy(terrain);
   if (pond) occupancy.block(pond.cx - pond.rx - 4, pond.cy - pond.ry - 4, pond.rx * 2 + 8, pond.ry * 2 + 8);
-  const objects: Placement[] = placeObjects({ seed, palette, terrain, islands: [island], hubs, density: options.density, occupancy, scale });
+  const objects: Placement[] = placeObjects({ seed, palette, terrain, islands: [island], hubs, density: options.density, occupancy, scale, houses: options.generatedHouse !== false });
   const housePaths: Path[] = [];
   for (const o of objects) if (o.kind === 'house') housePaths.push(buildPath(seed, `house-${o.island}`, terrain, 0, hub, { x: o.x + 0.5, y: o.y + 3 }, Math.round(3 * scale)));
   if (housePaths.length) {

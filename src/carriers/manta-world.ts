@@ -115,7 +115,7 @@ export function generateMantaWorld(seed: string, partial: Partial<WorldOptions> 
   paintMeadows(seed, terrain, island, hub, scale);
 
   const occupancy = new Occupancy(terrain);
-  const objects: Placement[] = placeObjects({ seed, palette, terrain, islands: [island], hubs, density: options.density, occupancy, scale });
+  const objects: Placement[] = placeObjects({ seed, palette, terrain, islands: [island], hubs, density: options.density, occupancy, scale, houses: options.generatedHouse !== false });
   dressGroundTurtle(terrain, objects, hub, options.palette, scale);
   let landPixels = 0;
   for (let i = 0; i < terrain.cls.length; i++) if (terrain.cls[i] >= T.GRASS_EDGE && terrain.cls[i] !== T.RIM && terrain.cls[i] !== T.SKIN) landPixels++;

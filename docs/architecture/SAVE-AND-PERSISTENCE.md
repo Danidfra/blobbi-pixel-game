@@ -15,8 +15,9 @@
 - The world identity is the generation inputs: `seed=…|kind=turtle|turtle=…|variant=…|WxH|scale=…|palette=…|density=…|islands=…`
   (`variant` is the turtle's shell variant, 0–4: a turtle world made before 2026-10-11 keeps Variant B and regenerates
   byte for byte; a new one is Variant S, the small start, under its own identity)
-  for a turtle, `…|kind=manta|carrier=…|…` for a manta (`worldIdentity`). Anything that would regenerate a different
-  world is a different save.
+  for a turtle, `…|kind=manta|carrier=…|…` for a manta (`worldIdentity`). A world made by NEW ISLAND since M8 ends
+  in `|house=none` (no generated cottage, see [procedural generation](PROCEDURAL-GENERATION.md)); older identities
+  have no such field. Anything that would regenerate a different world is a different save.
 - The record is the local world's (`owner: 'local-world'`), never a Blobbi's: choosing another Blobbi never changes
   which bag, buildings or progress are shown.
 - Autosave every 10 simulated seconds, and after every lasting action (collect, craft, build, plant, …), and on page

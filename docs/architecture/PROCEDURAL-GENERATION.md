@@ -32,6 +32,14 @@ frame (Variant 0) and embed it into a larger carrier canvas (`src/carrier/turtle
 turtle worlds since 2026-10-11) runs the same pipeline on a shell top shrunk to 72 % at the same centre of the same
 frame (`generateTurtleBase`), then fits the shell around that smaller island to about 40 % coverage.
 
+**The generated cottage (M8).** `placeObjects` puts a procedural cottage (with a fence, a small garden and a decor
+piece, and a path to its door) on every large enough island. It is scenery: it blocks walking and answers a look,
+but it has no door to enter. Since M8 a world made by NEW ISLAND has `generatedHouse: false` (all three Carriers):
+no cottage, fence, garden or path, so the island waits for the player's own first shelter. The option is part of
+the identity (`|house=none`); worlds made before have no such field, keep their cottage and regenerate byte for byte
+(`tests/new-world-start.test.ts`). The house stream is its own RNG stream, so leaving it out changes only what the
+freed ground receives.
+
 The manta pipeline reuses the same terrain, path and placement code: the island is an oval fitted inside the manta's
 still core with a sand beach; the core is SKIN (drawn from the body); the sea bands hug the core; the wing tips and
 whip animate as sprites.

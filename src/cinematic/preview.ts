@@ -13,10 +13,10 @@ import { NEW_WORLD_SHELL_VARIANT } from '../carrier/types';
 export const INTRO_PREVIEW_SEED = 'intro-preview';
 
 export function introPreviewWorld(kind: CarrierSpecies): WorldDescription {
-  if (kind === 'manta') return generateMantaWorld(INTRO_PREVIEW_SEED, { carrierSeed: 'manta-intro' });
-  if (kind === 'whale') return generateWhaleWorld(INTRO_PREVIEW_SEED, { carrierSeed: 'whale-intro' });
-  // A new turtle world's shell (Variant S): the cinematic shows the real starting island of a new world.
-  return generateTurtleWorld(INTRO_PREVIEW_SEED, { turtleSeed: 'turtle-intro', shellVariant: NEW_WORLD_SHELL_VARIANT });
+  // A new world's start: no generated cottage (M8), and for the turtle the small shell (Variant S).
+  if (kind === 'manta') return generateMantaWorld(INTRO_PREVIEW_SEED, { carrierSeed: 'manta-intro', generatedHouse: false });
+  if (kind === 'whale') return generateWhaleWorld(INTRO_PREVIEW_SEED, { carrierSeed: 'whale-intro', generatedHouse: false });
+  return generateTurtleWorld(INTRO_PREVIEW_SEED, { turtleSeed: 'turtle-intro', shellVariant: NEW_WORLD_SHELL_VARIANT, generatedHouse: false });
 }
 
 export const isIntroSpecies = (v: unknown): v is CarrierSpecies => v === 'turtle' || v === 'manta' || v === 'whale';
