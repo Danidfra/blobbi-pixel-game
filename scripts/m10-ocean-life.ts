@@ -126,3 +126,25 @@ if (!only || only === 'fishing') {
     write(`fishing-${mode}.png`, sheet(`FISHING, ${mode.toUpperCase()}: THE LINE LEAVES THE ROD'S TIP`, rows, phases.map((p) => p[0])));
   }
 }
+
+if (!only || only === 'ocean') {
+  // Zoomed all the way out on wide screens: the sea goes on past the world's edge (no rectangle), for every Carrier.
+  for (const kind of ['turtle', 'manta', 'whale'] as const) {
+    const live = atStage(kind, 4);
+    const view = new ViewRenderer(live, new LiveRenderer(live));
+    for (const [W, H] of [[1920, 1080], [2560, 1440]]) write(`ocean-${kind}-overview-${W}x${H}.png`, shot(live, view, 'overview', W, H));
+  }
+  // The world's corner, zoomed out on a wide screen, at four moments: waves drift across where the edge was.
+  const live = atStage('whale', 0);
+  const view = new ViewRenderer(live, new LiveRenderer(live));
+  const frames: PixelBuffer[] = [];
+  const cam = new ViewCamera('overview');
+  const b = worldBounds(live.world);
+  for (let k = 0; k < 4; k++) {
+    const v = cam.update(0, live.cameraTarget(), 1920, 1080, b, true);
+    const full = view.render(v, cam.restScale('overview', 1920, 1080, b), live.clock.time + k * 0.4, DEFAULT_LIVE_OPTIONS, { ...DEFAULT_VIEW_UI, lighting: false, hud: false, indicator: false, goals: false, prompt: false });
+    // The world's top-left corner on screen.
+    frames.push(crop(full, (0 - v.originX) * v.scale, (0 - v.originY) * v.scale, 160, 100).scaled(3));
+  }
+  write('ocean-edge-corner.png', sheet('THE WORLD\'S TOP-LEFT CORNER (CENTRE OF EACH CELL), FOUR MOMENTS, 3X', [{ label: '', cells: frames.slice(0, 2) }, { label: '', cells: frames.slice(2) }], ['', '']));
+}

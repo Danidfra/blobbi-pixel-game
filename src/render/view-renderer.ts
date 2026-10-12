@@ -155,17 +155,7 @@ export class ViewRenderer {
     readonly live: LiveWorld,
     readonly world: LiveRenderer,
   ) {
-    // Beyond the world's edge (the overview of a wide screen) the open sea continues: the most common colour of
-    // the world's border, so the margin reads as more of the same water instead of a black bar.
-    const layer = world.staticLayer;
-    const counts = new Map<number, number>();
-    const tally = (x: number, y: number) => {
-      const c = layer.get(x, y);
-      counts.set(c, (counts.get(c) ?? 0) + 1);
-    };
-    for (let x = 0; x < layer.width; x++) (tally(x, 0), tally(x, layer.height - 1));
-    for (let y = 0; y < layer.height; y++) (tally(0, y), tally(layer.width - 1, y));
-    world.background = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+    // Beyond the world's edge the live renderer paints the open sea (M10): no flat margin to choose here.
   }
 
   /** The native Blobbi for a screen size; the gameplay size shares the live world's own cache and rig. */

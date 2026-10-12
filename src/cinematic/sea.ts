@@ -14,8 +14,6 @@
  *
  * Everything here is a pure function of (world, view, time, state); nothing reads or writes the simulation.
  */
-import { createNoise, type Noise2D } from '../core/noise';
-import { hash32 } from '../core/rng';
 import { hex, mix, type Color } from '../core/color';
 import type { WorldPalette } from '../core/palette';
 import type { PixelBuffer } from '../core/pixel';
@@ -24,73 +22,9 @@ import { T, type WorldDescription } from '../world/types';
 import { creatureParts } from '../carriers/creature-render';
 import { turtleBodyForWorld } from '../render/compose';
 
-const TILE = 64;
-/** The live renderer's wave cells: one candidate stroke per 8×4 world pixels. */
-export const SEA_CELL_W = 8;
-export const SEA_CELL_H = 4;
-
-export interface SeaStroke {
-  x: number;
-  y: number;
-  len: number;
-  curl: 1 | -1;
-  speed: number;
-}
-
-/** Open water for any world pixel, matching the terrain painter and the live renderer exactly. */
-export class OpenSea {
-  private readonly streaks: Noise2D;
-  private readonly streakColor: Color;
-  private readonly salt: number;
-  private readonly tiles = new Map<number, Uint32Array>();
-  private readonly cells = new Map<number, SeaStroke | null>();
-
-  constructor(
-    readonly world: WorldDescription,
-    readonly palette: WorldPalette,
-  ) {
-    this.streaks = createNoise(`${world.seed}/water/streaks`, 44);
-    this.streakColor = mix(palette.water.dark, palette.water.mid, 0.55);
-    this.salt = hash32(`${world.seed}/waves`);
-  }
-
-  /** A 64×64 tile of still water colours, made once (the first ocean frame pays for its whole view). */
-  tile(tx: number, ty: number): Uint32Array {
-    const key = (tx + 0x8000) * 0x10000 + (ty + 0x8000);
-    let t = this.tiles.get(key);
-    if (!t) {
-      t = new Uint32Array(TILE * TILE);
-      const x0 = tx * TILE;
-      const y0 = ty * TILE;
-      for (let j = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) t[j * TILE + i] = this.streaks.fbm(x0 + i, y0 + j, 2) > 0.62 ? this.streakColor : this.palette.water.dark;
-      this.tiles.set(key, t);
-    }
-    return t;
-  }
-
-  /** The still colour of open water at a world pixel (the terrain painter's deep-water rule). */
-  base(x: number, y: number): Color {
-    const tx = Math.floor(x / TILE);
-    const ty = Math.floor(y / TILE);
-    return this.tile(tx, ty)[(y - ty * TILE) * TILE + (x - tx * TILE)];
-  }
-
-  /** The wave stroke of cell (cx, cy), as the live renderer would make it on open water; null for a quiet cell. */
-  stroke(cx: number, cy: number): SeaStroke | null {
-    const key = (cx + 0x8000) * 0x10000 + (cy + 0x8000);
-    const hit = this.cells.get(key);
-    if (hit !== undefined) return hit;
-    const h = hash32(`${this.salt}:${cx}:${cy}`);
-    const s: SeaStroke | null = (h & 0xff) > 60 ? null : { x: cx * SEA_CELL_W + ((h >>> 8) & 7), y: cy * SEA_CELL_H + ((h >>> 11) & 3), len: 3 + ((h >>> 14) & 1) * 2, curl: ((h >>> 15) & 1) === 1 ? 1 : -1, speed: 2.5 + ((h >>> 16) & 3) * 0.8 };
-    this.cells.set(key, s);
-    return s;
-  }
-
-  /** Tiles and cells made so far (tests and the dev inspector). */
-  get cached(): { tiles: number; cells: number } {
-    return { tiles: this.tiles.size, cells: this.cells.size };
-  }
-}
+// The open sea lives with the renderers (M10: the game's own view paints it beyond the world's edge too).
+export { OpenSea, SEA_CELL_W, SEA_CELL_H, type SeaStroke } from '../render/open-sea';
+import { OpenSea, SEA_CELL_W, SEA_CELL_H, SEA_TILE as TILE } from '../render/open-sea';
 
 export interface SubmergeState {
   /** How visible the submerged carrier is, 0 (open water only) .. 1 (a dark shape under the surface). */
