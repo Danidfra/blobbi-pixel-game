@@ -3610,6 +3610,21 @@ export class LiveWorld {
 
   /** The sprite of a placement, with growth for planted trees. Cached by every input that matters. */
   spriteOf(p: Placement, growth = 1): Sprite {
+    // Full-grown objects are asked for every frame they are on screen: remembered per placement, so a frame does
+    // not build (and throw away) a key string for each.
+    const palette = this.world.options.palette;
+    if (growth === 1) {
+      const known = this.placedSprites.get(p);
+      if (known && known.palette === palette) return known.sprite;
+    }
+    const sprite = this.spriteByKey(p, growth);
+    if (growth === 1) this.placedSprites.set(p, { palette, sprite });
+    return sprite;
+  }
+
+  private readonly placedSprites = new WeakMap<Placement, { palette: string; sprite: Sprite }>();
+
+  private spriteByKey(p: Placement, growth: number): Sprite {
     const key = `${this.world.options.palette}|${p.kind}|${p.seed}|${p.size}|${JSON.stringify(p.variation ?? null)}|${growth}`;
     const hit = this.spriteCache.get(key);
     if (hit) return hit;

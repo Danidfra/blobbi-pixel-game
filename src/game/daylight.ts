@@ -78,7 +78,28 @@ export function applyLight(data: Uint32Array, width: number, height: number, ox:
   const warm = light.warm;
   if (dark < 0.01 && warm < 0.01) return;
   const near = lights.filter((l) => l.x + l.radius >= ox && l.x - l.radius < ox + width && l.y + l.radius >= oy && l.y - l.radius < oy + height);
-  for (let y = 0; y < height; y++)
+  // Away from every lamp each channel depends on itself alone: three 256-entry tables give exactly the per-pixel
+  // formula below, without its floating point on every pixel (most of a frame, every frame of a night or rain).
+  const lr = LIGHT_TABLES.r;
+  const lg = LIGHT_TABLES.g;
+  const lb = LIGHT_TABLES.b;
+  for (let v = 0; v < 256; v++) {
+    lr[v] = Math.min(255, Math.max(0, v * (1 - dark * 1.05) * (1 + warm * 0.1)));
+    lg[v] = Math.min(255, Math.max(0, v * (1 - dark * 0.9) * (1 - warm * 0.03))) << 8;
+    lb[v] = Math.min(255, Math.max(0, v * (1 - dark * 0.45) * (1 - warm * 0.18) + dark * 40)) << 16;
+  }
+  for (let y = 0; y < height; y++) {
+    // A row no lamp reaches: tables only.
+    let lit = false;
+    for (const l of near) if (Math.abs(y + oy - l.y) * 1.3 < l.radius) lit = true;
+    if (!lit) {
+      for (let i = y * width, end = i + width; i < end; i++) {
+        const c = data[i];
+        if (c >>> 24 === 0) continue;
+        data[i] = ((c & 0xff000000) | lb[(c >>> 16) & 0xff] | lg[(c >>> 8) & 0xff] | lr[c & 0xff]) >>> 0;
+      }
+      continue;
+    }
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
       const c = data[i];
@@ -100,4 +121,8 @@ export function applyLight(data: Uint32Array, width: number, height: number, ox:
       b = b * (1 - d * 0.45) * (1 - warm * 0.18) + d * 40;
       data[i] = ((c & 0xff000000) | (Math.min(255, Math.max(0, b)) << 16) | (Math.min(255, Math.max(0, g)) << 8) | Math.min(255, Math.max(0, r))) >>> 0;
     }
+  }
 }
+
+/** Per-channel tables for `applyLight`, refilled for each call (the red one holds floats, truncated on use). */
+const LIGHT_TABLES = { r: new Float64Array(256), g: new Int32Array(256), b: new Int32Array(256) };

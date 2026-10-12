@@ -337,6 +337,12 @@ function ellipsePoints(cx: number, cy: number, rx: number, ry: number, steps = 4
 // ─── Coverage rasterization ──────────────────────────────────────────────────
 
 const SUB = 3; // sub-samples per axis
+/** Coverage after k sub-samples, accumulated in float32 one 1 / SUB² at a time (see `coverage`). */
+const COVER = (() => {
+  const c = new Float32Array(256);
+  for (let k = 1; k < 256; k++) c[k] = c[k - 1] + 1 / (SUB * SUB);
+  return c;
+})();
 
 /**
  * Coverage of closed polygons (even-odd) over a pixel grid: for each
@@ -364,30 +370,73 @@ function coverage(polys: Pt[][], width: number, height: number): { data: Float32
   if (x1 < x0 || y1 < y0) return null;
   const w = x1 - x0 + 1;
   const h = y1 - y0 + 1;
-  const data = new Float32Array(w * h);
-  const inc = 1 / (SUB * SUB);
-  const xs: number[] = [];
-  for (let sy = 0; sy < h * SUB; sy++) {
-    const y = y0 + (sy + 0.5) / SUB;
-    xs.length = 0;
-    for (const poly of polys) {
-      const n = poly.length;
-      for (let i = 0; i < n; i++) {
-        const [ax, ay] = poly[i];
-        const [bx, by] = poly[(i + 1) % n];
-        if (ay === by) continue;
-        if ((y >= ay && y < by) || (y >= by && y < ay)) xs.push(ax + ((y - ay) * (bx - ax)) / (by - ay));
-      }
-    }
-    if (xs.length < 2) continue;
-    xs.sort((a, b) => a - b);
-    const row = Math.floor(sy / SUB) * w;
-    for (let i = 0; i + 1 < xs.length; i += 2) {
-      const sa = Math.max(0, Math.ceil((xs[i] - x0) * SUB - 0.5));
-      const sb = Math.min(w * SUB - 1, Math.floor((xs[i + 1] - x0) * SUB - 0.5));
-      for (let sx = sa; sx <= sb; sx++) data[row + Math.floor(sx / SUB)] += inc;
+  // The edges, once (horizontal ones never cross a scanline), sorted by their top so each sub-scanline tests only
+  // the edges that span it.
+  let count = 0;
+  for (const poly of polys) count += poly.length;
+  const ax = new Float64Array(count);
+  const ay = new Float64Array(count);
+  const bx = new Float64Array(count);
+  const by = new Float64Array(count);
+  const top = new Float64Array(count);
+  const bottom = new Float64Array(count);
+  let e = 0;
+  for (const poly of polys) {
+    const n = poly.length;
+    for (let i = 0; i < n; i++) {
+      const [px, py] = poly[i];
+      const [qx, qy] = poly[(i + 1) % n];
+      if (py === qy) continue;
+      ax[e] = px;
+      ay[e] = py;
+      bx[e] = qx;
+      by[e] = qy;
+      top[e] = Math.min(py, qy);
+      bottom[e] = Math.max(py, qy);
+      e++;
     }
   }
+  const order = Array.from({ length: e }, (_, i) => i).sort((a, b) => top[a] - top[b]);
+  const active: number[] = [];
+  let next = 0;
+  // Sub-samples per pixel are counted, then turned into coverage: COVER[k] is exactly the float sum that adding
+  // 1 / SUB² k times into a Float32Array gives, so the result is the same, bit for bit, as counting one at a time.
+  const hits = new Uint8Array(w * h);
+  const xs = new Float64Array(e);
+  for (let sy = 0; sy < h * SUB; sy++) {
+    const y = y0 + (sy + 0.5) / SUB;
+    while (next < e && top[order[next]] <= y) active.push(order[next++]);
+    let n = 0;
+    let keep = 0;
+    for (let k = 0; k < active.length; k++) {
+      const i = active[k];
+      if (bottom[i] <= y) continue; // passed: dropped
+      active[keep++] = i;
+      const a = ay[i];
+      const b = by[i];
+      if ((y >= a && y < b) || (y >= b && y < a)) xs[n++] = ax[i] + ((y - a) * (bx[i] - ax[i])) / (b - a);
+    }
+    active.length = keep;
+    if (n < 2) continue;
+    const row = xs.subarray(0, n).sort();
+    const base = Math.floor(sy / SUB) * w;
+    for (let i = 0; i + 1 < n; i += 2) {
+      const sa = Math.max(0, Math.ceil((row[i] - x0) * SUB - 0.5));
+      const sb = Math.min(w * SUB - 1, Math.floor((row[i + 1] - x0) * SUB - 0.5));
+      if (sb < sa) continue;
+      const pa = Math.floor(sa / SUB);
+      const pb = Math.floor(sb / SUB);
+      if (pa === pb) {
+        hits[base + pa] += sb - sa + 1;
+        continue;
+      }
+      hits[base + pa] += (pa + 1) * SUB - sa;
+      for (let px = pa + 1; px < pb; px++) hits[base + px] += SUB;
+      hits[base + pb] += sb - pb * SUB + 1;
+    }
+  }
+  const data = new Float32Array(w * h);
+  for (let i = 0; i < data.length; i++) if (hits[i]) data[i] = COVER[hits[i]];
   return { data, x0, y0, w, h };
 }
 

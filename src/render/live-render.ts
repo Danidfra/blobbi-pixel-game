@@ -366,13 +366,13 @@ export class LiveRenderer {
     // The Blobbi.
     const b = live.blobbi;
     const pose = b.animator.pose(time);
-    const bs = live.blobbiSprite(pose);
     const bx = Math.round(b.x);
     const by = Math.round(b.y);
     if (o.shadows) this.paintShadow(frame, bx, by - 1, b.footRx, 2, ox, oy);
     const hop = b.animator.hop(time);
+    // Split: the view draws the Blobbi at its own size, so the gameplay-size sprite is not rasterized here.
     if (!split) {
-      drawables.push({ y: by, x: bx, sprite: bs, sway: 0, dy: hop });
+      drawables.push({ y: by, x: bx, sprite: live.blobbiSprite(pose), sway: 0, dy: hop });
       // The equipped tool, attached to a hand, just behind or just in front of the Blobbi in the painter's order.
       if (live.equipped && EQUIPMENT[live.equipped]) {
         const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), live.rig, (p) => live.blobbiSprite(p), palette);

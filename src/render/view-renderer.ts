@@ -137,6 +137,10 @@ export class ViewRenderer {
   private readonly layers: SplitLayers = { overlay: new PixelBuffer(1, 1), texts: [] };
   private readonly natives = new Map<string, NativeBlobbi>();
   private readonly textCache = new Map<string, PixelBuffer>();
+  private xmap = new Int32Array(0);
+  private ymap = new Int32Array(0);
+  private xspans: Spans | undefined;
+  private yspans: Spans | undefined;
   readonly timings: ViewTimings = { world: 0, compose: 0, blobbi: 0, ui: 0, total: 0, worldPixels: 0 };
   lastBlobbi: BlobbiOnScreen | null = null;
   /** Where the teleport effect was drawn this frame (null when the Blobbi is simply present). */
@@ -209,13 +213,18 @@ export class ViewRenderer {
     const t1 = performance.now();
 
     // ── 2. Magnify: a screen pixel samples the world pixel under its centre ─
-    const xmap = new Int32Array(W);
-    const ymap = new Int32Array(H);
+    // The maps and spans are kept between frames (a frame used to allocate four arrays per screen side).
+    if (this.xmap.length !== W) this.xmap = new Int32Array(W);
+    if (this.ymap.length !== H) this.ymap = new Int32Array(H);
+    const xmap = this.xmap;
+    const ymap = this.ymap;
     for (let x = 0; x < W; x++) xmap[x] = Math.min(vw - 1, Math.max(0, Math.floor(originX + (x + 0.5) / s) - wx0));
     for (let y = 0; y < H; y++) ymap[y] = Math.min(vh - 1, Math.max(0, Math.floor(originY + (y + 0.5) / s) - wy0));
     const src = frame.data;
     const dst = screen.data;
     const oneToOne = s === 1 && originX === wx0 && originY === wy0;
+    const xs = (this.xspans = spans(xmap, vw, this.xspans));
+    const ys = (this.yspans = spans(ymap, vh, this.yspans));
     if (oneToOne) {
       // The 1× overview: the world frame is the screen; copy rows.
       for (let y = 0; y < H; y++) dst.set(src.subarray(y * vw, y * vw + W), y * W);
@@ -290,8 +299,6 @@ export class ViewRenderer {
     const t3 = performance.now();
 
     // ── 4. What stands in front, magnified onto the screen ────────────────
-    const xs = spans(xmap, vw);
-    const ys = spans(ymap, vh);
     const od = overlay.data;
     for (let y = 0; y < vh; y++) {
       const ry0 = ys.start[y];
@@ -509,12 +516,18 @@ export class ViewRenderer {
 }
 
 /** For each source index, the half-open range of destination indices that sample it (the map is monotonic). */
-function spans(map: Int32Array, n: number): { start: Int32Array; end: Int32Array } {
-  const start = new Int32Array(n);
-  const end = new Int32Array(n);
+function spans(map: Int32Array, n: number, reuse?: Spans): Spans {
+  const fits = reuse && reuse.start.length === n;
+  const start = fits ? reuse.start.fill(0) : new Int32Array(n);
+  const end = fits ? reuse.end.fill(0) : new Int32Array(n);
   for (let i = map.length - 1; i >= 0; i--) start[map[i]] = i;
   for (let i = 0; i < map.length; i++) end[map[i]] = i + 1;
   return { start, end };
+}
+
+interface Spans {
+  start: Int32Array;
+  end: Int32Array;
 }
 
 /** Blit a sprite with its anchor at (x, y); `ratio` ≠ 1 only during a camera transition (nearest-neighbour). */
