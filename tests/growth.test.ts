@@ -146,7 +146,7 @@ describe('the live world on grown land', () => {
     return { store, live: new LiveWorld(base, 'blobbi-9', 16, { store }), first: a };
   };
 
-  it('base resources, discoveries, places and the listening spot are identical at every stage', () => {
+  it('base resources, discoveries and places are identical at every stage (the head place follows the listening spot)', () => {
     const plain = new LiveWorld(base, 'blobbi-9', 16);
     const { live } = grownLive(3);
     const baseIds = new Set(plain.allResources.map((n) => n.id));
@@ -155,9 +155,12 @@ describe('the live world on grown land', () => {
     expect(live.allResources.length).toBeGreaterThan(plain.allResources.length);
     expect(JSON.stringify(live.discoveries.slice(0, plain.discoveries.length).map((d) => [d.id, d.x, d.y]))).toBe(JSON.stringify(plain.discoveries.map((d) => [d.id, d.x, d.y])));
     expect(live.discoveries.length).toBeGreaterThan(plain.discoveries.length);
-    expect(JSON.stringify(live.places.slice(0, plain.places.length))).toBe(JSON.stringify(plain.places));
+    // M10: the listening spot (and the head place, which is it) follows the grown land (tests/carrier-listen).
+    const notHead = (ps: typeof plain.places) => ps.filter((p) => p.id !== 'head');
+    expect(JSON.stringify(notHead(live.places.slice(0, plain.places.length)))).toBe(JSON.stringify(notHead(plain.places)));
+    expect(live.places.map((p) => p.id).slice(0, plain.places.length)).toEqual(plain.places.map((p) => p.id));
     expect(live.places.some((p) => p.id.startsWith('region:'))).toBe(true);
-    expect(live.listenSpot).toEqual(plain.listenSpot);
+    expect(live.places.find((p) => p.id === 'head')).toMatchObject(live.listenSpot!);
   });
 
   it('buildings, collected resources and the bag survive growth exactly', () => {

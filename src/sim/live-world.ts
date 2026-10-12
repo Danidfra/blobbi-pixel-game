@@ -348,8 +348,26 @@ export class LiveWorld {
   /** The bond with the World Carrier (saved), and how long the Blobbi has stood still by its head. */
   carrier: CarrierState = newCarrier();
   private stillByCarrier = 0;
-  /** Where to stand to listen to the Carrier (the shore in front of its head). */
-  listenSpot: { x: number; y: number } | null = null;
+  /**
+   * Where to stand to listen to the Carrier: the ground in front of its head, as the island is NOW — grown land,
+   * houses, planted trees and all (M10; it used to stay where the stage-0 island had it). Derived from the current
+   * collision and reachability, recomputed when the island changes.
+   */
+  get listenSpot(): { x: number; y: number } | null {
+    const key = `${this.structureVersion}|${this.planted.length}|${this.blobbi.footRx},${this.blobbi.footRy}`;
+    // Indoors the island is not in question (and E's rules read the room): the spot found outside stands.
+    if (this.inside && this.listenCache.collision) return this.listenCache.spot;
+    if (this.listenCache.collision !== this.islandCollision || this.listenCache.key !== key) {
+      this.listenCache = { collision: this.islandCollision, key, spot: this.findListenSpot() };
+      // The head place is the listening spot: it moves with it.
+      const head = this.places.find((p) => p.id === 'head');
+      if (head && this.listenCache.spot) ((head.x = this.listenCache.spot.x), (head.y = this.listenCache.spot.y));
+    }
+    return this.listenCache.spot;
+  }
+  private listenCache: { collision: CollisionMap | null; key: string; spot: { x: number; y: number } | null } = { collision: null, key: '', spot: null };
+  /** The stage-0 listening spot (from the base world alone): where the head place was first found. */
+  private baseListenSpot: { x: number; y: number } | null = null;
   /** Ambient creatures' own stream (never disturbs the older ambient sequence). */
   private creatures!: Rng;
   private wasRaining = false;
@@ -578,6 +596,8 @@ export class LiveWorld {
       this.equipped = null;
       this.store = null;
     }
+    // The listening spot on the island as loaded (grown land, buildings): the head place moves there now.
+    void this.listenSpot;
   }
 
   // ─── Scenes: the island, or a house interior ───────────────────────────
@@ -654,7 +674,7 @@ export class LiveWorld {
         const x = Math.round(head.cx + (island.cx - head.cx) * k);
         const y = Math.round(head.cy + (island.cy - head.cy) * k);
         if (baseCollision.canStand(x, y, this.blobbi.footRx, this.blobbi.footRy) && reachable(x, y)) {
-          this.listenSpot = { x, y };
+          this.baseListenSpot = { x, y };
           break;
         }
       }
@@ -666,7 +686,7 @@ export class LiveWorld {
         const p = baseCollision.nearestFree(x, y, this.blobbi.footRx, this.blobbi.footRy, 45);
         return p && reachable(p.x, p.y) ? p : null;
       },
-      this.listenSpot,
+      this.baseListenSpot,
     );
     // Grown land (M7): each region is a place, and holds its biome's discovery, on the grown world's ground.
     const g = this.world.growth;
@@ -678,6 +698,68 @@ export class LiveWorld {
       this.places.push(...regionPlaces(this.world, canStand));
       this.discoveries.push(...placeGrowthDiscoveries(this.world, (x, y) => this.islandCollision.canStand(x, y, 3, 2) && grownReach(x, y), [...this.allResources, ...this.discoveries]));
     }
+  }
+
+  /**
+   * The listening spot on the current island: walk from the Carrier's head toward the island's centre to the first
+   * ground the Blobbi can stand on and reach. Where the ground in front of the head is taken (a house, a tree, a
+   * bump of grown land), the nearest free and reachable ground to that shore instead of somewhere far inland.
+   */
+  private findListenSpot(): { x: number; y: number } | null {
+    const world = this.world;
+    const head = world.turtle?.head ?? world.creature?.head;
+    const island = world.islands[0];
+    if (!head || !island) return null;
+    const hub = world.hubs[0] ?? { x: island.cx, y: island.cy };
+    const reach = this.reachability(this.islandNav, hub);
+    const { footRx, footRy } = this.blobbi;
+    const stand = (x: number, y: number) => this.islandCollision.canStand(x, y, footRx, footRy) && reach(x, y);
+    const { width, cls } = world.terrain;
+    let shore: { x: number; y: number } | null = null;
+    let along: { x: number; y: number } | null = null;
+    for (let k = 0; k <= 1; k += 0.02) {
+      const x = Math.round(head.cx + (island.cx - head.cx) * k);
+      const y = Math.round(head.cy + (island.cy - head.cy) * k);
+      if (stand(x, y)) {
+        along = { x, y };
+        break;
+      }
+      if (!shore && WALKABLE.has(cls[y * width + x])) shore = { x, y };
+    }
+    const from = shore ?? along;
+    if (!from) return null;
+    // Clear ground: standing there facing the head, nothing E would act on first (a tree, a rock, a bench), so E
+    // listens. Asked of the very rules E uses, with the Blobbi put there for the question and put back.
+    const b = this.blobbi;
+    const clear = (x: number, y: number) => {
+      const was = { x: b.x, y: b.y, direction: b.animator.state.direction };
+      b.x = x;
+      b.y = y;
+      b.animator.state.direction = Math.abs(head.cx - x) > Math.abs(head.cy - y) ? (head.cx > x ? 'right' : 'left') : head.cy > y ? 'down' : 'up';
+      const free = !this.facingObject() && !this.facingBuilding();
+      b.x = was.x;
+      b.y = was.y;
+      b.animator.state.direction = was.direction;
+      return free;
+    };
+    // Right at the shore (the usual case): that is the spot.
+    if (along && clear(along.x, along.y) && (!shore || Math.hypot(along.x - shore.x, along.y - shore.y) <= 14)) return along;
+    // Else the nearest free, reachable and clear ground to that shore (nearest the head first); then free only.
+    for (const ok of [(x: number, y: number) => stand(x, y) && clear(x, y), stand])
+      for (let r = 1; r <= 30; r++) {
+        let best: { x: number; y: number; d: number } | null = null;
+        const steps = Math.max(8, Math.round(r * 6));
+        for (let i = 0; i < steps; i++) {
+          const a = (i / steps) * Math.PI * 2;
+          const x = Math.round(from.x + Math.cos(a) * r);
+          const y = Math.round(from.y + Math.sin(a) * r);
+          if (!ok(x, y)) continue;
+          const d = Math.hypot(x - head.cx, y - head.cy);
+          if (!best || d < best.d) best = { x, y, d };
+        }
+        if (best) return { x: best.x, y: best.y };
+      }
+    return along;
   }
 
   /** Up to six standable sand spots next to shallow water, spread around the island (deterministic). */
