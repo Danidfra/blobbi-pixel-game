@@ -29,8 +29,8 @@ function settle(live: LiveWorld, mode: CameraModeId, w = W, h = H): { camera: Vi
 const frameHash = (data: Uint32Array) => hash32(Array.from(data, (c) => c.toString(36)).join(','));
 
 describe('camera modes', () => {
-  it('cycles overview → exploration → close-up with Z order, defaults to exploration, eases and settles exactly', () => {
-    expect(CAMERA_CYCLE).toEqual(['overview', 'exploration', 'closeup']);
+  it('cycles overview → exploration → close-up → up close with Z order, defaults to exploration, eases and settles exactly', () => {
+    expect(CAMERA_CYCLE).toEqual(['overview', 'exploration', 'closeup', 'upclose']);
     expect(DEFAULT_CAMERA_MODE).toBe('exploration');
     expect(isCameraMode('closeup')).toBe(true);
     expect(isCameraMode('zoom')).toBe(false);
@@ -54,6 +54,7 @@ describe('camera modes', () => {
     expect(rest.scale).toBe(4);
     expect(rest.transitioning).toBe(false);
     expect(Number.isInteger(rest.originX) && Number.isInteger(rest.originY)).toBe(true);
+    expect(camera.cycle()).toBe('upclose');
     expect(camera.cycle()).toBe('overview');
     expect(camera.cycle()).toBe('exploration');
   });
@@ -107,7 +108,7 @@ describe('the multi-scale view', () => {
     };
     const a = hashes('turtle-0');
     expect(hashes('turtle-0')).toEqual(a);
-    expect(new Set(a).size).toBe(3);
+    expect(new Set(a).size).toBe(CAMERA_CYCLE.length);
   });
 
   it('the 1× overview is the classic single-frame render everywhere but the Blobbi (no bubble, no UI)', () => {

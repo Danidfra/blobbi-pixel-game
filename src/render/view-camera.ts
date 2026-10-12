@@ -1,11 +1,12 @@
 /**
- * THE VIEW CAMERA: three presentation scales over one world. It decides only where the screen looks and how
+ * THE VIEW CAMERA: four presentation scales over one world. It decides only where the screen looks and how
  * many screen pixels a world pixel covers; it never reads or writes the simulation, so world coordinates,
  * footprints, navigation, reach and saves are identical in every mode.
  *
  *   overview     1× world pixels, the Blobbi drawn natively at 12 px, centred on the turtle (whole animal in view)
  *   exploration  2×, the Blobbi drawn natively at 24 px, follows the Blobbi
  *   close-up     4×, the Blobbi drawn natively at 48 px, follows the Blobbi
+ *   up close     6× (M10), the Blobbi drawn natively at 72 px, follows the Blobbi, a compact HUD
  *
  * The Blobbi is drawn at three quarters of its world size in every mode, so it keeps one proportion to the
  * shelter, trees and rocks whatever the zoom.
@@ -17,7 +18,7 @@
 
 import { T, type WorldDescription } from '../world/types';
 
-export type CameraModeId = 'overview' | 'exploration' | 'closeup';
+export type CameraModeId = 'overview' | 'exploration' | 'closeup' | 'upclose';
 
 export interface CameraMode {
   id: CameraModeId;
@@ -43,7 +44,13 @@ export const CAMERA_MODES: Record<CameraModeId, CameraMode> = {
   overview: { id: 'overview', label: 'Overview', scale: 1, follow: false, blobbiScale: BLOBBI_DRAWN_SCALE },
   exploration: { id: 'exploration', label: 'Exploration', scale: 2, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
   closeup: { id: 'closeup', label: 'Close-up', scale: 4, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
+  // M10: 6× rather than 8× — at 8× a phone held sideways (390 px tall) would see 49 world pixels, three Blobbi
+  // heights; at 6× it sees 65, room for what is in front of it. Still a whole number: crisp square blocks.
+  upclose: { id: 'upclose', label: 'Up close', scale: 6, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
 };
+
+/** Up close keeps at least this many world pixels on screen vertically (a short screen steps down to 5×, 4×). */
+export const UPCLOSE_MIN_VIEW = 60;
 
 /** The smallest Blobbi drawn (screen pixels): below it the canonical face no longer reads. */
 export const MIN_BLOBBI_PX = 12;
@@ -59,7 +66,7 @@ export function blobbiScreenSize(worldSize: number, mode: CameraModeId, restScal
 }
 
 /** Z cycles in this order. */
-export const CAMERA_CYCLE: readonly CameraModeId[] = ['overview', 'exploration', 'closeup'];
+export const CAMERA_CYCLE: readonly CameraModeId[] = ['overview', 'exploration', 'closeup', 'upclose'];
 export const DEFAULT_CAMERA_MODE: CameraModeId = 'exploration';
 export const TRANSITION_SECONDS = 0.4;
 /**
@@ -151,6 +158,7 @@ export class ViewCamera {
   /** The scale a mode settles at on this screen (the overview fits the turtle). */
   restScale(mode: CameraModeId, screenW: number, screenH: number, world: WorldBounds): number {
     const m = CAMERA_MODES[mode];
+    if (mode === 'upclose') return Math.max(CAMERA_MODES.closeup.scale, Math.min(m.scale, Math.floor(screenH / UPCLOSE_MIN_VIEW)));
     if (mode !== 'overview') return m.scale;
     const sub = subjectOf(world);
     const fit = Math.min(screenW / (sub.x1 - sub.x0), screenH / (sub.y1 - sub.y0));

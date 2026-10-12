@@ -338,11 +338,14 @@ export class ViewRenderer {
       this.drawText(screen, t, (t.x - originX) * s, (y - originY) * s, ui.uiScale);
     }
     this.hudBox = null;
-    if (ui.hud) this.drawHud(screen, ui.uiScale);
+    // Up close (M10) the HUD steps back: a needs chip instead of the status card, the time without the goal box.
+    const compact = view.mode === 'upclose';
+    if (ui.hud) this.drawHud(screen, ui.uiScale, compact);
     // The goal box, the prompt and goal notices are part of the HUD unless set on their own.
-    if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale);
+    if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale, compact);
     if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale, ui.bottom ?? 0);
     if (ui.hud) this.drawNotice(screen, ui.uiScale);
+    this.indicatorBox = null;
     if (ui.indicator) this.drawIndicator(screen, view, ui.uiScale);
     const t5 = performance.now();
     this.timings.world = t1 - t0;
@@ -385,7 +388,7 @@ export class ViewRenderer {
     screen.blit(buf, x, y);
   }
 
-  private drawHud(screen: PixelBuffer, ui: number): void {
+  private drawHud(screen: PixelBuffer, ui: number, compact = false): void {
     const live = this.live;
     const palette = paletteFor(live.world.options.palette);
     // The status card: portrait, name, friendship, the three needs and what is carried.
@@ -401,7 +404,10 @@ export class ViewRenderer {
     const away = live.getPresenceState() !== 'present';
     const level = friendLevel(live.companion.friendship);
     const info: StatusInfo = { name: live.blobbi.seed.length > 14 ? 'BLOBBI' : live.blobbi.seed, title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
-    const status = this.cachedText(`status|${JSON.stringify(info)}`, () => statusCard({ ...info, face: this.portrait() }), ui);
+    // Compact: the three needs on one chip (the card's own words), nothing else.
+    const status = compact
+      ? this.cachedText(`needs|${info.fed}|${info.energy}|${info.joy}|${away}`, () => toastCard(null, away ? 'AWAY' : `FED ${info.fed}  ENERGY ${info.energy}  JOY ${info.joy}`), ui)
+      : this.cachedText(`status|${JSON.stringify(info)}`, () => statusCard({ ...info, face: this.portrait() }), ui);
     screen.blit(status, 2 * ui, 2 * ui);
     let bottom = 2 * ui + status.height;
     // Item toasts under the card, newest last; they slide in (unless motion is reduced) and leave on time. Sim
@@ -444,7 +450,7 @@ export class ViewRenderer {
   private hudBox: { right: number; bottom: number } | null = null;
 
   /** The time and weather chip, then the current objective, in the top-right corner. */
-  private drawGoal(screen: PixelBuffer, ui: number): void {
+  private drawGoal(screen: PixelBuffer, ui: number, compact = false): void {
     const live = this.live;
     const t = live.worldTime;
     const hour = hourAt(t);
@@ -466,7 +472,7 @@ export class ViewRenderer {
       return;
     }
     const goal = currentObjective(live.objectives);
-    if (!goal) return;
+    if (!goal || compact) return;
     const n = OBJECTIVES.indexOf(goal) + 1;
     const ctx = { tally: live.tally, inventory: live.inventory, buildings: live.buildings, worldTime: live.worldTime };
     const progress = goal.progress ? goal.progress(ctx) : '';
@@ -511,7 +517,7 @@ export class ViewRenderer {
     screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), 16 * ui);
   }
 
-  /** "CAMERA  EXPLORATION 2X" and three pips, the active one lit, in the bottom-left corner. */
+  /** "Z CAMERA  EXPLORATION 2X" and a pip per mode, the active one lit, in the bottom-left corner (tappable). */
   private drawIndicator(screen: PixelBuffer, view: ViewRect, ui: number): void {
     const mode = CAMERA_MODES[view.mode];
     const scaleText = Number.isInteger(view.scale) ? `${view.scale}X` : '';
@@ -526,6 +532,16 @@ export class ViewRenderer {
       return b;
     }, ui);
     screen.blit(buf, 2 * ui, screen.height - buf.height - 2 * ui);
+    this.indicatorBox = { x: 2 * ui, y: screen.height - buf.height - 2 * ui, w: buf.width, h: buf.height };
+  }
+
+  /** Where the camera indicator was drawn last frame: a click or a tap on it changes the camera (M10). */
+  indicatorBox: { x: number; y: number; w: number; h: number } | null = null;
+
+  /** Whether screen point (x, y) is on the camera indicator (with a finger's margin). */
+  onIndicator(x: number, y: number, margin = 6): boolean {
+    const b = this.indicatorBox;
+    return !!b && x >= b.x - margin && x < b.x + b.w + margin && y >= b.y - margin && y < b.y + b.h + margin;
   }
 }
 

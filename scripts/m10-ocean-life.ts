@@ -148,3 +148,37 @@ if (!only || only === 'ocean') {
   }
   write('ocean-edge-corner.png', sheet('THE WORLD\'S TOP-LEFT CORNER (CENTRE OF EACH CELL), FOUR MOMENTS, 3X', [{ label: '', cells: frames.slice(0, 2) }, { label: '', cells: frames.slice(2) }], ['', '']));
 }
+
+if (!only || only === 'cams') {
+  // Every camera mode with the game's HUD and menu bar, outdoors and in the house, desktop and phone.
+  const { GameUI } = await import('../src/ui/game-ui');
+  const { paletteFor } = await import('../src/world/generate');
+  const { findBuildSpot, pressE, run } = await import('../src/dev/scripted-play');
+  const { ITEMS } = await import('../src/game/items');
+  const live = atStage('turtle', 2);
+  live.inventory.add(ITEMS.wood.id, 6);
+  live.inventory.add(ITEMS.stone.id, 3);
+  live.objectives.completed.materials = 0;
+  findBuildSpot(live, 'shelter');
+  live.setBuildMode('shelter');
+  pressE(live);
+  run(live, 60 * 26);
+  const home = live.home()!;
+  const view = new ViewRenderer(live, new LiveRenderer(live));
+  const ui = new GameUI(() => live, () => paletteFor(live.world.options.palette));
+  const frame = (mode: CameraModeId, W: number, H: number) => {
+    const cam = new ViewCamera(mode);
+    const b = live.sceneBounds() ?? worldBounds(live.world);
+    const v = cam.update(0, live.cameraTarget(), W, H, b, true);
+    const screen = view.render(v, cam.restScale(mode, W, H, b), live.clock.time, DEFAULT_LIVE_OPTIONS, { ...DEFAULT_VIEW_UI, lighting: false, uiScale: 2, bottom: ui.menuBarHeight });
+    ui.render(screen, live.clock.time);
+    return screen.clone();
+  };
+  for (const [vp, W, H] of [['desktop', 1280, 720], ['phone', 844, 390]] as const) {
+    for (const mode of ['overview', 'exploration', 'closeup', 'upclose'] as const) write(`camera-${mode}-outdoors-${vp}.png`, frame(mode, W, H));
+    live.enterInterior(home);
+    run(live, 2);
+    for (const mode of ['closeup', 'upclose'] as const) write(`camera-${mode}-indoors-${vp}.png`, frame(mode, W, H));
+    live.exitInterior();
+  }
+}

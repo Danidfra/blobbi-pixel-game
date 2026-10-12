@@ -213,7 +213,7 @@ app.innerHTML = `
         <button id="play-reset">Reset world</button>
       </div>
       <label>Speed <select id="play-speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
-      <label>Camera <select id="play-camera"><option value="overview">Overview (1×, whole turtle)</option><option value="exploration">Exploration (2×, follows)</option><option value="closeup">Close-up (4×, follows)</option></select></label>
+      <label>Camera <select id="play-camera"><option value="overview">Overview (1×, whole turtle)</option><option value="exploration">Exploration (2×, follows)</option><option value="closeup">Close-up (4×, follows)</option><option value="upclose">Up close (6×, follows)</option></select></label>
       <label>Blobbi seed <input id="blobbi-seed" type="text" spellcheck="false" placeholder="64-hex V3 seed or a demo seed" /></label>
       <div class="row"><button id="blobbi-random">Random demo</button><button id="blobbi-random-v3">Random V3 seed</button></div>
       <label>Owner pubkey <input id="blobbi-pubkey" type="text" spellcheck="false" placeholder="64 hex digits" /></label>
@@ -482,7 +482,7 @@ const simTimes: number[] = [];
 const renderTimes: number[] = [];
 const uploadTimes: number[] = [];
 /** View render time per camera mode (the last 90 frames spent in each). */
-const modeTimes: Record<CameraModeId, number[]> = { overview: [], exploration: [], closeup: [] };
+const modeTimes: Record<CameraModeId, number[]> = { overview: [], exploration: [], closeup: [], upclose: [] };
 let fps = 0;
 let statsTimer = 0;
 let rafId = 0;
@@ -2230,6 +2230,12 @@ view.addEventListener('pointerdown', (e) => {
       return;
     }
     if (gameUI.handlePointer(sx, sy)) {
+      e.preventDefault();
+      return;
+    }
+    // The camera indicator (bottom left): a click or a tap moves to the next camera mode, as Z does.
+    if (!gameUI.capturing && viewRenderer?.onIndicator(sx, sy)) {
+      setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
       e.preventDefault();
       return;
     }

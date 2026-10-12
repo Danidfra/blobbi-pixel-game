@@ -7,7 +7,7 @@
  *   node --expose-gc --import tsx scripts/perf-scenes.ts [label] [--frames 600] [--only name]
  *
  * Scenes: turtle stage 0 and 4, manta 4, whale 4, the house interior, rain, active fishing, Carrier animation at
- * overview, the minimum and maximum zoom; each at desktop 1280×720, desktop 1920×1080 and a phone 844×390.
+ * overview, the minimum and maximum zoom (close-up, and up close since M10); each at desktop 1280×720, desktop 1920×1080 and a phone 844×390.
  * Output: a table, and JSON in docs/testing/perf/<label>.json.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -115,6 +115,8 @@ const SCENES: Scene[] = [
   { name: 'carrier-anim-overview', mode: 'overview', make: () => liveAt(whale, 4) },
   { name: 'min-zoom-overview', mode: 'overview', make: () => liveAt(turtle, 4), input: walk },
   { name: 'max-zoom-closeup', mode: 'closeup', make: () => liveAt(turtle, 4), input: walk },
+  // M10: the fourth mode, now the maximum zoom.
+  { name: 'max-zoom-upclose', mode: 'upclose', make: () => liveAt(turtle, 4), input: walk },
 ];
 
 const pct = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p))];

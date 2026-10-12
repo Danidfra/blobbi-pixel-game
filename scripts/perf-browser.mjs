@@ -84,6 +84,7 @@ for (const [vp, W, H] of [['1280x720', 1280, 720], ['844x390', 844, 390]]) {
     ['turtle-stage0-exploration', `window.__blobbi.camera().setMode('exploration')`],
     ['turtle-stage0-overview', `window.__blobbi.camera().setMode('overview')`],
     ['turtle-stage0-closeup', `window.__blobbi.camera().setMode('closeup')`],
+    ['turtle-stage0-upclose', `window.__blobbi.camera().setMode('upclose')`],
     // Rain: move the island's clock to its first rainy moment.
     ['rain-exploration', `window.__blobbi.camera().setMode('exploration'); const l = window.__blobbi.live(); for (let k = 0; k < 800 && l.rainNow() < 0.6; k++) l.timeOffset += 30;`],
     ['fishing-exploration', `const l = window.__blobbi.live(); l.inventory.add('blobbi-pixel:tool:fishing-rod', 1); l.equip('blobbi-pixel:tool:fishing-rod'); l.fishing = { start: l.clock.time, biteAt: 1e9, x: Math.round(l.blobbi.x), y: Math.round(l.blobbi.y + 30), water: 'sea' };`],
@@ -101,7 +102,7 @@ for (const [vp, W, H] of [['1280x720', 1280, 720], ['844x390', 844, 390]]) {
   await sleep(4000 * throttle);
   await page.key('Enter');
   await sleep(3000);
-  for (const mode of ['exploration', 'overview', 'closeup']) {
+  for (const mode of ['exploration', 'overview', 'closeup', 'upclose']) {
     await page.evaluate(`window.__blobbi.camera().setMode('${mode}')`);
     await sleep(800);
     const r = await page.evaluate(MEASURE(seconds));

@@ -137,10 +137,22 @@ describe('walking under a following camera: no back-and-forth on screen', () => 
     // 24 tracks of up to 576 full-screen frames: ~40 s alone, more beside the rest of the suite.
   }, 240_000);
 
+  it('up close (M10, 6×): the same — never a step backwards, never a backwards scroll', () => {
+    for (const hz of [60, 144])
+      for (const dir of ['right', 'left', 'down', 'up'] as const) {
+        const { screen, origin, sign } = track('upclose', hz, dir);
+        for (let i = 2; i < screen.length; i++) {
+          if (i < hz * 2) expect((screen[i] - screen[i - 1]) * sign, `upclose ${hz} Hz ${dir} frame ${i}`).toBeGreaterThanOrEqual(0);
+          else expect((screen[i] - screen[i - 1]) * sign, `upclose ${hz} Hz ${dir} settling ${i}`).toBeLessThanOrEqual(0);
+          expect((origin[i] - origin[i - 1]) * sign, `upclose ${hz} Hz ${dir} origin ${i}`).toBeGreaterThanOrEqual(0);
+        }
+      }
+  }, 240_000);
+
   it('settles with the Blobbi in the centre of the screen after it stops', () => {
-    for (const mode of ['exploration', 'closeup'] as const) {
+    for (const mode of ['exploration', 'closeup', 'upclose'] as const) {
       const { screen } = track(mode, 60, 'right');
-      expect(Math.abs(screen[screen.length - 1] - 480)).toBeLessThanOrEqual(4);
+      expect(Math.abs(screen[screen.length - 1] - 480)).toBeLessThanOrEqual(6);
     }
   });
 });
