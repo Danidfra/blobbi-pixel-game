@@ -444,7 +444,8 @@ export class TitleScreen {
       // A non-colour selection mark too.
       if (selected) for (let m = 0; m < 3; m++) g.buf.fillRect(px + 4 + m, y + 3 + m, 1, 5 - 2 * m, UI.accent);
       g.text(it.label, px + 11, y + (it.minor ? 2 : 3), waiting ? UI.line : it.danger ? UI.bad : selected ? UI.accent : it.minor ? UI.muted : UI.ink);
-      if (it.detail) g.text(it.detail.slice(0, 43), px + 11, y + 10, UI.muted);
+      // (A saved island's row keeps room for its DELETE button.)
+      if (it.detail) g.text(it.detail.slice(0, it.world && this.actions.deleteWorld ? 34 : 43), px + 11, y + 10, UI.muted);
       g.hit(px, y, panelW, h, () => {
         this.index = i;
         it.run();
