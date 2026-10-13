@@ -46,7 +46,10 @@ contents in `containers`; interiors in `interiors`.
 Placement problems (`checkPlacement`, `PROBLEM_TEXT`): `edge` (too close to the world's edge), `building` (too close
 to another, by its clearance gap), `doorway` (would block a shelter's door, or a shelter without walkable ground in
 front of its door), `plot`, `ground` (not flat buildable ground), `water`, `blocked`, `resource` (resources lie
-there), `path` (would cut the way), `blobbi` (on the Blobbi), and indoors `outdoor` / `door`. Unlocks: decorations
+there), `path` (would cut the way), `blobbi` (on the Blobbi), `growing` (M10 phase C: a seedling or a forming rock is
+there — it would grow up through it; clear it first, also refused for tilling), and indoors `outdoor` / `door`. The
+clearing flag (M10 phase C) is an outdoor `open` placeable: walked under, never in the way; its circle keeps wild
+things from returning ([land clearing](LAND-CLEARING.md)). Unlocks: decorations
 wait for the quest that teaches them. A visitor (M7) cannot build, place, move, restyle or pick up.
 
 ## 9. Failure handling

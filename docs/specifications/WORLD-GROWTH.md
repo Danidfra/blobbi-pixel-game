@@ -108,9 +108,12 @@ and the stage, exactly as at the moment of growth (tested). Buildings stay in is
   of the stage-3 mushroom grove: about a third of it was unreachable on some seeds).
 
 ## 9. Failure handling
-Versions: `GROWTH_VERSION = 2`; `GROWTH_VERSIONS = [1, 2]` can both be reproduced. Version 2 differs from 1 only for
-whale worlds (the passage rule above); turtle and manta worlds are identical in both (tested). New growth records
-version 2; a save grown with version 1 is regrown exactly as version 1. An unknown growth version throws in `growWorld`; `LiveWorld` then opens the world read-only (no store), so the save is
+Versions: `GROWTH_VERSION = 4`; `GROWTH_VERSIONS = [1, 2, 3, 4]` can all be reproduced. Version 2 differs from 1 only
+for whale worlds (the passage rule above); turtle and manta worlds are identical in both (tested). Version 3 (M9) only
+adds stage 4. Version 4 (M10 phase C) only adds **the landing** — every island's guaranteed way to the sea from
+stage 1 ([ocean access](OCEAN-ACCESS.md)) — with the very same objects and land as version 3 (tested). A save grown
+with version 1–3 to stage 1 or beyond is upgraded to version 4 on load (each stage keeps its own version for its
+objects) and told once ("a path to the sea has opened!"); a visitor never upgrades a record. An unknown growth version throws in `growWorld`; `LiveWorld` then opens the world read-only (no store), so the save is
 never overwritten or regrown differently. A save migrated from schema 1–8 is stage 0.
 
 ## 10. Source files

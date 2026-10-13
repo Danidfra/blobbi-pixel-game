@@ -7,10 +7,13 @@ disagree, the code wins and the document is the bug ([maintenance rules](#mainte
 intro cinematic and M8 (the beginning and home progression: first-time flow, the intro in play, the first home,
 three house levels, customisation, tips, guide, touch, delete safety) and M9 (rest in bed, turtle flipper layering,
 earned home styles, four growth stages with the Sanctuary) and M10 phase A (the living ocean: seamless sea,
-fishing cast and line, performance work, the up-close camera, marine life) and M10 phase B (land clearing and
-regrowth, house-expansion advice, the canoe, fishing variety, ocean finds) are committed on `develop`. M9 has been
-played by the project owner; M10 has not. Everything since M8 is **IMPLEMENTED — AWAITING MANUAL VALIDATION**: the
-automated suite passes (see [M10 phase B](milestones/M10B.md)).
+fishing cast and line, performance work, the up-close camera, marine life), M10 phase B (land clearing and
+regrowth, house-expansion advice, the canoe, fishing variety, ocean finds) and M10 phase C (one-island onboarding,
+the island's first growth in the story, guaranteed ocean access, clearing at every stage, prepared land, planted
+trees saved, side-quest pinning, locked-recipe hints, canoe and sea polish, save safety) are committed on `develop`.
+M9 has been played by the project owner, and parts of M10 phase B (the canoe, clearing, house expansion: see the
+test plan); M10 phase C has not. Everything since M8 is **IMPLEMENTED — AWAITING MANUAL VALIDATION** unless the test
+plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M10C.md)).
 
 ## Status labels
 
@@ -37,7 +40,10 @@ automated suite passes (see [M10 phase B](milestones/M10B.md)).
 - [System overview](architecture/SYSTEM-OVERVIEW.md): modules, data flow, the frame.
 - [Procedural generation](architecture/PROCEDURAL-GENERATION.md): seeds, worlds, growth geometry.
 - [World Carriers](architecture/WORLD-CARRIERS.md): turtle, manta, whale.
-- [Save and persistence](architecture/SAVE-AND-PERSISTENCE.md): schema 1–9 and migrations.
+- [Save and persistence](architecture/SAVE-AND-PERSISTENCE.md): schema 1–12, migrations, and what happens to a save
+  that cannot be read.
+- [Nostr persistence readiness](architecture/NOSTR-PERSISTENCE-READINESS.md): the local record's boundaries, gaps and
+  open decisions before any synchronisation. ASSESSMENT ONLY.
 - [Blobbi identity](architecture/BLOBBI-IDENTITY.md): the canonical V3 Blobbi.
 - [Nostr multiplayer](architecture/NOSTR-MULTIPLAYER.md): DESIGNED ONLY.
 - [Cross-game travel](architecture/CROSS-GAME-TRAVEL.md): DESIGNED ONLY.
@@ -57,19 +63,20 @@ Each one has the same 13 sections, from purpose to extension points, and describ
 | [Audio](specifications/AUDIO.md) | IMPLEMENTED · NOT TESTED |
 | [World growth](specifications/WORLD-GROWTH.md) | IMPLEMENTED (M7; M9 stage 4 and rebalance) · NOT TESTED |
 | [World visiting](specifications/WORLD-VISITING.md) | PROTOTYPE (local only) · NOT TESTED |
-| [Land clearing and regrowth](specifications/LAND-CLEARING.md) | IMPLEMENTED (M10 phase B) · NOT TESTED |
-| [The canoe](specifications/CANOE.md) | IMPLEMENTED (M10 phase B) · NOT TESTED |
+| [Land clearing and regrowth](specifications/LAND-CLEARING.md) | IMPLEMENTED (M10 phase B; stages, prepared land, planted trees in phase C) · partly PASS (owner), the rest NOT TESTED |
+| [The canoe](specifications/CANOE.md) | IMPLEMENTED (M10 phase B; polish in phase C) · partly PASS (owner), the rest NOT TESTED |
+| [Ocean access (the landing)](specifications/OCEAN-ACCESS.md) | IMPLEMENTED (M10 phase C) · NOT TESTED |
 | [Tutorial (tips)](specifications/TUTORIAL.md) | IMPLEMENTED (M8) · NOT TESTED |
 | [Intro cinematic](specifications/INTRO-CINEMATIC.md) | IMPLEMENTED (dev preview only; not in the start flow; reworked after the first review, with the turtle's small start) · NOT TESTED |
 
 ## Testing
-- [Manual test plan](testing/MANUAL-TEST-PLAN.md): every test with an ID; all NOT TESTED.
+- [Manual test plan](testing/MANUAL-TEST-PLAN.md): every test with an ID; a few PASS by the owner, the rest NOT TESTED.
 - [Known issues](testing/KNOWN-ISSUES.md).
 - [Performance](testing/perf/README.md): methodology, M9 baseline, M10 results (one machine; throttling is a proxy).
 - Automated: `npm run check` (typecheck, vitest, build).
 
 ## Milestones
-- [Milestones](milestones/README.md): M0–M10 phase B: summaries and approval status.
+- [Milestones](milestones/README.md): M0–M10 phase C: summaries and approval status.
 - [Archived reports and development logs](milestones/reports/), unchanged.
 - [Roadmap](../ROADMAP.md).
 

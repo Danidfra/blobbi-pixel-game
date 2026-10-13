@@ -34,7 +34,7 @@ frame (`generateTurtleBase`), then fits the shell around that smaller island to 
 
 **The generated cottage (M8).** `placeObjects` puts a procedural cottage (with a fence, a small garden and a decor
 piece, and a path to its door) on every large enough island. It is scenery: it blocks walking and answers a look,
-but it has no door to enter. Since M8 a world made by NEW ISLAND has `generatedHouse: false` (all three Carriers):
+but it has no door to enter. Since M8 a world made on the title (BEGIN, or NEW ISLAND in development) has `generatedHouse: false` (all three Carriers):
 no cottage, fence, garden or path, so the island waits for the player's own first shelter. The option is part of
 the identity (`|house=none`); worlds made before have no such field, keep their cottage and regenerate byte for byte
 (`tests/new-world-start.test.ts`). The house stream is its own RNG stream, so leaving it out changes only what the

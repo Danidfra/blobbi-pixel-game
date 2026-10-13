@@ -29,7 +29,7 @@ housing, saving, camera and growth code: there is no species-specific game engin
   made before 2026-10-11 keeps (the variant is part of the world identity). **Variant S (4, the small start)**
   generates a smaller island (72 % of the shell top's half-axes) in the same 704×480 frame and fits the shell around
   it to about 40 % coverage: a giant turtle carrying a small island, with most of its shell free to grow over. It
-  is what the title's NEW ISLAND and the intro cinematic's preview make (`NEW_WORLD_SHELL_VARIANT`); object sizes,
+  is what the title's island creation (BEGIN; NEW ISLAND in development) and the intro cinematic's preview make (`NEW_WORLD_SHELL_VARIANT`); object sizes,
   the Blobbi, walkability and every system are unchanged, there are simply fewer objects. Pictures and numbers:
   `examples/turtle-start/` (`npx tsx scripts/turtle-start.ts`); tests: `tests/turtle-start.test.ts`.
 - The shell surface (plates, seams, soil band, moss, lip) is painted procedurally (`src/carrier/shell-surface.ts`).

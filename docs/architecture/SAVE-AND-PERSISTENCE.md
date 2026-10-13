@@ -3,7 +3,8 @@
 **IMPLEMENTED.** Source: `src/game/persistence.ts` (format, load and migration), `LiveWorld.save()` in
 `src/sim/live-world.ts` (writing), `src/game/worlds.ts` (listing, read-only). Tests: `tests/crafting.test.ts`,
 `tests/building.test.ts`, `tests/mining.test.ts`, `tests/identity.test.ts`, `tests/camera.test.ts`,
-`tests/living-island.test.ts`, `tests/carrier.test.ts`, `tests/growth.test.ts`, `tests/manta-world.test.ts`.
+`tests/living-island.test.ts`, `tests/carrier.test.ts`, `tests/growth.test.ts`, `tests/manta-world.test.ts`,
+`tests/save-reliability.test.ts` (M10 phase C), `tests/regrowth-stages.test.ts`, `tests/quest-tracking.test.ts`.
 
 > Maintenance rule: **whenever the save schema changes, update this page** (the field table and the version
 > history) in the same change.
@@ -24,7 +25,7 @@
   hide or unload.
 - Nothing is published or sent anywhere.
 
-## 2. Fields (schema 11)
+## 2. Fields (schema 12)
 
 | Field | Since | What |
 |---|---|---|
@@ -38,21 +39,26 @@
 | `plots`, `care`, `tally`, `objectives` | 6 | farm plots and crops; needs; what the player did; quests, request, lore found |
 | `companion`, `found`, `interiors`, `containers`, `producers` | 7 | friendship and tasted foods; discoveries found; house interiors; chest contents; producer timers |
 | `carrier`, `places` | 8 | Carrier bond, observations, likes found, counts; named places visited |
-| `growth`, `species`, `generator` | 9 | `{ stage (0–4 since M9), version (1–3), history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`/`'whale'`; base generator version (`m6.0`) |
+| `growth`, `species`, `generator` | 9 | `{ stage (0–4 since M9), version (1–4; 4 since M10 phase C: the landing), history: [{ stage, worldTime, version }], regions }`; `'turtle'`/`'manta'`/`'whale'`; base generator version (`m6.0`) |
 | `buildings[].level`, `.look`, `.upgradedAt`; `interiors[].style.finish` | 10 | the home's level, look and upgrade time; the rooms' wall finish ([housing](../specifications/HOUSING.md)) |
 | `name`, `intro`, `tutorial` | 10 | the island's own name or null; `{ state: 'pending' \| 'done' \| 'skipped', at }`; `{ done: [step ids], skipped }` |
 | `trees[].regrowAt`, `rocks[].reformAt` | 11 | when a felled tree's seedling came up / a broken rock surfaced again; `null` while its ground is clear and it waits for a free spot; absent: felled or broken before schema 11 (the old timeline) ([land clearing](../specifications/LAND-CLEARING.md)) |
 | `cleared` | 11 | bushes, small rocks and natural stumps or mushrooms the player cleared: `{ "<index>": { at, returnedAt } }` |
 | `boat` | 11 | the canoe or null: `{ x, y, heading, aboard }` in island-frame coordinates ([canoe](../specifications/CANOE.md)) |
 | `caught` | 11 | the fish species ever caught (item ids, sorted): the journal's fish log |
+| `planted`, `plantedSerial` | 12 | trees the player planted, oldest first: `[{ x, y, seed, size, plantedAt }]` in island-frame coordinates and world time; the serial naming the next one (seeds are never reused) ([land clearing](../specifications/LAND-CLEARING.md)) |
+| `pinnedQuest` | 12 | the side quest pinned to the goal box, or null |
+
+Clearing flags (prepared land, M10 phase C) are ordinary placeables in `buildings`; they need no field of their own.
 
 ## 3. Loading and migration
 
 `loadSave(store, identity)`:
 
 1. Reads the record; malformed JSON, an unknown or future version, a different `world`, or (from schema 5) a
-   different owner → `null` (the world starts fresh **in memory**).
-2. Migrates any version 1–10 forward: each field added later gets a safe default, and some are derived from what the
+   different owner → `null`. `saveStatus` tells these cases apart: `none`, `ok`, `newer` (a record from a newer
+   version of the game), `unreadable`.
+2. Migrates any version 1–11 forward: each field added later gets a safe default, and some are derived from what the
    record shows (for example a schema-5 tally seeded from collected, felled, mined and built counts).
 3. Sanitises every field (unknown ids dropped, numbers checked, lists deduplicated).
 
@@ -74,16 +80,28 @@ Guarantees (tested):
   nothing cleared; no canoe; no species recorded (`tests/clearing.test.ts`, `tests/canoe.test.ts`). A canoe saved
   somewhere that is water no more (the island grew under it) is moved to the nearest open water on load, or put
   back into the bag with the Blobbi ashore.
+- **Schema 12 (M10 phase C)**: a record from before has no planted trees (they were never saved before), the serial
+  0, nothing pinned (`tests/save-reliability.test.ts`).
+- **Growth version 4 (M10 phase C)**: a record grown with version 1–3 to stage 1 or beyond is upgraded on load to
+  version 4, which adds only the landing (the guaranteed way to the sea); its objects and its land are kept, each stage
+  keeps its own version for its objects (missing history entries are filled with the old version), and the player is
+  told once ([ocean access](../specifications/OCEAN-ACCESS.md), `tests/growth-stage4.test.ts`). A visitor never
+  upgrades a record.
 - A new island is saved the moment it is made, with `intro: pending`: if the page goes away during its intro, the
   island is kept and its intro plays again the next time it is opened (`tests/onboarding.test.ts`).
 
-Known risk (pre-existing, documented in [known issues](../testing/KNOWN-ISSUES.md)): a record whose **schema**
-version is newer than the code is ignored and the world starts fresh; autosave would then write a new record over
-it. This only happens when an older build opens a newer save.
+**A record that cannot be read is never overwritten (M10 phase C).** Before, a record from a newer version of the
+game (or a damaged one) was ignored, the world started fresh, and autosave wrote a new record over it. Now `LiveWorld`
+checks `saveStatus` when a record exists but does not load: for `newer` or `unreadable` it copies the raw record aside
+once (`backupRecord` → `blobbi-pixel-lab:backup:v1:<identity>`, never overwriting an earlier backup), plays that world
+**without a store** (nothing is written), and tells the player ("Not saving: … it is kept safe, untouched").
+(`tests/save-reliability.test.ts`.)
 
 ## 4. Writing
 
-`LiveWorld.save()` writes the whole record at once (no partial writes). Leaving the page saves only a world that has
+`LiveWorld.save()` writes the whole record at once (no partial writes). If the write fails (storage full or
+blocked), the game keeps playing, says so once ("Not saved: the browser would not keep this island"), and tries again
+on the next save; `LiveWorld.saveProblem` is `'write-failed'` until a write succeeds (M10 phase C). Leaving the page saves only a world that has
 been played (or a new island): an island shown behind the title but never played is never written, so opening the
 game never creates a save by itself. Not saved: presence (teleport), the camera,
 UI state, the visit session, particles, the brain's plan. A visitor (`LiveWorld({ visitor: true })`) has no store
@@ -97,7 +115,9 @@ and never writes.
 | `blobbi-pixel-lab:settings` | game settings | `src/playground/main.ts` |
 | `blobbi-pixel-lab:audio` | the audio mix | idem |
 | `blobbi-pixel:camera-mode` | the camera mode | idem |
-| `blobbi-pixel-lab:worlds` | last-played time per world (orders CONTINUE) | `src/game/worlds.ts` |
+| `blobbi-pixel-lab:worlds` | last-played time per world (orders the islands list) | `src/game/worlds.ts` |
+| `blobbi-pixel-lab:active-world` | the active island's identity: the one CONTINUE plays (M10 phase C); falls back to the most recent | idem |
+| `blobbi-pixel-lab:backup:v1:<identity>` | an unreadable or newer record, copied aside untouched (M10 phase C) | `src/game/persistence.ts` |
 | `blobbi-pixel-lab:owners` | which local player first played each world | `src/game/visiting.ts` |
 | `blobbi-pixel-lab:player` | the local player id (`local:<random>`) | idem |
 

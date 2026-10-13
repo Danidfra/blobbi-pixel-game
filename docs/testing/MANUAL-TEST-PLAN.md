@@ -6,8 +6,9 @@ This plan brings together the manual checklists from the M4–M7 reports and M8 
 adds regressions for M1–M3, and sorts everything by system.
 
 **Status rule:** a test is PASS or FAIL only after a person has run it. Automated runs (vitest, or the scripted
-browser passes done during development) do **not** count as passes here; they are listed in the Notes column. Every
-test is currently **NOT TESTED**.
+browser passes done during development) do **not** count as passes here; they are listed in the Notes column. Tests
+marked PASS were played by the project owner (the date and what was reported are in Notes); every other test is
+**NOT TESTED**.
 
 ## Setup (applies to every test)
 
@@ -25,14 +26,14 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
 |---|---|---|---|---|---|
-| TITLE-01 | Any | Open the game (a plain link opens Play). Use arrows, Enter and Esc; open MY ISLANDS and ABOUT. | The title appears; every entry responds; Esc goes back. | NOT TESTED | M8 |
-| TITLE-02 | A fresh browser profile (no saves) | Open the game. | WELCOME with BEGIN, SETTINGS, ABOUT; no CONTINUE; opening the game creates no save by itself. | NOT TESTED | M8 |
+| TITLE-01 | Any | Open the game (a plain link opens Play). Use arrows, Enter and Esc; open ISLANDS and ABOUT. | The title appears; every entry responds; Esc goes back. | NOT TESTED | M8; M10 phase C menus |
+| TITLE-02 | A fresh browser profile (no saves) | Open the game. | BLOBBI PIXEL, "a little world awaits you.", BEGIN and SETTINGS (ABOUT as a small row); no CONTINUE; opening the game creates no save by itself. | NOT TESTED | M10 phase C |
 | TITLE-03 | WELCOME | BEGIN; move between the three Carriers (keys, mouse, tap). | Three animated cards (turtle, manta, whale) each with a name and a personality line; the chosen one is raised with a yellow frame and a mark; NEXT names it; a second tap on the chosen card goes on. | NOT TESTED | M8 |
-| TITLE-04 | A save | CONTINUE. | The most recently played island opens; the Blobbi arrives by teleport (TELE-02); no intro. | NOT TESTED | |
+| TITLE-04 | A save | Open the game; CONTINUE. | "Welcome back!" with CONTINUE (the island's name, Carrier and day) and SETTINGS, ISLANDS and ABOUT as small rows, no NEW ISLAND; CONTINUE opens the active island; the Blobbi arrives by teleport (TELE-02); no intro. | NOT TESTED | M10 phase C |
 | TITLE-05 | Carrier chosen | Type a name (letters, digits, space); Backspace; SURPRISE ME; on a phone TYPE A NAME. | The name shows with a caret and a count up to 16; unsupported characters never appear; SURPRISE ME suggests a name; a phone keyboard opens for TYPE A NAME. | NOT TESTED | M8 |
 | TITLE-06 | Name page | CREATE ISLAND (press it twice quickly). | "THE SEA STIRS…", then the intro of the chosen Carrier on the new island, ending directly in play on that island. Exactly one new island in MY ISLANDS, with the typed name (or a generated one when left empty). | NOT TESTED | M8 |
 | TITLE-07 | A saved island | ABOUT → WATCH THE WHALE INTRO; let it end or skip it. | The intro plays on a preview island; afterwards the title returns; the saved island is unchanged. | NOT TESTED | M8 |
-| TITLE-08 | Saves exist | NEW ISLAND → … → CREATE. | Same steps as the first time; earlier islands remain listed in MY ISLANDS. | NOT TESTED | M8 |
+| TITLE-08 | Saves exist, link with `#islands=many` (development) | ISLANDS → NEW ISLAND → … → CREATE. | Same steps as the first time; earlier islands remain listed in ISLANDS. Without `#islands=many` there is no NEW ISLAND anywhere. | NOT TESTED | M10 phase C: one island per player |
 
 ## Gathering and tools (GATHER)
 
@@ -335,7 +336,7 @@ refuses them (GROW-09).
 | UPCLOSE-03 | Reload the page in up close | Reload. | The game opens in up close again (the choice is remembered). | NOT TESTED | |
 | UPCLOSE-04 | Phone or touch screen | Tap the camera indicator (bottom left) repeatedly. | Each tap moves to the next camera mode, through all four. | NOT TESTED | |
 | SEA-01 | Any island, exploration | Watch the sea for a few minutes by day and at night. | Small fish schools in the shallows, jellyfish drifting (glowing softly at night), now and then a leaping dolphin; never crowded, never over land. | NOT TESTED | Automated: `tests/marine-life.test.ts`; images `examples/m10/wildlife-*.png` |
-| SEA-02 | An island at stage 1–2+ | Stand where the land meets the sea and wait. | A curious seal surfaces, turns to watch the Blobbi and comes a little closer; "E  wave to the seal" — it rolls over; the first time a discovery (seal's sea glass, a journal note). | NOT TESTED | |
+| SEA-02 | An island at stage 1–2+ | Stand where the land meets the sea and wait. | A curious seal surfaces, turns to watch the Blobbi and comes a little closer; "E  wave to the seal" — it rolls over; the first time a discovery (seal's sea glass, a journal note). | PASS | Owner, after M10 phase B: "marine animal interactions" work (which creature was not specified). |
 | SEA-03 | Sea friends quest (after Listen to the Carrier) | Wave to the seal 3 times (over its visits). | The quest completes. | NOT TESTED | |
 | SEA-04 | Night, near deep water by the island | Watch for the rare glowing ray (it may take several nights); E near it. | A softly glowing ray glides past; E records a discovery (night-lamp sketch). | NOT TESTED | rare: about one every two or three nights |
 | PERF-01 | A reasonable desktop | Play each mode for a minute with the stats panel open. | About 60 FPS, no hitches when walking. | NOT TESTED | Proxy figures only: `docs/testing/perf/` |
@@ -346,22 +347,54 @@ refuses them (GROW-09).
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
 |---|---|---|---|---|---|
 | HUD-01 | Desktop and phone | Press Z through all four camera modes. | The status card (portrait, health, hunger, energy), the goal box and the time look the same at every zoom. | NOT TESTED | Automated: `tests/camera-upclose.test.ts`; images `examples/m10b/browser-*-hud-*.png` |
-| CLEAR-01 | An axe | Fell a tree; wait 20 s. | A stump, then clear ground: nothing drawn, the Blobbi walks over it. | NOT TESTED | Automated: `tests/clearing.test.ts`; `examples/m10b/clearing-*.png` |
-| CLEAR-02 | A cleared spot | Place a bench, a path or a plot on it. | Allowed. Wait a long time: the tree never grows through it; remove the bench and the tree comes back later. | NOT TESTED | |
+| CLEAR-01 | An axe | Fell a tree; wait 20 s. | A stump, then clear ground: nothing drawn, the Blobbi walks over it. | PASS | Owner, after M10 phase B: clearing a tree. Automated: `tests/clearing.test.ts` |
+| CLEAR-02 | A cleared spot | Place a bench, a path or a plot on it. | Allowed. Wait a long time: the tree never grows through it; remove the bench and the tree comes back later. | PARTIAL | Owner, after M10 phase B: building a house on the land of a cleared tree works (PASS). Regrowth after building there: NOT TESTED. |
 | CLEAR-03 | Axe and pickaxe | Clear a bush, a small rock, a natural stump or mushroom. | One swing each; a little stick/fibre, stone, wood or mushroom; their ground is free. Signs and wells cannot be cleared. | NOT TESTED | small rocks used to be "too small to mine" (KI-48) |
 | CLEAR-04 | Fell most trees on an island | Look at the shore. | Driftwood appears on the shore while fewer than 8 trees stand; picking it up gives wood. | NOT TESTED | |
-| EXPAND-01 | A first house with trees or rocks round it, the Cottage's needs met | Open HOME. | It says what to clear and where ("Clear the tree to the left of your house to make room (axe)."); orange arrows mark them in the world. After clearing, UPGRADE works. | NOT TESTED | `examples/m10b/upgrade-obstruction.png` |
+| EXPAND-01 | A first house with trees or rocks round it, the Cottage's needs met | Open HOME. | It says what to clear and where ("Clear the tree to the left of your house to make room (axe)."); orange arrows mark them in the world. After clearing, UPGRADE works. | PASS | Owner, after M10 phase B: house expansion correctly identifies obstacles. |
 | EXPAND-02 | A house on a cramped spot (slope, high ground) | Open HOME. | It says the land is in the way and where a move would give room; nothing moves until you move the house (M). | NOT TESTED | |
 | FISHB-01 | A young island (turtle stage 0) with a rod | Face the sea across the shell and press E. | "too far to cast. the island will grow closer to the sea". After growing, casting works. | NOT TESTED | Automated: `tests/fishing-access.test.ts` |
 | FISHB-02 | Fishing by day and night, from the shore and the canoe | Catch fish in many places. | Flounder by day in the shallows; mackerel in open water; moonfish only at night out at sea; the journal's FISH tab fills in. | NOT TESTED | `tests/ocean-features.test.ts` |
-| CANOE-01 | *Gone fishing* done, a workbench, 8 wood, 4 sticks, 2 cloth | Craft the canoe; launch it at the shore (E). | It floats by the shore; the prompt says E get in the canoe. | NOT TESTED | Automated: `tests/canoe.test.ts` |
-| CANOE-02 | Moored canoe | E to board; paddle with keys and with the touch stick; zoom through the camera modes. | A smooth hop in; gentle paddling; the camera follows without jitter; the overview still frames the Carrier. | NOT TESTED | `examples/m10b/canoe-*.png`, `browser-*-canoe-*.png` |
+| CANOE-01 | *Gone fishing* done, a workbench, 8 wood, 4 sticks, 2 cloth | Craft the canoe; launch it at the shore (E). | It floats by the shore; the prompt says E get in the canoe. | PASS | Owner, after M10 phase B: canoe crafting, the unlock progression, launching. |
+| CANOE-02 | Moored canoe | E to board; paddle with keys and with the touch stick; zoom through the camera modes. | A smooth hop in; gentle paddling; the camera follows without jitter; the overview still frames the Carrier. | PASS | Owner, after M10 phase B: boarding, navigation, camera zoom while navigating. The touch stick was not reported. |
 | CANOE-03 | Aboard | Paddle into the Carrier, its flippers/wings/flukes, and the island; then far out. | Never on land or the animal; rough water and the current at the edge, with the message; no invisible wall elsewhere. | NOT TESTED | |
-| CANOE-04 | Aboard by the shore | E to go ashore; try a blocked shore. | The Blobbi hops onto reachable ground; with no landing in reach, E says to paddle to the shore. | NOT TESTED | |
-| CANOE-05 | Aboard | Reload the page; grow the island while the canoe is moored. | Aboard again where it was; a canoe on ground that became land is moved to water (or back to the bag). | NOT TESTED | |
-| CANOE-06 | Aboard with a rod | Cast in each direction; reel in. | The line leaves the rod's tip; casting works only on open water. | NOT TESTED | |
+| CANOE-04 | Aboard by the shore | E to go ashore; try a blocked shore. | The Blobbi hops onto reachable ground; with no landing in reach, E says to paddle to the shore. | PASS | Owner, after M10 phase B: returning to shore and going ashore work. A blocked shore was not reported. |
+| CANOE-05 | Aboard | Reload the page; grow the island while the canoe is moored. | Aboard again where it was; a canoe on ground that became land is moved to water (or back to the bag). | NOT TESTED | Still unverified by the owner (save/reload aboard). |
+| CANOE-06 | Aboard with a rod | Cast in each direction; reel in. | The line leaves the rod's tip; casting works only on open water. | PASS | Owner, after M10 phase B: fishing from the canoe works. |
 | SEAB-01 | Aboard, over several days | Find the bottle adrift, the kelp garden, the silver shoal (dawn/dusk). | Each can be reached and visited (E); first visits are discoveries; seaweed grows back in a day; the bottle is gone once found. | NOT TESTED | `examples/m10b/canoe-sea-features.png` |
 | PERFB-01 | A reasonable desktop and a lower-end device | Play on foot and in the canoe at every zoom. | 60 FPS on the desktop, ≥ 30 on the lower-end device; no hitches when paddling. | NOT TESTED | proxy figures only: `docs/testing/perf/` |
+
+## M10 phase C: the road to the ocean (ONB, GROWC, ACCESS, LANDC, FLAG, PLANT, TRACK, LOCK, SEAC, SAVEC, PERFC)
+
+Every test in this section is **NOT TESTED**. Automated tests and the images in `examples/m10c/` are listed in Notes
+and do not count as passes.
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| ONB-01 | A fresh browser profile | Open the game; BEGIN; choose each Carrier in turn (go back between them); name the island; CREATE. | BLOBBI PIXEL, "a little world awaits you.", BEGIN and SETTINGS; the Carrier cards; the name page; the creation cinematic, then play. | NOT TESTED | `tests/title.test.ts`, `tests/onboarding.test.ts`; `examples/m10c/browser-*-menu-new.png`, `browser-*-carrier.png` |
+| ONB-02 | A saved island | Reload. | "Welcome back!", CONTINUE (name, Carrier, day) and SETTINGS; no NEW ISLAND. CONTINUE plays that island. | NOT TESTED | `browser-*-menu-returning.png` |
+| ONB-03 | Two or more islands saved by an older build | Open ISLANDS. | Every island listed, the active one marked ACTIVE; opening another plays it and makes it the one CONTINUE plays; DELETE still asks first. Nothing is lost. | NOT TESTED | `tests/title.test.ts` |
+| GROWC-01 | A new island, through the first home and the Carrier stone | Play on after "Something that hums". | The goal box shows "Help your island grow" with a count of what the island needs; growth (L) lists it; when ready, growing it completes the quest (a journal note) and "Listen to the Carrier" follows. | NOT TESTED | `tests/quest-tracking.test.ts`; `examples/m10c/growth-tutorial.png` |
+| GROWC-02 | The island grows to stage 1 | Watch the reveal; open the map. | "The island grew", then "The shore: a path to the sea has opened!"; the map shows THE LANDING; nothing that was there moved. | NOT TESTED | `examples/m10c/sea-path-notice.png` |
+| ACCESS-01 | Stage 1 on each Carrier (turtle, manta, whale) | Walk to the landing; with a canoe, launch, paddle out, come back, go ashore. | The landing is on a flank (never at the head, neck, tail, fins or wings); the canoe launches, gets out to open sea, and lands back there. | NOT TESTED | `tests/ocean-access.test.ts`, `scripts/m10c-access-scan.ts`; `examples/m10c/landing-*.png` |
+| ACCESS-02 | A stage-0 island with a rod or a canoe | Face the far sea and press E. | "the ocean is still out of reach", and a notice once a minute at most: "help your island grow to open a path to the shore! (L)". The canoe recipe says so too. | NOT TESTED | `tests/fishing-access.test.ts` |
+| ACCESS-03 | An island grown with an older build (stage ≥ 1) | Open it. | "The shore: a path to the sea has opened!" once; a landing appears; every building, tree and rock is where it was. | NOT TESTED | `tests/growth-stage4.test.ts` |
+| LANDC-01 | An axe | Fell a tree; dig out the stump; wait for the seedling; pull it up; wait again; clear the young tree. | Each stage cleared with one swing; nothing, nothing, one log; the seedling is stepped over; the young tree blocks. | NOT TESTED | `tests/regrowth-stages.test.ts`; `examples/m10c/clearing-young.png` |
+| LANDC-02 | A pickaxe | Break a large rock; clear the rubble; wait about 15 min; clear the small deposit; wait again; clear the growing rock. | One swing each; nothing, one stone, two stones; the rock forms in steps before it is whole. | NOT TESTED | |
+| LANDC-03 | A seedling or forming rock nearby | Try to place a bench or till a plot on it. | Refused: "something is growing there (clear it first)". | NOT TESTED | |
+| FLAG-01 | 2 sticks, 1 fibre | Craft a clearing flag (K, by hand); place it next to a felled tree; wait well past its return time. | The dotted circle shows nearby; nothing wild comes back inside it; walking under the flag works. | NOT TESTED | `examples/m10c/prepared-land.png` |
+| FLAG-02 | A placed flag | Reload; grow the island; then pick the flag up (M) and wait. | The flag stays where it was; after picking it up, trees and rocks inside the circle may return. | NOT TESTED | |
+| PLANT-01 | Any island | Plant a tree (P); reload at once, mid-growth and grown; grow the island. | The tree is there each time, at the same growth, in the same place. | NOT TESTED | `tests/regrowth-stages.test.ts` |
+| PLANT-02 | A planted tree | Face it with the axe. | "E  dig up the tree you planted"; it is gone; no wood. | NOT TESTED | |
+| TRACK-01 | An open side quest | Journal (J) → select it → PIN (or P); look at the HUD at every zoom (Z), on desktop and phone. | A small SIDE card under the main goal with its progress; UNPIN removes it; completing the quest removes it; reload keeps the pin. | NOT TESTED | `tests/quest-tracking.test.ts`; `examples/m10c/pinned-quest-*.png` |
+| LOCK-01 | Listened to the Carrier, "Gone fishing" not done | CRAFT (K) → Tools. | Canoe shown LOCKED with "Complete "Gone fishing" to unlock."; pressing it makes nothing; after the quest it can be made. | NOT TESTED | `examples/m10c/locked-canoe-recipe-*.png` |
+| SEAC-01 | Aboard | Paddle in all four directions; look at the canoe. | Each heading looks like a canoe; which way it points is clear. | NOT TESTED | `examples/m10c/canoe-headings.png` |
+| SEAC-02 | Aboard | Paddle toward a corner and a side of the sea. | The rough water fades in along a rounded, uneven line; no straight edge; the current turns the canoe back. | NOT TESTED | `examples/m10c/rough-water-edge.png` |
+| SEAC-03 | A moored canoe | Walk far away; open the bag; CALL IT BACK. | The canoe is in the bag; launching works again; never while aboard. | NOT TESTED | `tests/canoe-polish.test.ts` |
+| SEAC-04 | Fish of several kinds | Look at the bag and the FISH tab. | Each fish has its own shape. | NOT TESTED | `examples/m10c/fish-icons.png` |
+| SAVEC-01 | An island saved by this build | Reload aboard the canoe; reload with a pinned quest and planted trees. | Everything as it was. | NOT TESTED | `tests/save-reliability.test.ts` |
+| SAVEC-02 | Development only: edit a save's `version` to 99 in localStorage | Open the island. | "Not saving: saved by a newer version of the game"; the stored record is unchanged; a backup key exists. | NOT TESTED | `tests/save-reliability.test.ts` |
+| PERFC-01 | A reasonable desktop and a lower-end device | Play at every zoom: a dense island, the canoe, the sea's edge. | Smooth; no hitch near the rough water. | NOT TESTED | proxy figures only: `docs/testing/perf/` |
 
 ## Camera and regressions M1–M3 (CAM, REG)
 

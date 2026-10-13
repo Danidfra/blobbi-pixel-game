@@ -8,7 +8,6 @@ nicety).
 
 | ID | Severity | Area | Issue | Where | Suggested fix |
 |---|---|---|---|---|---|
-| KI-02 | High | Saves | A save with a newer schema than the code (version > 9) is ignored when loading (`loadSave` returns null), the world starts fresh, and the next autosave overwrites it. Only matters when going back to older code. | `src/game/persistence.ts` (`loadSave`) | Open such a world read-only, as an unknown growth version already does. |
 | KI-03 | Medium | Saves (disclosure) | During M6 development the pre-existing `seed=blobbi` world on the dev server at port 5199 was opened in Play mode, so its save was most likely migrated to schema 8 (the Carrier bond started fresh; nothing else changes in that migration). It has since loaded under schema 9 too if played again. | browser localStorage on `localhost:5199` | Check that world by hand; there is no backup. |
 | KI-04 | Medium | Content | Several lore notes (carriers, keepers, carrier-stone, where-to, restoring, treasure, carving) speak of the turtle, also on manta and whale worlds; two of the Carrier's hum lines mention its shell (`HUM_LINES`). | `src/content/lore.ts`, `src/game/carrier.ts` | Species-aware note and hum text. |
 | KI-05 | Low | Quests | The "Collector" quest asks for 8 finds; it was written before the 5 grown-land discoveries, which also count, so it can complete before all 8 base finds. | `src/content/quests.ts` (`discover-all`) | Count base discoveries only, or reword. |
@@ -43,7 +42,7 @@ nicety).
 | KI-38 | Low | Growth | Stage 4 coverage on the test seeds is 85–92 % of the suitable surface (target "about 80 %"); the suitable surface itself keeps margins from the Carrier's edges, so the share of the whole back is lower (whale and manta). | `src/world/growth.ts` (`SANCTUARY_INSET`, `suitableSurface`) | Tune by eye after GROW4-03 … 05. |
 | KI-39 | Low | Growth | Stage 4's Sanctuary objects are dense (orchards and flowers) and it adds one region, one place and one discovery; a whale has 8 named places by stage 3, so stage 4 asks to explore 8. | `src/world/growth.ts`, `src/game/growth-content.ts` | More Sanctuary features (a spring, a Keeper's bench). |
 | KI-40 | Low | Housing | A home's chimney smoke and lit windows show only for the player's houses at level 2–3 (smoke) and all levels (windows); generated cottages keep their M1 smoke only. | `src/game/buildings.ts` (`houseChimney`) | — |
-| KI-41 | Low | Fishing | (By design since M10 phase B.) On young islands the sea may be out of the line's reach (Variant S turtles at stage 0, manta below stage 2, whale below stage 3 on the test seeds): sea fishing, the seal and the canoe come with growth, and a cast at a sea in sight but too far says so. KI-06 is the same on manta and whale. | `LiveWorld.fishTarget`, `seaAheadOutOfReach` | — (a reward of growth). |
+| KI-41 | Low | Fishing | (By design.) Before its first growth an island may not reach the sea (no island of the 90 scanned does at stage 0): sea fishing, the seal and the canoe come with growth, and a cast or a launch at a sea in sight but too far says so. Since M10 phase C every island reaches the sea from stage 1 (the landing: [ocean access](../specifications/OCEAN-ACCESS.md)), and everything at sea opens after "Help your island grow". | `LiveWorld.fishTarget`, `seaTooFar` | — (a reward of growth). |
 | KI-42 | Low | Ocean | Where the turtle's front-flipper water band touches the world's top edge (about 10 px on some seeds) it ends in a short straight line against the open sea beyond. | `src/render/open-sea.ts`, turtle world framing | Frame turtle worlds with a margin of deep water, or fade bands at the edge. |
 | KI-43 | Low | Performance | A Blobbi pose seen for the first time is rasterized from the kit's SVG on that frame (about 2 ms headless; more on slow CPUs): a small hitch the first time each walk frame or expression appears at a camera scale. Cached after (512 per size). | `NativeBlobbi.sprite`, `src/blobbi/svg-raster.ts` | Pre-warm the walk cycle in idle time after a mode change. |
 | KI-44 | Low | Performance | Performance was measured headless and in Chrome on one development machine, with CPU throttling as the only stand-in for slower hardware. No real low-end device was measured. | `docs/testing/perf/` | PERF-01, PERF-02. |
@@ -51,11 +50,14 @@ nicety).
 | KI-46 | Low | Wildlife | Marine creatures are drawn in world pixels (a seal's head is 6 px, a dolphin 11 px): small but proportionate to the 16 px Blobbi; they are not lit by night lighting differently from the water. | `src/render/marine-render.ts` | Tune after SEA-01. |
 | KI-47 | Low | Land | A spot built over stays clear for as long as the building stands: resources wait in place and never relocate (by design, src/game/clearing.ts). An island built all over can run short of trees; driftwood is the wood fallback. | `LiveWorld.stepClearing` | — |
 | KI-48 | Low | Land | Small rocks, once "too small to mine" (M3.2), are now cleared with the pickaxe for a stone (M10 phase B); players used to the old answer will see a swing. | `LiveWorld.mine` | Confirm by playing (CLEAR-03). |
-| KI-49 | Medium | Land | Planted trees (P) are still not saved (pre-existing); they block building while they stand and are named in the upgrade advice. | `LiveWorld.planted` | Save them. |
-| KI-50 | Low | Canoe | Four headings only (no diagonals), no bobbing on the swell; up/down the canoe is narrower than the seated Blobbi, so it reads less like a boat than side-on. | `src/render/canoe-render.ts` | Diagonal sprites, a gentle bob. |
-| KI-51 | Low | Canoe | The rough-water band follows the canoe sea's rectangle: from far it shows straight edges. | `LiveRenderer.drawRoughWater` | A noisy edge. |
-| KI-52 | Low | Canoe | One canoe per island; it cannot be picked back up into the bag (only moved by paddling). | `src/game/canoe.ts` | A "carry ashore" action. |
-| KI-53 | Low | Sea | The fish log and sea finds are new journal content; their art (fish icons share one template) is plain. | `src/content/tools.ts` | Per-species icons. |
+| KI-50 | Low | Canoe | Four headings only (no diagonals), no bobbing on the swell. (M10 phase C: each heading now reads as a canoe — bow and stern, rising ends, planks along it, a prow toward the viewer — but side-on it is wide, like a rowboat.) | `src/render/canoe-render.ts` | Diagonal sprites, a gentle bob. |
+| KI-54 | Low | Ocean access | The landing is a straight strip in one of four directions (the canoe launches straight ahead): readable, but simpler than the rest of the coast; on a turtle whose land already nearly reaches the lip it is only a few pixels. | `src/world/landing.ts` | A gently curved tongue, if it reads as artificial in play. |
+| KI-55 | Low | Ocean access | An island grown before M10 phase C gains its landing on load (growth version 3 → 4), announced once, without the player choosing it. Only carrying-surface pixels become land and no object changes, so nothing the player made moves. | `LiveWorld.upgradedGrowth` | — (by design: the sea must be reachable). |
+| KI-56 | Low | Quests | "Listen to the Carrier" now requires "Help your island grow" (the island's first growth). A save that had found the Carrier stone but not yet listened must grow the island first (its requirements are the stage-1 ones). | `src/content/quests.ts` | — (by design). |
+| KI-57 | Low | Crafting | A recipe whose teaching quest is open is shown LOCKED with its hint: on a new island the Tools tab already shows the four copper upgrades ("Deeper stone" is open from the start). | `LiveWorld.recipeLockHint` | Tease only recipes of quests the player has pinned or that are close, if it feels busy. |
+| KI-58 | Low | Onboarding | One active island: NEW ISLAND is hidden (it shows with `#islands=many`). A player who wants to start over deletes the island in ISLANDS (it asks first), after which BEGIN appears. | `src/ui/title.ts` (`allowNewIsland`) | A gentle "start a new island" in a later release, when several islands are a feature. |
+| KI-59 | Low | Ocean access | Before the island has its landing, `seaReachable()` runs the general access analysis once per island change (about 20–150 ms, the first time E is pressed at a far sea or the canoe recipe is viewed). | `LiveWorld.seaReachable`, `findOceanAccess` | Compute it in idle time. |
+| KI-60 | Medium | M10 phase C (all) | Nothing added in M10 phase C has been played by a person: onboarding menus, the growth quest's pacing, the landings on real islands, clearing stages, the clearing flag, pinning, locked hints, the canoe's new look, the sea's edge, calling the canoe back. | M10 phase C | The M10 phase C section of the manual test plan. |
 | KI-18 | Low | Growth | A whale world grown to stage 3 before 2026-10-11 keeps growth version 1, so its mushroom grove may stay partly walled off by trees (only new growth uses version 2). | `src/world/growth.ts` (`GROWTH_VERSIONS`) | Reset growth on that test world, or add an opt-in upgrade of a save's growth version. |
 
 ## Fixed in M8 (2026-10-11): the intro is part of making an island
@@ -101,6 +103,21 @@ nicety).
 - The Carrier panel showed the M6 design-only growth model; it now shows the real island growth.
 - `src/carriers/species.ts` described the manta as a prototype; it is playable since M7.
 - `docs/game-design/GAMEPLAY-SYSTEMS.md` began with a second-level heading.
+
+## Fixed in M10 phase C
+
+- KI-02 (High): a save from a newer version of the game (or one that cannot be read) was ignored and then overwritten
+  by the next autosave. Now it is never written over: it is copied aside (`blobbi-pixel-lab:backup:v1:<identity>`),
+  the world plays without saving, and the player is told (`tests/save-reliability.test.ts`).
+- KI-49 (Medium): trees the player plants are saved (island frame, world time, seed), keep growing across reloads and
+  growth, and can be dug up with the axe (`tests/regrowth-stages.test.ts`).
+- KI-51 (Low): the rough-water edge is rounded and breathes; no straight line (`tests/canoe-polish.test.ts`).
+- KI-52 (Low): a moored canoe can be called back into the bag from anywhere ashore (CALL IT BACK in the bag); still
+  one canoe.
+- KI-53 (Low): every fish has its own icon silhouette and markings.
+- Found during phase C: a regrowing seedling (now stepped over) could have had a bench built on it and grown through
+  it; placement and tilling now refuse ground where something is growing back. The growth panel said "stage 0 of 3"
+  since stage 4 was added (M9); it counts four.
 
 ## Fixed in M10 phase B
 

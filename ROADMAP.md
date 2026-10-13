@@ -478,7 +478,24 @@ Details: docs/milestones/M10B.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATI
 - [x] Fishing from the canoe; three new fish, a fish log, two meals.
 - [x] Ocean finds: a bottle adrift, the kelp garden, the silver shoal.
 - [x] KI-34 fixed (CPU-time budget).
-- [ ] Manual validation (M10 phase B section of docs/testing/MANUAL-TEST-PLAN.md).
+- [ ] Manual validation (M10 phase B section of docs/testing/MANUAL-TEST-PLAN.md). Partly done by the owner: the
+  canoe (craft, launch, board, paddle, zoom, land, fish), clearing and building on cleared land, house-expansion
+  advice and marine interactions PASS; save/reload aboard, all three Carriers and regrowth after building are not.
+
+### M10 phase C: The road to the ocean (implemented, committed on `develop`)
+
+Details: docs/milestones/M10C.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATION**.
+
+- [x] One active island: BEGIN for a new player, CONTINUE for a returning one; every older island recoverable.
+- [x] "Help your island grow" in the story; the first growth before the Carrier speaks.
+- [x] Guaranteed ocean access from stage 1 on every Carrier and seed (the landing, growth version 4), with feedback.
+- [x] Clearing at every stage of regrowth (stumps, seedlings, young trees, rubble, forming rocks); rocks form in steps.
+- [x] Prepared land (the clearing flag); planted trees saved (KI-49).
+- [x] One pinned side quest on the HUD; locked recipes say how to unlock them.
+- [x] Canoe headings, a rounded sea edge, fish icons, calling the canoe back (KI-50 … KI-53).
+- [x] Save safety: a newer or damaged save is never overwritten; failed writes survive (KI-02).
+- [x] Nostr persistence readiness written down (assessment only, no protocol).
+- [ ] Manual validation (M10 phase C section of docs/testing/MANUAL-TEST-PLAN.md).
 
 ### M10 later phases (not started)
 

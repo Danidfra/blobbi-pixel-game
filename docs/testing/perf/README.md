@@ -296,3 +296,44 @@ Unthrottled Chrome, phase B: **60 FPS and no long tasks in every scene** (`brows
 no per-frame simulation: cleared land is checked once a second of world time (a collision and navigation rebuild,
 3–10 ms, only when something changes), the canoe is two or three hull checks per step, the ocean features are three hashes a
 frame, rough water is drawn only aboard and only its band's strips in view.
+
+## M10 phase C: the road to the ocean
+
+Measured 2026-10-12 on the same development machine, phase B (`621d764`, a worktree) and phase C back to back, with
+the same scene file (two new scenes: the canoe by the corner of its sea, where the rough water is drawn). One system
+process (`BTLEServer`) held a core at 100 % throughout. CPU throttling is a proxy for a slower machine, not a
+measurement of one; no real low-end device was measured.
+
+**Headless, frame CPU ms** (`headless-m10b-before-c.json` → `headless-m10c.json`): every scene within noise (most
+±0–5 %; turtle stage 0 at 1280×720 1.44 → 1.73 ms, flat at the other two sizes) except the canoe by the sea's edge,
+which now draws a rounded, fading ring of rough water instead of straight strips:
+
+| Scene | Viewport | Mean ms | p95 ms | p99 ms |
+|---|---|---|---|---|
+| canoe-navigation | 1280x720 | 1.55 → 1.63 | 1.71 → 1.92 | 3.46 → 3.89 |
+| canoe-navigation | 1920x1080 | 2.95 → 3.16 | 3.16 → 3.50 | 4.88 → 5.16 |
+| canoe-edge-overview | 1280x720 | 2.52 → 2.88 | 2.73 → 3.17 | 3.00 → 3.57 |
+| canoe-edge-overview | 1920x1080 | 5.14 → 5.68 | 5.44 → 6.10 | 5.74 → 6.54 |
+| canoe-edge-overview | phone-844x390 | 1.82 → 2.14 | 1.97 → 2.53 | 2.07 → 4.47 |
+| canoe-edge-exploration | 1280x720 | 1.52 → 1.55 | 1.57 → 1.72 | 1.81 → 2.46 |
+
+A regression found and fixed on the way: the first version painted all the water beyond the canoe's sea every frame
+(2.5 → 6.6 ms in the edge overview at 1280×720, 5.1 → 17.2 ms at 1920×1080). The ring's strength is now kept in rows
+made on first use and only pixels near the outline are visited.
+
+**World generation and loading.** Growth version 4 plans the landing: growing to stage 4 costs 10–25 ms more than
+version 3 when the Carrier's moving parts are already built. Cold (`generation ms` in the JSON) it is far more —
+turtle 160 → 366 ms, manta 262 → 937 ms, whale 314 → 3,334 ms — because the landing needs the Carrier's moving-parts
+mask, which builds the creature's animation frames. The game builds those same frames (the same cache) for the first
+frame it draws, so the cost moves from the first frame to loading rather than adding to it: load + first frame of a
+stage-4 whale, measured in a fresh process, 3.63 s → 3.94 s (load 0.38 → 3.61 s, first frame 3.25 → 0.33 s); a
+manta 1.06 → 1.21 s. The remaining 150–300 ms is the landing's planning and the version-3 → 4 upgrade, once per load.
+
+**Chrome, 4× CPU throttling** (`browser-m10b-before-c-x4.json` → `browser-m10c-x4.json`): FPS level in every scene
+(56–60 → 58–60), no new long tasks (1 → 0); the per-frame view time moved both ways by up to ~2 ms, as throttled
+Chrome does from run to run. **Unthrottled Chrome, phase C** (`browser-final-m10c.json`): 60 FPS and no long tasks in
+all 22 runs, desktop and phone, including the canoe.
+
+Phase C adds no world-wide per-frame work: regrowth stages are checked once a second of world time (a collision
+rebuild only when a stage changes), clearing flags and pinned quests are a few comparisons a frame, the sea's edge is a
+row lookup per visible ring pixel aboard.
