@@ -153,13 +153,13 @@ describe('the language is presentation only', () => {
     const actions: TitleActions = { worlds: () => [], current: () => ({ identity: '', name: '', saved: false }), continueGame: () => {}, openWorld: () => {}, settings: () => {} };
     const title = new TitleScreen(actions);
     const labels = () => (title as unknown as { items(): { label: string }[] }).items().map((i) => i.label);
-    expect(labels()[0]).toBe('BEGIN');
+    expect(labels()[0]).toBe('NEW ADVENTURE'); // M11D.3: BEGIN became NEW ADVENTURE
     title.key('KeyL'); // the language key
     expect(getLocale()).toBe('pt-BR');
-    expect(labels()[0]).toBe('COMEÇAR');
+    expect(labels()[0]).toBe('NOVA AVENTURA');
     title.render(new PixelBuffer(960, 540), 0); // draws without throwing
     title.key('KeyL');
-    expect(labels()[0]).toBe('EMPEZAR');
+    expect(labels()[0]).toBe('NUEVA AVENTURA');
   });
 });
 

@@ -34,6 +34,7 @@ import { itemIcon } from '../ui/icons';
 import { FRIEND_TITLES, friendLevel } from '../game/friendship';
 import { REST_POSE } from '../blobbi/pose';
 import { babyHeightFor } from '../blobbi/canonical';
+import { buildEggSprite, type EggPose } from '../blobbi/egg';
 import { hex as hexColour, mix as mixColour } from '../core/color';
 
 /** The window's sky over the day: blue, gold at dawn and dusk, a deep blue at night. */
@@ -72,6 +73,18 @@ export class NativeBlobbi {
 
   get cached(): number {
     return this.cache.size;
+  }
+
+  /** M11D.3: the Blobbi's own egg at this native size (the birth cinematic), cached by crack and angle. */
+  egg(pose: EggPose): Sprite {
+    const key = `egg|${pose.crack}|${pose.angle}`;
+    let s = this.cache.get(key);
+    if (!s) {
+      s = buildEggSprite(this.identity.genome, pose, this.size);
+      this.cache.set(key, s);
+      if (this.cache.size > NATIVE_CACHE_LIMIT) this.cache.delete(this.cache.keys().next().value!);
+    }
+    return s;
   }
 
   sprite(pose: BlobbiPose): Sprite {
@@ -259,7 +272,9 @@ export class ViewRenderer {
       pose.expression = 'neutral';
       pose.walk = -1;
     }
-    const canonical = spriteOf(pose);
+    // M11D.3: during a birth the Blobbi's own egg is drawn in its place (presentation only).
+    const egg = live.egg;
+    const canonical = egg ? (native ? native.egg(egg) : live.eggSprite(egg)) : spriteOf(pose);
     let sprite = canonical;
     if (lit && (light.dark > 0.01 || light.warm > 0.01 || rain > 0)) {
       // The Blobbi in the same light: a tinted copy, as dark as the world around it (less near a lamp).
@@ -275,7 +290,7 @@ export class ViewRenderer {
     const ax = Math.floor((bx - originX) * s + s / 2);
     const ay = Math.floor((by - originY) * s + s - 1) + Math.round(b.animator.hop(time) * s);
     let tool: Attachment | null = null;
-    if (live.equipped && EQUIPMENT[live.equipped]) {
+    if (live.equipped && EQUIPMENT[live.equipped] && !egg) {
       const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), native ? native.rig : live.rig, spriteOf, palette);
       if (at.visible) tool = at;
     }

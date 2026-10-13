@@ -16,6 +16,7 @@ import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex, type Color } from '../core/color';
 import { identityOfSource, stagedIdentity } from '../blobbi/identity';
 import { worldFormSource } from '../blobbi/source';
+import { buildEggSprite, EGG_CRACK_LEVELS } from '../blobbi/egg';
 import type { WorldFormTraits } from '../blobbi/world-form';
 import { buildBlobbiSprite, REST_POSE, type BlobbiPose } from '../blobbi/sprite';
 import { buildV1BabySprite, type V1Colors } from '../blobbi/v1-baby';
@@ -242,6 +243,24 @@ export function worldFormsSheet(size = 32): PixelBuffer {
   return compose(`V1/V2 WORLD FORMS AT ${size} PX (TEMPORARY, LOCAL)`, rows);
 }
 
+/** M11D.3: the pixel eggs (the kit's own V3 egg of each sample): every crack level, rocking angles, the hatchling and adult. */
+export function eggsSheet(size = 48): PixelBuffer {
+  const w = Math.round(size * 1.2) + 6;
+  const h = Math.round(size * 1.3) + 8;
+  const rows: Row[] = [];
+  for (const pet of SAMPLE_PETS) {
+    const seed = sampleV3Seed(pet);
+    const genome = stagedIdentity(seed, 'baby').genome;
+    const cells: PixelBuffer[] = [];
+    for (const crack of EGG_CRACK_LEVELS) cells.push(stand(buildEggSprite(genome, { crack, angle: 0 }, size), w, h));
+    for (const angle of [-8, -3, 3, 8]) cells.push(stand(buildEggSprite(genome, { crack: 'light', angle }, size), w, h));
+    cells.push(stand(buildBlobbiSprite(stagedIdentity(seed, 'baby'), REST_POSE, size), w, h));
+    cells.push(stand(buildBlobbiSprite(stagedIdentity(seed, 'adult'), REST_POSE, size), w, h));
+    rows.push({ label: `V3 ${pet}: EGG NONE LIGHT MEDIUM HEAVY; ROCKING -8 -3 3 8; BABY; ADULT`, cells });
+  }
+  return compose(`PIXEL EGGS AT ${size} PX (THE KIT'S OWN EGG; ROCKS, NEVER TURNS)`, rows);
+}
+
 /** The whole set, by name. */
 export function babySheets(): { name: string; buffer: PixelBuffer }[] {
   return [
@@ -253,6 +272,8 @@ export function babySheets(): { name: string; buffer: PixelBuffer }[] {
     { name: 'tools-48', buffer: toolsSheet(48) },
     { name: 'scales', buffer: scalesSheet() },
     { name: 'world-forms-32', buffer: worldFormsSheet(32) },
+    { name: 'eggs-24', buffer: eggsSheet(24) },
+    { name: 'eggs-48', buffer: eggsSheet(48) },
   ];
 }
 

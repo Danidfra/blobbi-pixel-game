@@ -113,22 +113,23 @@ describe('title screen', () => {
     return { title: new TitleScreen(actions), calls };
   };
 
-  it('a returning player: CONTINUE and SETTINGS, with quiet ISLANDS and ABOUT rows; no NEW ISLAND', () => {
+  it('a returning player (M11D.3): CONTINUE ADVENTURE, NEW ADVENTURE, SETTINGS, with quiet ISLANDS and ABOUT rows', () => {
     const { title, calls } = make();
     expect(title.page).toBe('main');
     const labels = () => (title as unknown as { items(): { label: string; minor?: boolean }[] }).items();
-    expect(labels().map((i) => i.label)).toEqual(['CONTINUE', 'SETTINGS', 'ISLANDS', 'ABOUT']);
+    expect(labels().map((i) => i.label)).toEqual(['CONTINUE ADVENTURE', 'NEW ADVENTURE', 'SETTINGS', 'ISLANDS', 'ABOUT']);
     expect(labels().filter((i) => i.minor).map((i) => i.label)).toEqual(['ISLANDS', 'ABOUT']);
     title.key('Enter');
-    expect(calls).toEqual(['continue']);
+    expect(calls).toEqual(['continue']); // one island: CONTINUE ADVENTURE plays it
+    title.key('ArrowDown');
     title.key('ArrowDown');
     title.key('Enter');
     expect(calls.at(-1)).toBe('settings');
     title.key('ArrowDown');
     title.key('Enter');
     expect(title.page).toBe('islands');
-    // The islands page opens the island; it offers no NEW ISLAND in the one-island release.
-    expect(labels().map((i) => i.label)).toEqual(['MOSSY COVE', 'BACK']);
+    // The islands page opens the island, and offers a new adventure (which asks first).
+    expect(labels().map((i) => i.label)).toEqual(['MOSSY COVE', 'NEW ADVENTURE', 'BACK']);
     title.key('Enter');
     expect(calls.at(-1)).toBe('open Mossy Cove');
     title.key('Escape');
@@ -137,15 +138,14 @@ describe('title screen', () => {
     title.render(new PixelBuffer(960, 540), 0);
   });
 
-  it('NEW ISLAND only when the host allows it (development), through the same Carrier and name steps', () => {
+  it('NEW ADVENTURE (M11D.3): asks first when an island exists, then the same Carrier and name steps; taken once', () => {
     const calls: string[] = [];
     const world = { identity: 'id', params: parseIdentity('seed=s|kind=turtle|turtle=t|variant=0|10x10|scale=1|palette=cozy|density=1|islands=auto')!, name: 'Mossy Cove', day: 3, quests: 2, buildings: 1, lastPlayed: 1 };
-    const title = new TitleScreen({ worlds: () => [world], current: () => ({ identity: 'id', name: 'Mossy Cove', saved: true }), continueGame: () => calls.push('continue'), openWorld: () => {}, settings: () => {}, allowNewIsland: true });
+    const title = new TitleScreen({ worlds: () => [world], current: () => ({ identity: 'id', name: 'Mossy Cove', saved: true }), continueGame: () => calls.push('continue'), openWorld: () => {}, settings: () => {} });
     title.key('ArrowDown');
-    title.key('ArrowDown');
-    title.key('Enter'); // ISLANDS
-    title.key('ArrowDown');
-    title.key('Enter'); // NEW ISLAND
+    title.key('Enter'); // NEW ADVENTURE
+    expect(title.page).toBe('newConfirm');
+    title.key('Enter'); // START A NEW ADVENTURE
     expect(title.page).toBe('carrier');
     title.key('Enter'); // the turtle
     expect(title.page).toBe('name');
@@ -153,18 +153,18 @@ describe('title screen', () => {
     title.key('Enter'); // CREATE ISLAND (unnamed)
     title.key('Enter'); // a second press while creating does nothing more
     expect(title.page).toBe('creating');
-    expect(title.takeCreate()).toEqual({ kind: 'turtle', name: '' });
+    expect(title.takeCreate()).toEqual({ kind: 'turtle', name: '', companion: 'new' });
     expect(title.takeCreate()).toBeNull(); // taken exactly once
   });
 
-  it('a first-time player sees BEGIN and SETTINGS; BEGIN leads to the Carrier choice', () => {
+  it('a first-time player sees NEW ADVENTURE and SETTINGS; NEW ADVENTURE leads to the Carrier choice', () => {
     const { title, calls } = make(false);
     expect(title.page).toBe('welcome');
     const labels = (title as unknown as { items(): { label: string; minor?: boolean }[] }).items();
-    expect(labels.filter((i) => !i.minor).map((i) => i.label)).toEqual(['BEGIN', 'SETTINGS']);
+    expect(labels.filter((i) => !i.minor).map((i) => i.label)).toEqual(['NEW ADVENTURE', 'SETTINGS']);
     const screen = new PixelBuffer(960, 540);
     title.render(screen, 0);
-    // The first row is BEGIN: click it.
+    // The first row is NEW ADVENTURE: click it.
     const s = TitleScreen.scaleFor(960, 540);
     const begin = [...title.regions].filter((h) => h.w > 150 * s).sort((a, b) => a.y - b.y)[0];
     title.pointer(begin.x + 4, begin.y + 4);
@@ -176,12 +176,12 @@ describe('title screen', () => {
   it('wraps selection and never leaves the main page with Escape', () => {
     const { title } = make();
     title.key('ArrowUp');
-    expect(title.index).toBe(3);
+    expect(title.index).toBe(4);
     title.key('Escape');
     expect(title.page).toBe('main');
   });
 
-  it('several islands from an older version: all listed, the active one marked, CONTINUE plays the active one', () => {
+  it('several islands from an older version: all listed, the active one marked; CONTINUE ADVENTURE lets the player choose', () => {
     const p = parseIdentity('seed=s|kind=turtle|turtle=t|variant=0|10x10|scale=1|palette=cozy|density=1|islands=auto')!;
     const worlds = [
       { identity: 'a', params: p, name: 'Mossy Cove', day: 3, quests: 2, buildings: 1, lastPlayed: 9 },
@@ -191,12 +191,12 @@ describe('title screen', () => {
     const opened: string[] = [];
     const title = new TitleScreen({ worlds: () => worlds, activeIdentity: () => 'b', current: () => ({ identity: 'b', name: 'Kelp Harbour', saved: true }), continueGame: () => opened.push('continue'), openWorld: (w) => opened.push(w.identity), settings: () => {} });
     const items = () => (title as unknown as { items(): { label: string; detail?: string }[] }).items();
-    expect(items()[0].detail).toContain('KELP HARBOUR'); // CONTINUE names the active island, not the most recent
-    expect(items()[2].label).toBe('ISLANDS (3)');
-    title.key('ArrowDown');
-    title.key('ArrowDown');
+    expect(items()[0].label).toBe('CONTINUE ADVENTURE');
+    expect(items()[0].detail).toBe('CHOOSE ONE OF YOUR 3 ISLANDS');
+    expect(items()[3].label).toBe('ISLANDS (3)');
     title.key('Enter');
-    expect(items().map((i) => i.label)).toEqual(['MOSSY COVE', 'KELP HARBOUR', 'QUIET ISLE', 'BACK']);
+    expect(title.page).toBe('islands');
+    expect(items().map((i) => i.label)).toEqual(['MOSSY COVE', 'KELP HARBOUR', 'QUIET ISLE', 'NEW ADVENTURE', 'BACK']);
     expect(items().filter((i) => i.detail?.startsWith('ACTIVE')).map((i) => i.label)).toEqual(['KELP HARBOUR']);
     title.render(new PixelBuffer(640, 360), 0);
     title.key('ArrowDown');

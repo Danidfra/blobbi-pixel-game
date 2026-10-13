@@ -27,6 +27,7 @@ import { paletteFor } from '../world/generate';
 import { T, WALKABLE, type Placement, type WorldDescription } from '../world/types';
 import { identityOfSource, type PixelBlobbiIdentity } from '../blobbi/identity';
 import { babyHeightFor, type BlobbiStage } from '../blobbi/canonical';
+import { buildEggSprite, type EggPose } from '../blobbi/egg';
 import { sourceFromSeed, type BlobbiSource } from '../blobbi/source';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
@@ -286,6 +287,9 @@ export interface RestPlan {
 
 /** Seconds a climb into or out of bed takes (a little hop, never a jump cut). */
 export const CLIMB_SECONDS = 0.45;
+
+/** M11D.3: the teleport's pace for a Blobbi coming back to an island it already knows (about half the time). */
+export const QUICK_PACE = 0.5;
 
 export interface LiveOptions {
   /** Where collected resources and the inventory persist; nothing persists without it. */
@@ -4553,6 +4557,8 @@ export class LiveWorld {
         this.swap.phase = 'arriving';
         this.teleport.enterBlobbi(time);
       } else if (this.swap && e === 'arrived') this.swap = null;
+      // A quick arrival (a Blobbi back on an island it knows) is for that arrival only.
+      if (e === 'arrived') this.teleport.pace = 1;
       else if (this.swap && e === 'cancelled') {
         // A cancelled swap never strands anyone: the chosen Blobbi is simply there.
         const t = this.swap.target;
@@ -4893,6 +4899,25 @@ export class LiveWorld {
     return Math.round(g * 24) / 24;
   }
 
+  /**
+   * M11D.3: a presentation-only egg drawn in the Blobbi's place (the first birth cinematic), or null. It never
+   * changes the Blobbi, its stage or anything saved: the renderers draw the walking Blobbi's own kit egg instead.
+   */
+  egg: EggPose | null = null;
+  private readonly eggCache = new Map<string, Sprite>();
+
+  /** The walking Blobbi's own egg (its genome's), at the world size, cached by crack and angle. */
+  eggSprite(pose: EggPose): Sprite {
+    const key = `${this.blobbi.seed}|${this.blobbi.size}|${pose.crack}|${pose.angle}`;
+    let s = this.eggCache.get(key);
+    if (!s) {
+      s = buildEggSprite(this.blobbi.identity.genome, pose, this.blobbi.size);
+      if (this.eggCache.size > 64) this.eggCache.clear();
+      this.eggCache.set(key, s);
+    }
+    return s;
+  }
+
   /** The Blobbi's sprite for a pose, cached. */
   blobbiSprite(pose: BlobbiPose): Sprite {
     const key = `${this.blobbi.seed}|${this.blobbi.identity.stage}|${this.blobbi.size}|${poseKey(pose)}`;
@@ -4943,8 +4968,10 @@ export class LiveWorld {
    */
   swap: { target: { source: BlobbiSource; size: number; stage: BlobbiStage }; phase: 'leaving' | 'arriving' } | null = null;
 
-  swapBlobbi(blobbi: string | BlobbiSource, size = this.blobbi.size, stage: BlobbiStage = 'adult'): 'animated' | 'immediate' | 'unchanged' {
+  swapBlobbi(blobbi: string | BlobbiSource, size = this.blobbi.size, stage: BlobbiStage = 'adult', opts: { quick?: boolean } = {}): 'animated' | 'immediate' | 'unchanged' {
     const source = typeof blobbi === 'string' ? sourceFromSeed(blobbi) : blobbi;
+    // M11D.3: a Blobbi coming back to an island it knows swaps in about 3 s; a first visit takes the full 6 s.
+    this.teleport.pace = opts.quick ? QUICK_PACE : 1;
     const target = { source, size, stage };
     const same = source.seed === this.blobbi.seed && stage === this.blobbi.identity.stage && size === this.blobbi.size;
     const time = this.clock.time;

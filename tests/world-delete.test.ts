@@ -84,7 +84,8 @@ describe('deleting from ISLANDS', () => {
     const { t, deleted, draw } = title([entry('a', 'Mossy Cove'), entry('b', 'Quiet Isle')]);
     draw(0);
     t.key('ArrowDown');
-    t.key('ArrowDown'); // ISLANDS (after CONTINUE and SETTINGS)
+    t.key('ArrowDown');
+    t.key('ArrowDown'); // ISLANDS (after CONTINUE, NEW ADVENTURE and SETTINGS, M11D.3)
     t.key('Enter');
     expect(t.page).toBe('islands');
     draw(1);
@@ -113,11 +114,12 @@ describe('deleting from ISLANDS', () => {
   it('a double tap on DELETE never deletes: the first tap asks, the second lands on the question', () => {
     const { t, deleted, draw } = title([entry('a', 'Mossy Cove')]);
     t.key('ArrowDown');
+    t.key('ArrowDown');
     t.key('ArrowDown'); // ISLANDS
     t.key('Enter');
     draw(0);
     const buttons = (t as unknown as { hits: { x: number; y: number; w: number; h: number }[] }).hits;
-    const del = buttons.at(-2)!; // the row's DELETE button (BACK is last)
+    const del = buttons.at(-3)!; // the row's DELETE button (NEW ADVENTURE and BACK follow, M11D.3)
     press(t, 'DELETE', del);
     expect(t.page).toBe('delete');
     draw(0.05);
@@ -129,6 +131,7 @@ describe('deleting from ISLANDS', () => {
 
   it('Escape cancels the question', () => {
     const { t, deleted, draw } = title([entry('a', 'Mossy Cove')]);
+    t.key('ArrowDown');
     t.key('ArrowDown');
     t.key('ArrowDown'); // ISLANDS
     t.key('Enter');

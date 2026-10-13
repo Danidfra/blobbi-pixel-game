@@ -31,7 +31,17 @@ import { MAX_NAME, sanitizeIslandName, suggestIslandName, typingIslandName } fro
 import { getLocale, LOCALES, t, upper } from '../i18n';
 import { nextLocale } from './screens/settings';
 
-export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete';
+export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login';
+
+/** M11D.3: who lives on a new island: a Blobbi met there (an egg hatches) or the one already chosen. */
+export type Companion = 'new' | 'current';
+
+/** M11D.3: the optional Nostr account as the title shows it (the Nostr module itself is never imported here). */
+export interface TitleAccount {
+  status: 'connected' | 'connecting' | 'disconnected';
+  name: string | null;
+  signerAvailable: boolean;
+}
 
 export interface TitleActions {
   /** Saved worlds, most recent first. */
@@ -56,6 +66,16 @@ export interface TitleActions {
   watchIntro?(kind: CarrierKind): void;
   /** Touch: bring up the device keyboard for the island name (the host mirrors what is typed into `name`). */
   requestTextInput?(current: string): void;
+  /** M11D.3: the optional Nostr account (absent: no LOGIN WITH NOSTR row). */
+  account?(): TitleAccount;
+  /** M11D.3: connect the browser extension (NIP-07, read-only; the existing connection). */
+  connect?(): void;
+  /** M11D.3: open MY BLOBBIS over the title (choose one of my Blobbis). */
+  myBlobbis?(): void;
+  /** M11D.3: the Blobbi chosen now, when it is one worth keeping (not the default visitor): its name for the companion page. */
+  currentBlobbi?(): { name: string } | null;
+  /** M11D.3: one more line for an island's card: when it was last played and who came last. */
+  islandNote?(w: WorldEntry): string;
 }
 
 /** What each Carrier is like: the same game on each, a different look and mood (in the current language). */
@@ -84,6 +104,8 @@ interface Item {
   danger?: boolean;
   /** A small secondary row (ISLANDS, ABOUT): a slim card, never prominent. */
   minor?: boolean;
+  /** M11D.3: a second detail line (an island's last played time and Blobbi). */
+  detail2?: string;
   run: () => void;
 }
 
@@ -98,7 +120,9 @@ export class TitleScreen {
   /** The island name being typed (may be empty). */
   name = '';
   /** A CREATE ISLAND waiting for the host (taken once with `takeCreate`). */
-  pendingCreate: { kind: CarrierKind; name: string } | null = null;
+  pendingCreate: { kind: CarrierKind; name: string; companion: Companion } | null = null;
+  /** M11D.3: the companion already decided for this adventure (LOGIN WITH NOSTR's MEET A NEW BLOBBI), or null. */
+  companionPreset: Companion | null = null;
   /** Why the last island could not be made. */
   error = '';
   private suggestion = 0;
@@ -131,7 +155,8 @@ export class TitleScreen {
     const a = this.actions;
     if (this.page === 'welcome')
       return [
-        { label: upper(t('title.begin')), detail: upper(t('title.begin.detail')), run: () => this.go('carrier') },
+        { label: upper(t('title.newAdventure')), detail: upper(t('title.newAdventure.first')), run: () => this.newAdventure() },
+        ...this.loginRow(),
         { label: upper(t('title.settings')), run: () => a.settings() },
         { label: upper(t('title.about')), minor: true, run: () => this.go('about') },
       ];
@@ -140,8 +165,12 @@ export class TitleScreen {
       const active = this.activeEntry(worlds);
       const cur = a.current();
       const out: Item[] = [];
-      if (active) out.push({ label: upper(t('title.continue')), detail: upper(t('title.continue.detail', { name: active.name, species: speciesName(active), day: active.day })), run: () => a.continueGame() });
+      // CONTINUE ADVENTURE: the island itself when there is one; a choice of islands when there are several (M11D.3).
+      if (active && worlds.length > 1) out.push({ label: upper(t('title.continueAdventure')), detail: upper(t('title.continueChoose', { count: worlds.length })), run: () => this.go('islands') });
+      else if (active) out.push({ label: upper(t('title.continueAdventure')), detail: upper(t('title.continue.detail', { name: active.name, species: speciesName(active), day: active.day })), run: () => a.continueGame() });
       if (cur.linked && !worlds.some((w) => w.identity === cur.identity) && a.playCurrent) out.push({ label: upper(t('title.playLinked')), detail: upper(t('title.playLinked.detail', { name: cur.name })), run: () => a.playCurrent!() });
+      out.push({ label: upper(t('title.newAdventure')), detail: upper(t('title.newAdventure.detail')), run: () => this.newAdventure() });
+      out.push(...this.loginRow());
       out.push({ label: upper(t('title.settings')), run: () => a.settings() });
       // The islands page is always reachable (a quiet row): every saved island stays recoverable.
       out.push({ label: upper(worlds.length > 1 ? t('title.islandsCount', { count: worlds.length }) : t('title.islands')), minor: true, run: () => this.go('islands') });
@@ -151,9 +180,36 @@ export class TitleScreen {
     if (this.page === 'islands') {
       const worlds = a.worlds();
       const active = this.activeEntry(worlds);
-      const list = worlds.map((w) => ({ label: upper(w.name), detail: (w === active ? `${upper(t('title.active'))}  ` : '') + worldDetail(w), world: w, run: () => a.openWorld(w) }));
-      const more: Item[] = a.allowNewIsland ? [{ label: upper(t('title.newIsland')), detail: upper(t('title.newIsland.detail')), run: () => this.go('carrier') }] : [];
+      const list = worlds.map((w) => ({ label: upper(w.name), detail: (w === active ? `${upper(t('title.active'))}  ` : '') + worldDetail(w), detail2: a.islandNote ? upper(a.islandNote(w)) : undefined, world: w, run: () => a.openWorld(w) }));
+      // M11D.3: several islands are a feature now; a new one always asks first (the others stay saved).
+      const more: Item[] = [{ label: upper(t('title.newAdventure')), detail: upper(t('title.newAdventure.detail')), run: () => this.newAdventure() }];
       return [...list, ...more, { label: upper(t('title.back')), run: () => this.back() }];
+    }
+    if (this.page === 'newConfirm')
+      return [
+        { label: upper(t('title.newConfirm.go')), detail: upper(t('title.newConfirm.goDetail')), run: () => this.go('carrier') },
+        { label: upper(t('title.newConfirm.back')), detail: upper(t('title.newConfirm.backDetail')), run: () => this.back() },
+      ];
+    if (this.page === 'companion') {
+      const cur = a.currentBlobbi?.() ?? null;
+      return [
+        { label: upper(t('title.meetNew')), detail: upper(t('title.meetNew.detail')), run: () => this.create('new') },
+        ...(cur ? [{ label: upper(t('title.bringCurrent', { name: cur.name })), detail: upper(t('title.bringCurrent.detail')), run: () => this.create('current') }] : []),
+        { label: upper(t('title.back')), run: () => this.back() },
+      ];
+    }
+    if (this.page === 'login') {
+      const acc = a.account?.();
+      if (acc?.status === 'connected')
+        return [
+          ...(a.myBlobbis ? [{ label: upper(t('title.login.mine')), detail: upper(t('title.login.mineDetail')), run: () => a.myBlobbis!() }] : []),
+          { label: upper(t('title.meetNew')), detail: upper(t('title.login.newDetail')), run: () => this.newAdventure('new') },
+          { label: upper(t('title.back')), run: () => this.back() },
+        ];
+      return [
+        { label: upper(t(acc?.status === 'connecting' ? 'title.login.connecting' : 'title.login.connect')), detail: upper(t('title.login.connectDetail')), run: () => (acc?.status === 'connecting' ? undefined : a.connect?.()) },
+        { label: upper(t('title.login.guest')), detail: upper(t('title.login.guestDetail')), run: () => this.back() },
+      ];
     }
     if (this.page === 'delete') {
       const w = this.confirm.subject;
@@ -164,7 +220,7 @@ export class TitleScreen {
     }
     if (this.page === 'name') {
       const out: Item[] = [
-        { label: upper(t('title.createIsland')), detail: this.name.trim() ? `"${upper(sanitizeIslandName(this.name))}"` : upper(t('title.createIsland.unnamed')), run: () => this.create() },
+        { label: upper(t('title.createIsland')), detail: this.name.trim() ? `"${upper(sanitizeIslandName(this.name))}"` : upper(t('title.createIsland.unnamed')), run: () => this.afterName() },
         { label: upper(t('title.surprise')), detail: upper(t('title.surprise.detail')), run: () => this.suggest() },
       ];
       if (a.requestTextInput) out.push({ label: upper(t('title.typeName')), detail: upper(t('title.typeName.detail')), run: () => a.requestTextInput!(this.name) });
@@ -194,7 +250,9 @@ export class TitleScreen {
   /** One step back: to WELCOME for a first-time player, else to the main menu. */
   private back(): void {
     if (this.page === 'name') return this.go('carrier');
-    if (this.page === 'carrier' || this.page === 'about' || this.page === 'error' || this.page === 'islands') {
+    if (this.page === 'companion') return this.go('name');
+    if (this.page === 'carrier' || this.page === 'about' || this.page === 'error' || this.page === 'islands' || this.page === 'newConfirm' || this.page === 'login') {
+      if (this.page !== 'login') this.companionPreset = null;
       const first = this.actions.worlds().length === 0 && !this.actions.current().saved && !this.actions.current().linked;
       return this.go(first ? 'welcome' : 'main');
     }
@@ -222,15 +280,42 @@ export class TitleScreen {
     this.name = typingIslandName(value).slice(0, MAX_NAME);
   }
 
+  /**
+   * M11D.3, NEW ADVENTURE: with islands already saved, the narrative confirmation first ("your Carrier keeps sailing
+   * until you come back": nothing is deleted, the other islands stay saved and recoverable); else straight to the
+   * Carrier. `companion` presets who will live there (LOGIN WITH NOSTR's MEET A NEW BLOBBI).
+   */
+  newAdventure(companion: Companion | null = null): void {
+    this.companionPreset = companion;
+    const saved = this.actions.worlds().length > 0;
+    this.go(saved ? 'newConfirm' : 'carrier');
+  }
+
+  /** The name is set: who lives here? Asked only when the player has a Blobbi worth keeping and nothing is preset. */
+  private afterName(): void {
+    if (this.companionPreset) return this.create(this.companionPreset);
+    if (this.actions.currentBlobbi?.()) return this.go('companion');
+    this.create('new');
+  }
+
   /** CREATE ISLAND: leave the request for the host, once. */
-  private create(): void {
+  private create(companion: Companion = 'new'): void {
     if (this.pendingCreate || this.page === 'creating') return;
-    this.pendingCreate = { kind: CARRIER_CARDS[this.carrier].kind, name: sanitizeIslandName(this.name) };
+    this.pendingCreate = { kind: CARRIER_CARDS[this.carrier].kind, name: sanitizeIslandName(this.name), companion };
+    this.companionPreset = null;
     this.go('creating');
   }
 
+  /** LOGIN WITH NOSTR (optional): a row on the first pages when the host has an account to offer. */
+  private loginRow(): Item[] {
+    const acc = this.actions.account?.();
+    if (!acc) return [];
+    if (acc.status === 'connected') return [{ label: upper(t('title.login.connected')), detail: upper(acc.name ? t('title.login.connectedAs', { name: acc.name }) : t('title.login.connectedAnon')), run: () => this.go('login') }];
+    return [{ label: upper(t('title.login')), detail: upper(t('title.login.detail')), run: () => this.go('login') }];
+  }
+
   /** The host takes the request (exactly once) when it is ready to make the island. */
-  takeCreate(): { kind: CarrierKind; name: string } | null {
+  takeCreate(): { kind: CarrierKind; name: string; companion: Companion } | null {
     const p = this.pendingCreate;
     this.pendingCreate = null;
     return p;
@@ -416,7 +501,7 @@ export class TitleScreen {
 
     const items = this.items();
     // The islands page explains the active island above its list: one row fewer fits under it.
-    const rows = this.page === 'islands' && items.length > 2 ? 4 : 5;
+    const rows = this.page === 'islands' ? (items.some((i) => i.detail2) ? 3 : items.length > 2 ? 4 : 5) : this.page === 'newConfirm' || this.page === 'login' ? 3 : 5;
     if (this.index < this.scroll) this.scroll = this.index;
     if (this.index >= this.scroll + rows) this.scroll = this.index - rows + 1;
     const panelW = 184;
@@ -424,7 +509,7 @@ export class TitleScreen {
     const px = named ? 18 : Math.floor((W - panelW) / 2);
     const menu = this.page === 'welcome' || this.page === 'main';
     let y = named ? 24 : menu ? 64 : 56;
-    const headings: Partial<Record<TitlePage, string>> = { islands: t('title.heading.islands'), about: t('title.heading.about'), delete: t('title.heading.delete'), name: t('title.heading.name'), error: t('title.heading.error') };
+    const headings: Partial<Record<TitlePage, string>> = { islands: t('title.heading.islands'), about: t('title.heading.about'), delete: t('title.heading.delete'), name: t('title.heading.name'), error: t('title.heading.error'), newConfirm: t('title.newConfirm.title'), companion: t('title.companion.title'), login: t('title.login.title') };
     const heading = headings[this.page];
     if (heading) {
       g.heading(heading, px, y, UI.accent, SHADE);
@@ -434,6 +519,13 @@ export class TitleScreen {
       y += g.para(t('title.islandsNote'), px, y, panelW, UI.muted, 5, SHADE) + 3;
     }
     if (this.page === 'about') y += g.para(t('title.aboutText'), px, y, panelW, UI.ink, 5, SHADE) + 4;
+    if (this.page === 'newConfirm') y += g.para(t('title.newConfirm.body'), px, y, panelW, UI.ink, 6, SHADE) + 5;
+    if (this.page === 'companion') y += g.para(t('title.companion.body'), px, y, panelW, UI.ink, 4, SHADE) + 4;
+    if (this.page === 'login') {
+      const acc = this.actions.account?.();
+      const text = acc?.status === 'connected' ? (acc.name ? t('title.login.welcome', { name: acc.name }) : t('title.login.welcomeAnon')) : acc && !acc.signerAvailable ? `${t('title.login.body')} ${t('title.login.noSigner')}` : t('title.login.body');
+      y += g.para(text, px, y, panelW, UI.ink, 6, SHADE) + 4;
+    }
     if (this.page === 'error') y += g.para(this.error || t('title.createError'), px, y, panelW, UI.bad, 99, SHADE) + 6;
     if (this.page === 'name') y = this.drawNameField(g, px, y, panelW, time);
     if (this.page === 'delete' && this.confirm.subject) {
@@ -449,7 +541,7 @@ export class TitleScreen {
     items.slice(this.scroll, this.scroll + rows).forEach((it, k2) => {
       const i = k2 + this.scroll;
       const selected = i === this.index;
-      const h = it.minor ? 10 : it.detail ? 18 : 11;
+      const h = it.minor ? 10 : it.detail2 ? 25 : it.detail ? 18 : 11;
       // The delete answer waits, greyed, until the question has been read for a moment.
       const waiting = !!it.danger && !this.confirm.armed(time);
       const c = card(panelW, h, selected ? (it.danger ? UI.bad : DESIGN.accent) : undefined);
@@ -460,6 +552,7 @@ export class TitleScreen {
       g.text(it.label, px + 11, y + (it.minor ? 2 : 3), waiting ? UI.line : it.danger ? UI.bad : selected ? UI.accent : it.minor ? UI.muted : UI.ink);
       // (A saved island's row keeps room for its DELETE button.)
       if (it.detail) g.text(fit(g, it.detail, panelW - 14 - (it.world && this.actions.deleteWorld ? 36 : 0)), px + 11, y + 10, UI.muted);
+      if (it.detail2) g.text(fit(g, it.detail2, panelW - 14), px + 11, y + 17, UI.muted);
       g.hit(px, y, panelW, h, () => {
         this.index = i;
         it.run();

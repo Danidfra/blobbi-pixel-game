@@ -38,7 +38,6 @@ import type { ViewRenderer } from '../render/view-renderer';
 import { ViewCamera, worldBounds, type CameraModeId, type ViewRect, type WorldBounds } from '../render/view-camera';
 import type { AudioEngine } from '../audio/engine';
 import type { CarrierSpecies } from '../game/archipelago';
-import type { PresenceState } from '../game/teleport';
 import type { AnimatorState } from '../blobbi/animation';
 import type { Expression } from '../blobbi/pose';
 import { whalePose } from '../carriers/whale';
@@ -47,7 +46,10 @@ import { DESIGN } from '../ui/hud';
 import { turtleUnderlay } from '../render/compose';
 import { composeIntroFrame, FULLY_GROWN, FULLY_SURFACED, movingPartsMask, OpenSea, SOIL_BAND, type ComposeScratch, type SubmergeState } from './sea';
 import { bareCarrierLayer, formation, revealScale, revealSubject, terrainOnlyLayer, type Formation } from './layers';
-import { carrierSounds, fullTiming, reducedTiming, sceneAt, surfacingOrder, travelDirection, type IntroSceneId, type IntroTiming } from './script';
+import { birthTiming, carrierSounds, fullTiming, reducedTiming, sceneAt, surfacingOrder, travelDirection, type IntroSceneId, type IntroTiming } from './script';
+import { DEPART, TeleportController, type PresenceState } from '../game/teleport';
+import { drawTeleportParticles } from '../render/teleport-render';
+import { eggPoseAt } from '../blobbi/egg';
 import { IntroAudio } from './audio';
 
 export interface IntroContext {
@@ -69,6 +71,12 @@ export interface IntroOptions {
   uiScale?: number;
   onComplete?: (result: IntroResult) => void;
   onSkip?: () => void;
+  /**
+   * M11D.3, A FIRST BIRTH: a genuinely new Blobbi is met here. Its own kit egg arrives in its place (the teleport's
+   * particles), rocks, cracks and hatches (a burst of the teleport's rising pixels), and the Baby is out; then the
+   * usual performance. A LOCAL PRESENTATION: no canonical stage is stated, changed or published by it.
+   */
+  birth?: boolean;
 }
 
 export interface IntroResult {
@@ -152,13 +160,19 @@ export class IntroCinematic {
   private lastSpout = -1;
   /** The world's clock when the cinematic began: the world is drawn at `t0 + t`, ending exactly on it. */
   private readonly t0: number;
+  /** M11D.3: a first birth (the egg). */
+  readonly birth: boolean;
+  /** M11D.3: the hatch's burst of light (the teleport's own departure particles, rising from the shell). */
+  private burst: TeleportController | null = null;
 
   constructor(ctx: IntroContext, opts: IntroOptions = {}) {
     this.live = ctx.live;
     this.view = ctx.view;
     this.species = this.live.species;
     this.reducedMotion = !!opts.reducedMotion;
-    this.timing = this.reducedMotion ? reducedTiming() : fullTiming(this.species);
+    this.birth = !!opts.birth;
+    const base = this.reducedMotion ? reducedTiming() : fullTiming(this.species);
+    this.timing = this.birth ? birthTiming(base, this.reducedMotion) : base;
     this.palette = paletteFor(this.live.world.options.palette);
     this.bounds = worldBounds(this.live.world);
     this.order = surfacingOrder(this.live.world, this.species, this.bounds);
@@ -218,8 +232,28 @@ export class IntroCinematic {
     cue(tm.arrival, () => {
       live.teleport.reducedMotion = reduced;
       s.direction = 'down';
+      // A first birth: the Blobbi's own egg is what arrives (the same particles), and stays until it hatches.
+      if (tm.egg) live.egg = { crack: 'none', angle: 0 };
       live.teleport.enterBlobbi(T());
     });
+    if (tm.egg) {
+      const egg = tm.egg;
+      for (const c of egg.cracks) cue(c, () => this.audio.cue('plant', 0.8));
+      cue(egg.strong, () => this.audio.cue('curious', 0.6));
+      cue(egg.hatch, () => {
+        // The shell opens: a burst of light rises from it (the teleport's own departure pixels, begun so they leave
+        // at once), and the Baby is there, facing you, with a happy little hop.
+        live.egg = null;
+        const burst = new TeleportController(`${live.blobbi.seed}/birth`, live.bodyH, Math.max(3, live.teleport.halfWidth + 2));
+        burst.reducedMotion = reduced;
+        burst.leaveBlobbi(T() - DEPART.dissolveStart * (reduced ? 0.6 : 1));
+        this.burst = burst;
+        s.direction = 'down';
+        react('happy', 1.1, reduced ? 0 : 2);
+        this.audio.cue('recipe', 0.9);
+        this.audio.cue('happy', 0.7);
+      });
+    }
     // The performance: a look one way and the other (the body turns, as a Blobbi looks), then you, then hello.
     const first: -1 | 1 = this.formation.land.cx >= b.x ? 1 : -1;
     cue(tm.looks[0], () => {
@@ -342,6 +376,7 @@ export class IntroCinematic {
     if (!this.finished) {
       this.t = Math.min(this.timing.end, this.t + Math.max(0, Math.min(0.1, dt)));
       this.fireCues();
+      if (this.timing.egg && this.live.egg) this.live.egg = eggPoseAt(this.t, this.timing.egg, this.reducedMotion) ?? this.live.egg;
       this.stepPerformance();
       this.stepArrival();
       this.watchSpout();
@@ -376,7 +411,7 @@ export class IntroCinematic {
     const T = this.worldTime();
     for (const e of tp.step(T)) {
       this.audio.cue(`teleport-${e}`, 1);
-      if (e === 'arrived') this.live.blobbi.animator.react('happy', T, 1.2, this.reducedMotion ? 0 : 3);
+      if (e === 'arrived' && !this.live.egg) this.live.blobbi.animator.react('happy', T, 1.2, this.reducedMotion ? 0 : 3);
     }
   }
 
@@ -514,6 +549,12 @@ export class IntroCinematic {
       vegProgress: this.vegProgress(t),
     };
     composeIntroFrame(screen, view, this.live.world, this.sea, this.palette, time, state, this.scratch);
+    // The hatch's light, over the Baby (where it was drawn this frame).
+    const at = this.view.lastBlobbi;
+    if (this.burst && at && this.burst.state === 'departing') {
+      this.burst.step(time);
+      drawTeleportParticles(screen, this.burst, time, at.x, at.y, view.scale);
+    }
     if (t < FADE_IN) tint(screen, TITLE_TINT, 1 - smooth(t / FADE_IN));
     if (t >= 1.2 && t < this.timing.beginning) this.drawHint(screen);
     if (t >= this.timing.line1) this.drawMessage(screen, t);
@@ -597,6 +638,9 @@ export class IntroCinematic {
     const snap = this.snapshot;
     if (!snap) return;
     const now = live.clock.time;
+    // Whatever happens, the egg is a presentation only: the Baby is simply there at the handoff.
+    live.egg = null;
+    this.burst = null;
     const s = live.blobbi.animator.state;
     s.moving = false;
     s.walkPhase = 0;

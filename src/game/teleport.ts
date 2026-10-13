@@ -71,6 +71,11 @@ export class TeleportController {
   private k = 1;
   /** Calmer, shorter transitions: fewer pixels, no camera movement. Read when a transition begins. */
   reducedMotion = false;
+  /**
+   * M11D.3: the pace of full-motion transitions (1 the full effect; 0.5 twice as fast: a Blobbi coming back to an
+   * island it already knows). Read when a transition begins; reduced motion keeps its own short form.
+   */
+  pace = 1;
 
   constructor(
     readonly seed: string,
@@ -101,7 +106,7 @@ export class TeleportController {
   private begin(state: 'departing' | 'arriving', now: number): void {
     this.state = state;
     this.t0 = now;
-    this.k = this.reducedMotion ? REDUCED : 1;
+    this.k = this.reducedMotion ? REDUCED : Math.max(0.3, Math.min(1, this.pace));
     this.count++;
     this.emitted.clear();
     const rng = stream(this.seed, 'teleport', this.count);

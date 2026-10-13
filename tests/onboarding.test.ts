@@ -62,7 +62,7 @@ describe('the first-time flow on the title', () => {
     t.key('KeyR', 'r');
     t.key('Enter');
     expect(t.page).toBe('creating');
-    expect(t.takeCreate()).toEqual({ kind: 'whale', name: 'Kelp Harbour' });
+    expect(t.takeCreate()).toEqual({ kind: 'whale', name: 'Kelp Harbour', companion: 'new' }) // M11D.3: a first adventure meets a new Blobbi;
   });
 
   it('every Carrier can be chosen, with the mouse or a tap: one tap selects, a second goes on', () => {
@@ -133,7 +133,7 @@ describe('the first-time flow on the title', () => {
     expect(t.page).toBe('carrier');
   });
 
-  it('a returning player gets CONTINUE (no NEW ISLAND); with NEW ISLAND allowed it uses the same steps', () => {
+  it('a returning player gets CONTINUE and (M11D.3) NEW ADVENTURE, which asks first and keeps the island', () => {
     const w: WorldEntry = { identity: 'seed=a|kind=whale|carrier=c|1280x768|scale=1.6|palette=cozy|density=1|islands=1', params: parseIdentity('seed=a|kind=whale|carrier=c|1280x768|scale=1.6|palette=cozy|density=1|islands=1')!, name: 'Kelp Harbour', day: 2, quests: 3, buildings: 1, lastPlayed: 5 };
     const { t, calls } = titleFor([w], { allowNewIsland: true });
     expect(t.page).toBe('main');
@@ -141,10 +141,14 @@ describe('the first-time flow on the title', () => {
     t.key('Enter');
     expect(calls).toEqual(['continue']);
     t.key('ArrowDown');
+    t.key('Enter'); // NEW ADVENTURE
+    expect(t.page).toBe('newConfirm'); // "A new adventure?": the island keeps waiting, nothing is deleted
     t.key('ArrowDown');
-    t.key('Enter'); // ISLANDS
+    t.key('Enter'); // BACK TO MY ISLAND
+    expect(t.page).toBe('main');
     t.key('ArrowDown');
-    t.key('Enter'); // NEW ISLAND (allowed here)
+    t.key('Enter');
+    t.key('Enter'); // START A NEW ADVENTURE
     expect(t.page).toBe('carrier');
     t.key('Escape');
     expect(t.page).toBe('main');

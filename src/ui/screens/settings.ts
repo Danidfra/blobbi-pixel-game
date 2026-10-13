@@ -42,6 +42,10 @@ export class SettingsScreen implements Screen {
   account: AccountPort | null = null;
   /** M11C: open MY BLOBBIS (the playground sets it; without it the button is not shown). */
   onMyBlobbis: (() => void) | null = null;
+  /** M11D.3: back to the main menu (the island is saved first; the playground sets it while playing). */
+  onMainMenu: (() => void) | null = null;
+  /** Whether MAIN MENU applies now (only while playing, never from the title itself). */
+  mainMenuAvailable: (() => boolean) | null = null;
   /** The ACCOUNT page's details (public key, signer, relays) are shown. */
   advanced = false;
   /** The ACCOUNT page's short explanation is shown. */
@@ -84,6 +88,7 @@ export class SettingsScreen implements Screen {
         { label: t('settings.reducedMotion', { state: onOff(s.reducedMotion) }), run: change(() => (s.reducedMotion = !s.reducedMotion)) },
         // Tips belong to the island (saved with it), so a new island starts with them on.
         ...(ui.live && !ui.live.visitor ? [{ label: t('settings.tips', { state: onOff(!ui.live.tutorial.skipped) }), run: () => ui.live!.setTips(ui.live!.tutorial.skipped) }] : []),
+        ...(this.onMainMenu && (this.mainMenuAvailable?.() ?? true) ? [{ label: t('settings.mainMenu'), run: () => this.onMainMenu?.() }] : []),
       ];
     }
     if (this.page === 'account') return this.accountRows(ui);

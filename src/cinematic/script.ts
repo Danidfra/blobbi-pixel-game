@@ -13,6 +13,7 @@
  *
  * Nothing here draws or mutates anything.
  */
+import type { EggPhases } from '../blobbi/egg';
 import type { CarrierSpecies } from '../game/archipelago';
 import type { WorldBounds } from '../render/view-camera';
 import type { WorldDescription } from '../world/types';
@@ -54,6 +55,36 @@ export interface IntroTiming {
   /** The two lines of the message start typing at these moments. */
   line1: number;
   line2: number;
+  /** M11D.3, a first birth: the egg's phases (it arrives at `arrival`, rocks, cracks and hatches), else absent. */
+  egg?: EggPhases;
+}
+
+/**
+ * M11D.3, THE FIRST BIRTH: the same presentation, with an egg in the Blobbi's place. It materialises by the arrival's
+ * own particles at `arrival`, rocks gently, then harder with its first crack, cracks twice more and hatches; the Baby
+ * is out, and the performance (a look one way, the other, you, hello) follows, later by the birth's length.
+ * Reduced motion: no rocking (the cracks and the hatch only), a shorter wait.
+ */
+export function birthTiming(base: IntroTiming, reduced: boolean): IntroTiming {
+  const A = base.arrival;
+  const egg: EggPhases = reduced ? { rock: A + 2.2, strong: A + 2.4, cracks: [A + 2.4, A + 2.9, A + 3.4], hatch: A + 3.9 } : { rock: A + 3.4, strong: A + 5.4, cracks: [A + 5.4, A + 6.4, A + 7.2], hatch: A + 8.0 };
+  // The performance starts after the hatch as it started after the arrival: everything from the first look shifts.
+  const shift = egg.hatch + (reduced ? 0.5 : 1.2) - base.looks[0];
+  const sh = (v: number) => v + shift;
+  return {
+    ...base,
+    looks: [sh(base.looks[0]), sh(base.looks[1])],
+    notices: sh(base.notices),
+    happy: sh(base.happy),
+    beginning: sh(base.beginning),
+    end: sh(base.end),
+    settle: [sh(base.settle[0]), sh(base.settle[1])],
+    line1: sh(base.line1),
+    line2: sh(base.line2),
+    // The full close-up comes in on the egg (unchanged); the reduced cut to the gameplay framing moves with the rest.
+    closeUp: reduced ? [sh(base.closeUp[0]), sh(base.closeUp[1])] : base.closeUp,
+    egg,
+  };
 }
 
 /** The full presentation, about 32 s. The ocean scene is a little longer for the whale: it is long. */

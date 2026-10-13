@@ -18,14 +18,16 @@ import { DEFAULT_WORLD_OPTIONS } from '../world/types';
 import { PALETTES, COZY } from '../core/palette';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex } from '../core/color';
-import { LiveWorld, type LiveInput } from '../sim/live-world';
+import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
-import { effectiveSelection, loadSelection, loadSelectionRecord, storeSelection } from '../game/blobbi-selection';
+import { effectiveSelection, loadSelection, loadSelectionRecord, storeLocalSelection, storeSelection } from '../game/blobbi-selection';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
+import { createLocalBlobbi, forgetLocalBlobbi, isLocalBlobbiSeed, localBlobbi, markBorn } from '../game/local-blobbis';
+import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
 import { RECIPES, canCraft, recipeById } from '../game/crafting';
@@ -63,7 +65,7 @@ import { installCustomisation } from '../ui/screens/home-style';
 import { LocalVisitTransport, VisitSession, localPlayerId, OWNERS_KEY, type WorldRef } from '../game/visiting';
 import { AudioEngine, DEFAULT_AUDIO } from '../audio/engine';
 import { GameAudio } from '../audio/director';
-import { TitleScreen, CARD_PIC } from '../ui/title';
+import { TitleScreen, CARD_PIC, type Companion } from '../ui/title';
 import { displayName } from '../game/island-name';
 import { generateMantaWorld } from '../carriers/manta-world';
 import { generateWhaleWorld } from '../carriers/whale-world';
@@ -618,6 +620,16 @@ blobbisScreen.forms = {
   accept: (address) => void storeOrNull((st) => acceptWorldForm(st, address)),
 };
 settingsScreen.onMyBlobbis = () => gameUI.open('blobbis');
+// M11D.3: SETTINGS > MAIN MENU while playing: the island is saved, play stops, the title comes back (nothing lost).
+settingsScreen.mainMenuAvailable = () => !!live && !title.active && !intro;
+settingsScreen.onMainMenu = () => {
+  if (!live || title.active || intro) return;
+  if (!live.visitor) live.save();
+  gameUI.close();
+  playStarted = false;
+  title.active = true;
+  title.reset();
+};
 /** The canonical Blobbi walking now (chosen from MY BLOBBIS with the connected account), or null. */
 function walkingCanonical(): { address: string; name: string; stage: BlobbiStage } | null {
   const rec = effectiveSelection(storeOrNull(loadSelectionRecord), connectedPubkey);
@@ -779,10 +791,49 @@ function beginPlay(): void {
       return;
     }
     live.teleport.reducedMotion = gameUI.settings.reducedMotion;
+    // M11D.3: a Blobbi coming back to an island it knows arrives in about half the time.
+    live.teleport.pace = knownHere(live) ? QUICK_PACE : 1;
     live.teleport.state = 'absent';
     live.enterBlobbi();
+    noteVisit(live);
   }
   view.focus();
+}
+
+/** M11D.3: whether the walking Blobbi has been on this island before (on this device). */
+function knownHere(l: LiveWorld): boolean {
+  return storeOrNull((st) => visitedBefore(st, l.identity, l.blobbi.seed)) ?? false;
+}
+/** M11D.3: remember that the walking Blobbi came to this island (local memory, never published or saved in it). */
+function noteVisit(l: LiveWorld): void {
+  if (!l.visitor) recordVisitOf(l.identity, l.blobbi.seed, l.blobbi.identity.stage);
+}
+function recordVisitOf(island: string, seed: string, stage: BlobbiStage): void {
+  const canonical = walkingCanonical();
+  const name = canonical && state.blobbi.seed === seed ? canonical.name : null;
+  storeOrNull((st) => recordVisit(st, island, { seed, name, stage: stage === 'baby' ? 'baby' : 'adult' }));
+}
+/** M11D.3: a local Blobbi met on this island whose birth has not been seen yet. */
+function unbornHere(l: LiveWorld): boolean {
+  if (!isLocalBlobbiSeed(l.blobbi.seed)) return false;
+  const b = storeOrNull((st) => localBlobbi(st, l.blobbi.seed));
+  return !!b && !b.born && b.island === l.identity;
+}
+/** M11D.3: an island card's second line: when it was last played, and who came last. */
+function islandNote(w: WorldEntry): string {
+  const parts: string[] = [];
+  if (w.lastPlayed > 0) {
+    const days = Math.floor((startOfDay(Date.now()) - startOfDay(w.lastPlayed)) / 86_400_000);
+    parts.push(days <= 0 ? t('title.played.today') : days === 1 ? t('title.played.yesterday') : t('title.played.days', { count: days }));
+  }
+  const last = storeOrNull((st) => lastVisitor(st, w.identity));
+  if (last) parts.push(t('title.withBlobbi', { name: last.name ?? (isLocalBlobbiSeed(last.seed) ? t('blobbi.localBaby') : last.seed === DEMO_BLOBBI_SEED ? 'Blobbi' : last.seed.slice(0, 10)) }));
+  return parts.join('  ');
+}
+function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
 }
 /** Point the playground at a saved world and load it; false (and nothing changed) when it cannot be reproduced. */
 function openWorldParams(w: WorldEntry): boolean {
@@ -847,6 +898,19 @@ const title = new TitleScreen({
   },
   watchIntro: (kind) => startIntroPreview(kind),
   requestTextInput: (current) => openNameInput(current),
+  // M11D.3: the optional account (the existing NIP-07 connection), MY BLOBBIS over the title, who walks now.
+  account: () => {
+    const s = account.snapshot();
+    return { status: s.status === 'connected' ? 'connected' : s.status === 'connecting' ? 'connecting' : 'disconnected', name: s.status === 'connected' ? s.displayName : null, signerAvailable: s.signerAvailable };
+  },
+  connect: () => void account.connect(),
+  myBlobbis: () => gameUI.open('blobbis'),
+  currentBlobbi: () => {
+    if (state.blobbi.kind === 'demo' && state.blobbi.seed === DEMO_BLOBBI_SEED) return null;
+    if (isLocalBlobbiSeed(state.blobbi.seed)) return { name: t('blobbi.localBaby') };
+    return { name: shownName ?? state.blobbi.seed.slice(0, 12) };
+  },
+  islandNote: (w) => islandNote(w),
   preview: (kind, time) => {
     // Each species' picture once per animation step (the title redraws every frame).
     const step = Math.floor(time * 4);
@@ -873,8 +937,9 @@ function islandLabel(identity: string): string {
  * reload during the intro plays it again rather than losing the island), then the intro on the real world. On any
  * failure the playground's previous world and settings are restored and nothing is saved.
  */
-function createWorld(kind: CarrierKind, name: string): string | null {
-  const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant };
+function createWorld(kind: CarrierKind, name: string, companion: Companion = 'current'): string | null {
+  const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant, blobbi: state.blobbi, blobbiSeed: state.blobbiSeed, blobbiStage: state.blobbiStage };
+  let newBlobbi: string | null = null;
   const keepWorld = { world, live, liveRenderer, viewRenderer, bounds };
   try {
     // A new world has no generated cottage: the player builds the first home (M8).
@@ -887,12 +952,23 @@ function createWorld(kind: CarrierKind, name: string): string | null {
     state.turtleSeed = turtleSeed;
     world = makeWorld(seed);
     const store = localStore();
+    // M11D.3, MEET A NEW BLOBBI: a local Blobbi, an egg to hatch on this island (no key, no event; see local-blobbis).
+    if (companion === 'new' && store) {
+      const b = createLocalBlobbi(store, worldIdentity(world), Date.now());
+      newBlobbi = b.id;
+      state.blobbi = sourceFromSeed(b.id);
+      state.blobbiSeed = b.id;
+      state.blobbiStage = 'baby';
+    }
     const made = new LiveWorld(world, state.blobbi, state.blobbiSize, { stage: state.blobbiStage, store });
     if (hasSave(made.identity, storeGet)) throw new Error(t('create.exists'));
     made.islandName = name || null;
     made.intro = { state: 'pending', at: 0 };
     made.save();
     if (store && !hasSave(made.identity, storeGet)) throw new Error(t('create.storage'));
+    // The new Blobbi walks from now on (the choice is kept in this browser, beside the islands, never in one).
+    if (newBlobbi && store) storeLocalSelection(store, state.blobbi, 'baby');
+    shownName = blobbiDisplayName();
     live = made;
     liveRenderer = new LiveRenderer(live);
     viewRenderer = new ViewRenderer(live, liveRenderer);
@@ -905,6 +981,8 @@ function createWorld(kind: CarrierKind, name: string): string | null {
     return null;
   } catch (e) {
     Object.assign(state, keep);
+    // An egg that never got its island is forgotten (nothing else refers to it).
+    if (newBlobbi) storeOrNull((st) => forgetLocalBlobbi(st, newBlobbi!));
     ({ world, live, liveRenderer, viewRenderer, bounds } = keepWorld);
     syncControls();
     return `The island could not be made: ${(e as Error).message}. Nothing was saved.`;
@@ -1149,6 +1227,8 @@ function startWorldIntro(): void {
         renderOptions: state.live,
         uiScale: hudScale(gameUI.settings),
         onComplete: (r) => finishWorldIntro(target, r),
+        // M11D.3: a local Blobbi met on this island and not born yet hatches from its egg (a local presentation).
+        birth: unbornHere(target),
       },
     );
     introMode = 'world';
@@ -1174,6 +1254,9 @@ function finishWorldIntro(target: LiveWorld, r: IntroResult): void {
   done?.dispose();
   if (live !== target) return;
   target.setIntro(r.skipped ? 'skipped' : 'done');
+  // The birth was seen (or skipped): it never plays again; and the Blobbi has now been on this island.
+  if (isLocalBlobbiSeed(target.blobbi.seed)) storeOrNull((st) => markBorn(st, target.blobbi.seed, Date.now()));
+  noteVisit(target);
   setCameraMode(r.cameraMode);
   if (bounds) viewCamera.update(0, target.cameraTarget(), view.width, view.height, bounds, true);
   playStarted = true;
@@ -1280,7 +1363,7 @@ function titleFrame(now: number, real: number): void {
   if (title.page === 'creating' && title.pendingCreate && titleCreateFrames++ >= 1) {
     const req = title.takeCreate()!;
     titleCreateFrames = 0;
-    const error = createWorld(req.kind, req.name);
+    const error = createWorld(req.kind, req.name, req.companion);
     if (error) title.createFailed(error);
     else beginPlay();
     return;
@@ -1805,8 +1888,11 @@ function applyBlobbi(source: BlobbiSource, stage: BlobbiStage = 'adult'): void {
   // Only the Blobbi changes: the world's inventory, equipment and buildings stay (they are the world's).
   // M11D.2: in play the change is seen (the outgoing Blobbi leaves, the new one arrives at its spot); before play,
   // on the title or during the intro it is immediate.
-  if (live && playStarted && !intro) live.swapBlobbi(source, state.blobbiSize, stage);
-  else live?.setBlobbi(source, state.blobbiSize, stage);
+  if (live && playStarted && !intro) {
+    // M11D.3: about 6 s the first time this Blobbi comes to this island, about 3 s after that.
+    const quick = storeOrNull((st) => visitedBefore(st, live!.identity, source.seed)) ?? false;
+    if (live.swapBlobbi(source, state.blobbiSize, stage, { quick }) !== 'unchanged' && !live.visitor) recordVisitOf(live.identity, source.seed, stage);
+  } else live?.setBlobbi(source, state.blobbiSize, stage);
   saveHash();
   renderBlobbiView();
 }
