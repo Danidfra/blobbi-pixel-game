@@ -42,6 +42,9 @@ plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M1
 - [World Carriers](architecture/WORLD-CARRIERS.md): turtle, manta, whale.
 - [Save and persistence](architecture/SAVE-AND-PERSISTENCE.md): schema 1–12, migrations, and what happens to a save
   that cannot be read.
+- Nostr (M11A audit, DESIGN ONLY): [identity](architecture/NOSTR-IDENTITY.md),
+  [world persistence](architecture/NOSTR-WORLD-PERSISTENCE.md), [inventory interop](architecture/NOSTR-INVENTORY-INTEROP.md),
+  [implementation plan](architecture/NOSTR-IMPLEMENTATION-PLAN.md).
 - [Nostr persistence readiness](architecture/NOSTR-PERSISTENCE-READINESS.md): the local record's boundaries, gaps and
   open decisions before any synchronisation. ASSESSMENT ONLY.
 - [Blobbi identity](architecture/BLOBBI-IDENTITY.md): the canonical V3 Blobbi.
