@@ -119,6 +119,9 @@ export class Camera {
   }
 }
 
+/** A 4 × 4 ordered-dither matrix (0..1): crisp pixel-art gradients without blur. */
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+
 export class LiveRenderer {
   readonly staticLayer: PixelBuffer;
   private frame: PixelBuffer = new PixelBuffer(1, 1);
@@ -288,28 +291,38 @@ export class LiveRenderer {
   private drawRoughWater(frame: PixelBuffer, ox: number, oy: number, time: number, palette: WorldPaletteLike): void {
     const nav = this.live.seaNav();
     const r = nav.region;
-    const band = CANOE.band;
+    // Only near the region's outline can a pixel be in the band (its sides and its rounded corners); beyond the
+    // region the water is rough all the way (M10 phase C: no line where the sea round the Carrier ends).
+    const reach = CANOE.band + CANOE.wobble;
+    const R = CANOE.corner;
     const W = frame.width;
     const H = frame.height;
-    const strips = [
-      { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y0 + band },
-      { x0: r.x0, y0: r.y1 - band, x1: r.x1, y1: r.y1 },
-      { x0: r.x0, y0: r.y0, x1: r.x0 + band, y1: r.y1 },
-      { x0: r.x1 - band, y0: r.y0, x1: r.x1, y1: r.y1 },
-    ];
     const phase = Math.floor(time * 3);
-    for (const st of strips) {
-      const x0 = Math.max(st.x0, ox);
-      const y0 = Math.max(st.y0, oy);
-      const x1 = Math.min(st.x1, ox + W);
-      const y1 = Math.min(st.y1, oy + H);
-      for (let y = y0; y < y1; y++)
-        for (let x = x0; x < x1; x++) {
-          const e = nav.edge(x, y);
-          if (e <= 0) continue;
-          const h = ((x * 374761393 + y * 668265263 + phase * 2654435761) >>> 0) % 1000;
-          if (h < e * e * 260) frame.set(x - ox, y - oy, h % 3 ? palette.foam : palette.shallow.light);
-        }
+    const deep = palette.water.dark;
+    const paint = (x: number, y: number, e: number) => {
+      if (e <= 0) return;
+      // A gradient by ordered dither (darker water deeper into the band), whitecaps flickering over it.
+      if (BAYER4[(y & 3) * 4 + (x & 3)] < e * 0.62) frame.set(x - ox, y - oy, deep);
+      const h = ((x * 374761393 + y * 668265263 + phase * 2654435761) >>> 0) % 1000;
+      if (h < e * e * 220) frame.set(x - ox, y - oy, h % 3 ? palette.foam : palette.shallow.light);
+    };
+    for (let y = oy; y < oy + H; y++) {
+      if (y < r.y0 || y >= r.y1) {
+        for (let x = ox; x < ox + W; x++) paint(x, y, 1);
+        continue;
+      }
+      for (let x = ox; x < Math.min(ox + W, r.x0); x++) paint(x, y, 1);
+      for (let x = Math.max(ox, r.x1); x < ox + W; x++) paint(x, y, 1);
+      const x0 = Math.max(r.x0, ox);
+      const x1 = Math.min(r.x1, ox + W);
+      // A row near the top or bottom is in reach everywhere; any other only near its two ends (wider at a corner).
+      if (y < r.y0 + reach || y >= r.y1 - reach) {
+        for (let x = x0; x < x1; x++) paint(x, y, nav.edge(x, y));
+        continue;
+      }
+      const side = y < r.y0 + R || y >= r.y1 - R ? Math.max(reach, R) : reach;
+      for (let x = x0; x < Math.min(x1, r.x0 + side); x++) paint(x, y, nav.edge(x, y));
+      for (let x = Math.max(x0, r.x1 - side); x < x1; x++) paint(x, y, nav.edge(x, y));
     }
   }
 

@@ -2470,6 +2470,27 @@ export class LiveWorld {
     return true;
   }
 
+  /**
+   * Call the moored canoe back into the bag, from anywhere on the island (M10 phase C, KI-52): the canoe can never be
+   * lost (moored somewhere out of reach, or forgotten). Never while aboard or hopping, never as a visitor, and only
+   * into a bag with room — the canoe leaves the water as it enters the bag, so there is still only one.
+   */
+  recallCanoe(): boolean {
+    const boat = this.boat;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    if (!boat || boat.aboard || this.boarding || this.visitor) return false;
+    if (this.inventory.add(CANOE_ITEM.id, 1) !== 1) {
+      this.bubble = { text: 'no room for the canoe in the bag', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+      return false;
+    }
+    this.boat = null;
+    this.bubble = { text: 'the canoe is back in the bag', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.sound('pickup');
+    this.save();
+    return true;
+  }
+
   /** Close enough to the moored canoe to step in. */
   nearBoat(): boolean {
     const boat = this.boat;

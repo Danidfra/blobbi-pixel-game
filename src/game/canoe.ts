@@ -5,8 +5,8 @@
  *     land, the Carrier's body, or where its moving parts (flippers, wings, flukes) sweep — so it can never clip
  *     through the animal;
  *   - how far it may go: a bounded region round the Carrier (`seaRegion`). The sea beyond is drawn forever, but the
- *     gameplay world is this rectangle; in its outer band a current turns the canoe back, and the band is drawn as
- *     rough water, so the limit is visible and never an invisible wall;
+ *     gameplay world is this region; in its outer band (rounded and breathing, M10 phase C) a current turns the canoe
+ *     back, and the band is drawn as rough water, so the limit is visible and never an invisible wall;
  *   - how it moves: gentle acceleration toward the stick or keys, drag when let go, speed a little under walking.
  *
  * The state (where it is moored or paddling, which way it points, whether the Blobbi is aboard) is saved with the
@@ -39,6 +39,12 @@ export const CANOE = {
   /** The sea round the Carrier's island picture the canoe may roam, and the band where the current turns it back. */
   margin: 150,
   band: 36,
+  /**
+   * M10 phase C (KI-51): the band follows a rounded outline (this corner radius) whose line breathes in and out by
+   * up to `wobble` pixels, so the edge of the sea is never a straight rectangle.
+   */
+  corner: 120,
+  wobble: 13,
   /** How far the Blobbi reaches to step aboard or ashore (world px). */
   reach: 22,
 };
@@ -95,11 +101,36 @@ export class SeaNav {
     return true;
   }
 
-  /** How far into the outer band a point is, 0 (inside) .. 1 (at the edge). */
+  /** Phases of the outline's breathing, from the world's seed (deterministic; made on first use). */
+  private phasesCache: [number, number, number] | null = null;
+  private get phases(): [number, number, number] {
+    if (!this.phasesCache) {
+      let h = 2166136261;
+      for (let i = 0; i < this.world.seed.length; i++) h = Math.imul(h ^ this.world.seed.charCodeAt(i), 16777619);
+      this.phasesCache = [((h >>> 0) % 628) / 100, ((h >>> 10) % 628) / 100, ((h >>> 20) % 628) / 100];
+    }
+    return this.phasesCache;
+  }
+
+  /**
+   * How far into the outer band a point is, 0 (inside) .. 1 (at the edge). The band follows the region's outline with
+   * rounded corners and a slow deterministic wobble (M10 phase C): never a straight rectangle. Beyond the region
+   * the canoe cannot float at all (`water`), so the wobble only moves where the current starts.
+   */
   edge(x: number, y: number): number {
     const r = this.region;
-    const d = Math.min(x - r.x0, y - r.y0, r.x1 - x, r.y1 - y);
-    return Math.max(0, Math.min(1, 1 - d / CANOE.band));
+    const cx = (r.x0 + r.x1) / 2;
+    const cy = (r.y0 + r.y1) / 2;
+    const R = Math.min(CANOE.corner, (r.x1 - r.x0) / 2, (r.y1 - r.y0) / 2);
+    // Signed distance to the rounded rectangle (positive inside).
+    const qx = Math.abs(x - cx) - ((r.x1 - r.x0) / 2 - R);
+    const qy = Math.abs(y - cy) - ((r.y1 - r.y0) / 2 - R);
+    const inside = R - Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - Math.min(Math.max(qx, qy), 0);
+    if (inside > CANOE.band + CANOE.wobble) return 0;
+    const a = Math.atan2(y - cy, x - cx);
+    const [p1, p2, p3] = this.phases;
+    const wobble = CANOE.wobble * (0.55 * Math.sin(3 * a + p1) + 0.3 * Math.sin(7 * a + p2) + 0.15 * Math.sin(13 * a + p3));
+    return Math.max(0, Math.min(1, 1 - (inside + wobble) / CANOE.band));
   }
 }
 

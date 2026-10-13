@@ -70,7 +70,21 @@ export interface FishContent {
   hint?: string;
 }
 
-const fish = (id: string, label: string, plural: string, description: string, restores: number, joy: number, c: string, C: string): ItemDefinition => ({
+/**
+ * Each fish's own silhouette (M10 phase C, KI-53), facing left like every fish in the lab: `f` body, `F` light
+ * (belly, scales), `d` dark (fins, stripes, spots), `e` the eye; `y` and `p` the rainbow fish's extra bands.
+ */
+const FISH_SHAPES: Record<string, readonly string[]> = {
+  minnow: ['...dd....', '.ffffff.d', 'eFFFFFfdd', '.ffffff.d'],
+  'sea-bream': ['...ddd...', '..dffff..', '.ffffffd.', 'efFFFFfdd', '.FFFFFffd', '..FFFf...', '...d.....'],
+  'pond-perch': ['..d.d.d..', '.fdfdfdf.', 'efdFdFdfd', '.FdFdFdFd', '..FFFFF..'],
+  'rainbow-fish': ['...ff....', '.ffyypp..', 'eFFyyppfd', '.FFyyppdd', '..Fyy....'],
+  flounder: ['..ddddd...', '.dfffffd..', 'dfeffeffdd', 'dfdffdffd.', '.dfffffd.d', '..ddddd...'],
+  mackerel: ['..dddd....d', '.fdfdfdfdd.', 'efFFFFFFfd.', '.FFFFFFFfdd', '..........d'],
+  moonfish: ['...fff...', '.ffFFFf..', 'fFFFFFFf.', 'eFFFFFFfd', 'fFFFFFFfd', '.fFFFFf..', '...fff...'],
+};
+
+const fish = (id: string, label: string, plural: string, description: string, restores: number, joy: number, c: string, C: string, dark = '#3a4a5a'): ItemDefinition => ({
   id: `blobbi-pixel:food:${id}`,
   label,
   plural,
@@ -78,18 +92,18 @@ const fish = (id: string, label: string, plural: string, description: string, re
   stack: 20,
   description,
   food: { restores, joy },
-  icon: { rows: ['.......', '..fF...', '.fFfff.', 'fFefffF', '.fffff.', '..ff..F'], colours: { f: c, F: C, e: '#1b1f2a' } },
+  icon: { rows: FISH_SHAPES[id] ?? FISH_SHAPES.minnow, colours: { f: c, F: C, d: dark, e: '#1b1f2a', y: '#ffd860', p: '#ff8ab8' } },
 });
 
 export const FISH_CONTENT: readonly FishContent[] = [
-  { item: fish('minnow', 'minnow', 'minnows', 'A little silver fish. Better grilled.', 6, 0, '#a8b8c8', '#e0e8f0'), weight: 6, water: 'both' },
-  { item: fish('sea-bream', 'sea bream', 'sea bream', 'A plump pink fish from the sea around the shell.', 12, 1, '#e0909a', '#ffc0c8'), weight: 3, water: 'sea' },
-  { item: fish('pond-perch', 'pond perch', 'pond perch', 'A striped green fish from the island pond.', 12, 1, '#7aa860', '#b8d890'), weight: 3, water: 'pond' },
-  { item: fish('rainbow-fish', 'rainbow fish', 'rainbow fish', 'Rare and shimmering. Blobbis think it is magic.', 15, 8, '#9a7ad8', '#7ad8c8'), weight: 1, water: 'both' },
+  { item: fish('minnow', 'minnow', 'minnows', 'A little silver fish. Better grilled.', 6, 0, '#a8b8c8', '#e0e8f0', '#6a7a8c'), weight: 6, water: 'both' },
+  { item: fish('sea-bream', 'sea bream', 'sea bream', 'A plump pink fish from the sea around the shell.', 12, 1, '#e0909a', '#ffc0c8', '#b05868'), weight: 3, water: 'sea' },
+  { item: fish('pond-perch', 'pond perch', 'pond perch', 'A striped green fish from the island pond.', 12, 1, '#7aa860', '#b8d890', '#3e6a30'), weight: 3, water: 'pond' },
+  { item: fish('rainbow-fish', 'rainbow fish', 'rainbow fish', 'Rare and shimmering. Blobbis think it is magic.', 15, 8, '#9a7ad8', '#7ad8c8', '#5a4a98'), weight: 1, water: 'both' },
   // M10 phase B: coastal and open-water fish, by day and by night.
-  { item: fish('flounder', 'flounder', 'flounder', 'A flat sandy fish that hides in the shallows by day.', 12, 1, '#c8b088', '#e8d8b8'), weight: 3, water: 'sea', region: 'coast', time: 'day', hint: 'the shallows by the island, by day' },
-  { item: fish('mackerel', 'mackerel', 'mackerel', 'A striped, quick fish of the open water. Lovely on a skewer.', 14, 2, '#4a7a9a', '#8ac0d8'), weight: 4, water: 'sea', region: 'open', hint: 'open water, from the canoe' },
-  { item: fish('moonfish', 'moonfish', 'moonfish', 'A round silver fish that rises toward the moon. Rare, and gentle.', 16, 10, '#c8d0e8', '#f4f8ff'), weight: 1, water: 'sea', region: 'open', time: 'night', hint: 'open water, at night' },
+  { item: fish('flounder', 'flounder', 'flounder', 'A flat sandy fish that hides in the shallows by day.', 12, 1, '#c8b088', '#e8d8b8', '#8a7050'), weight: 3, water: 'sea', region: 'coast', time: 'day', hint: 'the shallows by the island, by day' },
+  { item: fish('mackerel', 'mackerel', 'mackerel', 'A striped, quick fish of the open water. Lovely on a skewer.', 14, 2, '#4a7a9a', '#c8dce8', '#1e3a5a'), weight: 4, water: 'sea', region: 'open', hint: 'open water, from the canoe' },
+  { item: fish('moonfish', 'moonfish', 'moonfish', 'A round silver fish that rises toward the moon. Rare, and gentle.', 16, 10, '#a8b4d8', '#f4f8ff', '#6a78a8'), weight: 1, water: 'sea', region: 'open', time: 'night', hint: 'open water, at night' },
 ];
 
 /** Seaweed (M10 phase B): gathered at the kelp garden out at sea; a little food, and a broth. */

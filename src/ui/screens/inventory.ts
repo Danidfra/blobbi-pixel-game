@@ -109,7 +109,8 @@ export class InventoryScreen implements Screen {
     const list = bagEntries(ui, this.tab);
     this.index = Math.max(0, Math.min(this.index, list.length - 1));
     const gy = y + 14;
-    const rows = Math.floor((h - 14) / (SLOT + 2));
+    // (A moored canoe's line takes the grid's last row.)
+    const rows = Math.floor((h - 14 - (live.boat && !live.boat.aboard ? 16 : 0)) / (SLOT + 2));
     const row = Math.floor(this.index / COLS);
     if (row < this.scroll) this.scroll = row;
     if (row >= this.scroll + rows) this.scroll = row - rows + 1;
@@ -125,6 +126,12 @@ export class InventoryScreen implements Screen {
     }
     if (!list.length) g.para(this.tab === 'all' ? 'The bag is empty. Pick things up with E.' : `No ${TAB_LABEL[this.tab].toLowerCase()} yet.`, x + 2, gy + 4, COLS * (SLOT + 2) - 4, UI.muted);
     if (list.length > rows * COLS) g.text(`${this.scroll + 1}-${Math.min(Math.ceil(list.length / COLS), this.scroll + rows)}/${Math.ceil(list.length / COLS)}`, x, y + h - 6, UI.muted);
+    // The canoe, moored somewhere (M10 phase C): it can always be called back into the bag.
+    if (live.boat && !live.boat.aboard) {
+      const by = y + h - 16;
+      g.text('YOUR CANOE IS MOORED', x, by + 3, UI.muted);
+      g.button('CALL IT BACK', x + 84, by, () => (live.recallCanoe() ? ui.say('the canoe is back in the bag') : ui.say(live.bubble?.text ?? 'not now', false)));
+    }
     // Details.
     const dx = x + COLS * (SLOT + 2) + 4;
     const dw = x + w - dx;

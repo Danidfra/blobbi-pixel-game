@@ -48,7 +48,8 @@ export class OceanFeatures {
     for (let y = r.y0 + CANOE.band + 8; y < r.y1 - CANOE.band - 8; y += 12)
       for (let x = r.x0 + CANOE.band + 8; x < r.x1 - CANOE.band - 8; x += 12) {
         const outside = x < subject.x0 - inner || x > subject.x1 + inner || y < subject.y0 - inner || y > subject.y1 + inner;
-        if (outside && nav.canFloat(x, y, 'right') && nav.canFloat(x, y, 'down')) this.spots.push({ x, y });
+        // (Never in the rough band, which is rounded and breathes: M10 phase C.)
+        if (outside && nav.edge(x, y) === 0 && nav.canFloat(x, y, 'right') && nav.canFloat(x, y, 'down')) this.spots.push({ x, y });
       }
   }
 

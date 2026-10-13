@@ -19,8 +19,16 @@ export interface CanoeSprites {
 
 const cache = new Map<string, CanoeSprites>();
 
-/** The hull's half beam at `x` along its length (pointed ends). */
-const halfBeam = (x: number) => (CANOE.halfBeam + 0.6) * Math.max(0, 1 - Math.pow(Math.abs(x) / (CANOE.halfLength + 0.5), 2.6));
+/**
+ * The hull's profile along its length (M10 phase C, KI-50): `u` runs from the stern (-L) to the bow (+L). The half
+ * beam is fuller toward the stern and sharper at the bow, and the ends rise (the sheer), so the canoe reads as a canoe
+ * — and which way it points — from every heading.
+ */
+const beamAt = (u: number) => {
+  const t = u / (CANOE.halfLength + 0.5);
+  return (CANOE.halfBeam + 0.6) * Math.max(0, 1 - Math.pow(Math.abs(t), t > 0 ? 2.1 : 3.4));
+};
+const sheerAt = (u: number) => Math.round(1.7 * Math.pow(Math.abs(u) / (CANOE.halfLength + 0.5), 3));
 
 export function canoeSprites(heading: Heading, palette: WorldPalette): CanoeSprites {
   const key = `${palette.name}|${heading}`;
@@ -30,30 +38,38 @@ export function canoeSprites(heading: Heading, palette: WorldPalette): CanoeSpri
   const L = CANOE.halfLength;
   const B = CANOE.halfBeam + 1;
   const wood = palette.wood;
-  // The top view (the hull's opening: gunwale, planked inside, thwarts) along x, bow right.
-  const inside = (x: number, y: number) => Math.abs(y) <= halfBeam(x);
-  const top = (W: number, H: number, cx: number, cy: number, transpose: boolean) => {
-    const buf = new PixelBuffer(W, H);
-    const put = (x: number, y: number, c: number) => (transpose ? buf.set(cx + y, cy + (heading === 'up' ? -x : x), c) : buf.set(cx + (heading === 'left' ? -x : x), cy + y, c));
-    for (let y = -B; y <= B; y++)
-      for (let x = -L; x <= L; x++) {
-        if (!inside(x, y)) continue;
-        const rim = !inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1);
-        const thwart = Math.abs(x) === Math.round(L * 0.45);
-        const plank = transpose ? (x + 20) % 3 === 0 : (y + 20) % 2 === 0;
-        put(x, y, rim ? wood.light : thwart ? wood.light : plank ? wood.dark : wood.mid);
-      }
-    return buf;
-  };
   // In the game's three-quarter view the hull's near side shows below its gunwale: a band of darker planks.
   const SIDE = 2;
   const W = along ? L * 2 + 3 : B * 2 + 3;
-  const H = (along ? B * 2 + 3 : L * 2 + 3) + SIDE;
+  const H = (along ? B * 2 + 3 : L * 2 + 3) + SIDE + 2;
   const cx = along ? L + 1 : B + 1;
-  const cy = along ? B + 1 : L + 1;
-  const whole = top(W, H, cx, cy, !along);
+  const cy = (along ? B + 1 : L + 1) + 2;
+  // Hull coordinates (u along, bow +; v across) to the sprite: the ends lift by the sheer.
+  const toScreen = (u: number, v: number): [number, number] => {
+    const lift = sheerAt(u);
+    if (heading === 'right') return [cx + u, cy + v - lift];
+    if (heading === 'left') return [cx - u, cy + v - lift];
+    if (heading === 'down') return [cx + v, cy + u - lift];
+    return [cx + v, cy - u - lift];
+  };
+  const inside = (u: number, v: number) => Math.abs(v) <= beamAt(u);
+  const whole = new PixelBuffer(W, H);
+  // Where each column's hull meets the water (its unlifted lowest pixel): the near side reaches down to it.
+  const water = new Int32Array(W).fill(-1);
+  for (let u = -L; u <= L; u++)
+    for (let v = -B; v <= B; v++) {
+      if (!inside(u, v)) continue;
+      const rim = !inside(u - 1, v) || !inside(u + 1, v) || !inside(u, v - 1) || !inside(u, v + 1);
+      const thwart = Math.abs(u) === Math.round(L * 0.45);
+      // Planks run along the hull.
+      const plank = (v + 20) % 2 === 0;
+      const [x, y] = toScreen(u, v);
+      whole.set(x, y, rim ? wood.light : thwart ? wood.light : plank ? wood.dark : wood.mid);
+      water[x] = Math.max(water[x], y + sheerAt(u));
+    }
+  // The near side under the gunwale: from each column's lowest opening pixel down to the waterline and SIDE more, so
+  // where the ends rise the side sweeps up with them.
   for (let x = 0; x < W; x++) {
-    // The lowest opening pixel of each column: the near gunwale; the side hangs below it.
     let low = -1;
     for (let y = H - 1; y >= 0; y--)
       if (whole.get(x, y) >>> 24) {
@@ -61,8 +77,17 @@ export function canoeSprites(heading: Heading, palette: WorldPalette): CanoeSpri
         break;
       }
     if (low < 0) continue;
-    for (let k = 1; k <= SIDE; k++) whole.set(x, low + k, k === 1 ? wood.mid : wood.dark);
+    // Pointing at the viewer, the bow's prow deepens to a V at its keel (so the near end reads as the front).
+    const prow = heading === 'down' ? Math.max(0, 2 - Math.abs(x - cx)) : 0;
+    const to = Math.max(low + SIDE, water[x] + SIDE) + prow;
+    for (let y = low + 1; y <= to; y++) whole.set(x, y, y === low + 1 ? wood.mid : wood.dark);
   }
+  // The bow's stem rises a pixel past the gunwale (where it points); toward the viewer it is the prow's keel line.
+  const [bx, by] = toScreen(L, 0);
+  if (heading === 'right') whole.set(bx + 1, by - 1, wood.light);
+  else if (heading === 'left') whole.set(bx - 1, by - 1, wood.light);
+  else if (heading === 'up') whole.set(bx, by - 1, wood.light);
+  else whole.set(bx, by, wood.light);
   // Outline.
   const mask = whole.opaqueMask();
   const grown = mask.dilate();
