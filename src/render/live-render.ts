@@ -557,6 +557,15 @@ export class LiveRenderer {
         out.set(gx, gy + 1, c);
       }
     }
+    // ── Prepared land (M10 phase C): a clearing flag's circle, dotted on the ground, when it matters ──
+    for (const ring of live.keepClearRings()) {
+      const ink = hex('#fff3c4');
+      const n = Math.max(24, Math.round((ring.r * Math.PI * 2) / 4));
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2 + time * 0.15;
+        out.set(Math.round(ring.x + Math.cos(a) * ring.r) - ox, Math.round(ring.y + Math.sin(a) * ring.r) - oy, ink);
+      }
+    }
     // ── What stands in the way of the house upgrade (M10 phase B): an orange arrow over each, while it is asked ──
     if (time < live.upgradeHintUntil && !live.inside) {
       const ink = hex('#ff8a3c');
@@ -839,6 +848,7 @@ const GLYPHS: Record<string, string[]> = {
   '+': ['...', '.#.', '###', '.#.', '...'],
   '?': ['##.', '..#', '.#.', '...', '.#.'],
   "'": ['.#.', '.#.', '...', '...', '...'],
+  '"': ['#.#', '#.#', '...', '...', '...'],
   '>': ['#..', '.#.', '..#', '.#.', '#..'],
   '<': ['..#', '.#.', '#..', '.#.', '..#'],
   '*': ['...', '#.#', '.#.', '#.#', '...'],

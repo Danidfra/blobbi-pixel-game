@@ -14,7 +14,7 @@ import { loadSave, memoryStore, saveKey } from '../src/game/persistence';
 import { findBuildSpot, pressE, run } from '../src/dev/scripted-play';
 import { ITEMS } from '../src/game/items';
 import { REACH } from '../src/game/resources';
-import { HITS_TO_FELL, STUMP_SECONDS, TREE_RETURN_SECONDS, treeCondition } from '../src/game/trees';
+import { HITS_TO_FELL, REGROW_SECONDS, STUMP_SECONDS, TREE_RETURN_SECONDS, treeCondition } from '../src/game/trees';
 import { clearableKind, MIN_STANDING_TREES, RETURN_SECONDS } from '../src/game/clearing';
 import { SWING } from '../src/sim/live-world';
 import type { Placement } from '../src/world/types';
@@ -146,6 +146,10 @@ describe('coming back', () => {
     run(live, (STUMP_SECONDS + TREE_RETURN_SECONDS + 8) * 60);
     expect(live.treeAt(index).phase).toBe('regrowing');
     expect(live.treeAt(index).growth).toBeLessThan(0.2);
+    // M10 phase C: a seedling is stepped over; the young tree blocks again.
+    expect(live.collision.isBlocked(t.x, t.y)).toBe(false);
+    run(live, Math.ceil(REGROW_SECONDS * 0.4) * 60);
+    expect(live.treeAt(index).phase).toBe('regrowing');
     expect(live.collision.isBlocked(t.x, t.y)).toBe(true);
     expect(live.world.objects[index]).toEqual(t); // the very same tree, where it was
   });

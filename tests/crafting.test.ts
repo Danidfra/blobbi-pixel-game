@@ -236,11 +236,13 @@ describe('regeneration', () => {
     live.blobbi.y = live.world.hubs[0].y;
     run(live, Math.ceil(TREE_RETURN_SECONDS * 60) + 60 * 6);
     expect(live.treeAt(index).phase).toBe('regrowing');
-    expect(live.collision.isBlocked(tree.x, tree.y)).toBe(true);
+    // M10 phase C: a seedling is stepped over (its own tiny footprint); it blocks again as a young tree.
+    expect(live.collision.isBlocked(tree.x, tree.y)).toBe(false);
     const seedling = live.objectSprite(index);
     expect(seedling.buffer.height).toBeLessThan(10); // the seedling form
     run(live, Math.ceil(REGROW_SECONDS * 60 * 0.5));
     const sapling = live.objectSprite(index);
+    expect(live.collision.isBlocked(tree.x, tree.y)).toBe(true);
     expect(sapling.buffer.height).toBeGreaterThan(seedling.buffer.height);
     expect(sapling.buffer.height).toBeLessThan(live.spriteOf(tree).buffer.height);
     expect(sapling).toBe(live.spriteOf(tree, live.treeAt(index).growth)); // the existing growth system
@@ -314,7 +316,7 @@ describe('persistence and reloads', () => {
     const identity = worldIdentity(world);
     store.set(saveKey(identity), JSON.stringify({ version: 1, world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] } }));
     const v1 = loadSave(store, identity)!;
-    expect(v1).toEqual({ version: SAVE_VERSION, owner: 'local-world', world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [], collectedAt: { 'stick:0': 0 }, rocks: {}, plots: [], care: { hunger: 100, energy: 100, happiness: 70, lastPet: -Infinity }, tally: { ...newTally(), collected: 1 }, objectives: { completed: {}, request: null, requestsDone: 0, nextRequestAt: 0, lore: [] }, interiors: {}, containers: {}, producers: {}, companion: { friendship: 0, tasted: [] }, found: [], carrier: newCarrier(), places: [], growth: { stage: 0, version: 1, history: [], regions: [] }, species: 'turtle', generator: 'm6.0', name: null, intro: { state: 'done', at: 0 }, tutorial: { done: [], skipped: true }, cleared: {}, boat: null, caught: [] });
+    expect(v1).toEqual({ version: SAVE_VERSION, owner: 'local-world', world: identity, collected: ['stick:0'], inventory: { version: 1, context: identity, revision: 3, items: [{ item: ITEMS.stick.id, quantity: 2 }] }, equipped: null, trees: {}, worldTime: 0, buildings: [], collectedAt: { 'stick:0': 0 }, rocks: {}, plots: [], care: { hunger: 100, energy: 100, happiness: 70, lastPet: -Infinity }, tally: { ...newTally(), collected: 1 }, objectives: { completed: {}, request: null, requestsDone: 0, nextRequestAt: 0, lore: [] }, interiors: {}, containers: {}, producers: {}, companion: { friendship: 0, tasted: [] }, found: [], carrier: newCarrier(), places: [], growth: { stage: 0, version: 1, history: [], regions: [] }, species: 'turtle', generator: 'm6.0', name: null, intro: { state: 'done', at: 0 }, tutorial: { done: [], skipped: true }, cleared: {}, boat: null, caught: [], planted: [], plantedSerial: 0, pinnedQuest: null });
     const live = new LiveWorld(world, 'blobbi-9', 16, { store });
     expect(live.collected.has('stick:0')).toBe(true);
     expect(live.inventory.count(ITEMS.stick.id)).toBe(2);

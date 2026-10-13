@@ -27,7 +27,7 @@ import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { InteriorRenderer } from './interior-render';
 import { drawTeleportParticles, drawTeleportShadow, teleportSprite } from './teleport-render';
 import { applyLight, dayAt, hourAt } from '../game/daylight';
-import { goalCard, statusCard, timeChip, toastCard, toolChip, ToastFeed, type StatusInfo } from '../ui/hud';
+import { goalCard, pinnedCard, statusCard, timeChip, toastCard, toolChip, ToastFeed, type StatusInfo } from '../ui/hud';
 import { itemIcon } from '../ui/icons';
 import { FRIEND_TITLES, friendLevel } from '../game/friendship';
 import { REST_POSE } from '../blobbi/pose';
@@ -468,13 +468,24 @@ export class ViewRenderer {
       return;
     }
     const goal = currentObjective(live.objectives);
-    if (!goal) return;
-    const n = OBJECTIVES.indexOf(goal) + 1;
-    const ctx = { tally: live.tally, inventory: live.inventory, buildings: live.buildings, worldTime: live.worldTime };
-    const progress = goal.progress ? goal.progress(ctx) : '';
-    const buf = this.cachedText(`goal|${n}|${goal.title}|${progress}`, () => goalCard(n, OBJECTIVES.length, goal.title, progress), ui);
-    if (narrow(buf.width)) screen.blit(buf, 2 * ui, (hud?.bottom ?? 0) + ui);
-    else screen.blit(buf, screen.width - buf.width - 2 * ui, y);
+    let below = y;
+    if (goal) {
+      const n = OBJECTIVES.indexOf(goal) + 1;
+      const progress = live.questProgress(goal);
+      const buf = this.cachedText(`goal|${n}|${goal.title}|${progress}`, () => goalCard(n, OBJECTIVES.length, goal.title, progress), ui);
+      const gx = narrow(buf.width) ? 2 * ui : screen.width - buf.width - 2 * ui;
+      const gy = narrow(buf.width) ? (hud?.bottom ?? 0) + ui : y;
+      screen.blit(buf, gx, gy);
+      below = gy + buf.height + ui;
+    }
+    // M10 phase C: one pinned side quest, small, under the main goal (never more than one).
+    const pinned = live.pinnedObjective();
+    if (!pinned) return;
+    const progress = live.questProgress(pinned);
+    const card = this.cachedText(`pinned|${pinned.title}|${progress}`, () => pinnedCard(pinned.title, progress), ui);
+    const px = narrow(card.width) ? 2 * ui : screen.width - card.width - 2 * ui;
+    const py = goal ? below : narrow(card.width) ? (hud?.bottom ?? 0) + ui : y;
+    screen.blit(card, px, py);
   }
 
   /** What E would do now, centred at the bottom. */

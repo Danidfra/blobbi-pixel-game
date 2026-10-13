@@ -18,6 +18,17 @@ export const RUBBLE_SECONDS = 300;
 /** M10 phase B: seconds the rubble lies there before its ground is clear, then before the rock may surface again. */
 export const RUBBLE_CLEAR_SECONDS = 20;
 export const ROCK_RETURN_SECONDS = 900;
+/**
+ * M10 phase C: a returning rock FORMS over this many seconds — a small deposit, then a growing one, then the whole
+ * rock — instead of appearing at once. Each forming stage can be cleared with the pickaxe in one swing.
+ */
+export const ROCK_FORM_SECONDS = 360;
+export type RockStage = 'deposit' | 'growing' | 'whole';
+/** The forming stage at a progress 0..1, and the share of the rock's size it shows. */
+export const rockStage = (progress: number): RockStage => (progress < 0.5 ? 'deposit' : progress < 1 ? 'growing' : 'whole');
+export const ROCK_STAGE_SIZE: Record<RockStage, number> = { deposit: 0.45, growing: 0.72, whole: 1 };
+/** Stones from clearing a forming rock (breaking a whole one gives 3-5). */
+export const EARLY_STONES: Record<Exclude<RockStage, 'whole'>, number> = { deposit: 1, growing: 2 };
 
 export interface RockState {
   hits: number;
@@ -30,12 +41,14 @@ export interface RockState {
   reformAt?: number | null;
 }
 
-export type RockPhase = 'whole' | 'mining' | 'rubble' | 'cleared';
+export type RockPhase = 'whole' | 'mining' | 'rubble' | 'cleared' | 'forming';
 
 export interface RockCondition {
   phase: RockPhase;
   /** Seconds until the rock is whole again (0 when it is). */
   remaining: number;
+  /** While forming (M10 phase C): its stage. */
+  stage?: RockStage;
 }
 
 export function rockCondition(state: RockState | undefined, worldTime: number): RockCondition {
@@ -44,7 +57,10 @@ export function rockCondition(state: RockState | undefined, worldTime: number): 
   // Before phase B: rubble for RUBBLE_SECONDS, then whole.
   if (state.reformAt === undefined) return since >= RUBBLE_SECONDS ? { phase: 'whole', remaining: 0 } : { phase: 'rubble', remaining: RUBBLE_SECONDS - since };
   if (since < RUBBLE_CLEAR_SECONDS) return { phase: 'rubble', remaining: RUBBLE_CLEAR_SECONDS + ROCK_RETURN_SECONDS - since };
-  if (state.reformAt === null || worldTime < state.reformAt) return { phase: 'cleared', remaining: Math.max(0, RUBBLE_CLEAR_SECONDS + ROCK_RETURN_SECONDS - since) };
+  if (state.reformAt === null || worldTime < state.reformAt) return { phase: 'cleared', remaining: Math.max(0, RUBBLE_CLEAR_SECONDS + ROCK_RETURN_SECONDS - since) + ROCK_FORM_SECONDS };
+  // M10 phase C: surfaced, it forms over ROCK_FORM_SECONDS (a deposit, a growing one), then it is whole.
+  const progress = (worldTime - state.reformAt) / ROCK_FORM_SECONDS;
+  if (progress < 1) return { phase: 'forming', remaining: ROCK_FORM_SECONDS - (worldTime - state.reformAt), stage: rockStage(progress) };
   return { phase: 'whole', remaining: 0 };
 }
 

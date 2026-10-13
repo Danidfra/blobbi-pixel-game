@@ -370,6 +370,19 @@ export const ART: Record<string, ArtFn> = {
     b.set(7, 5, w.dark);
     return done(b, w.outline);
   },
+  'clearing-flag': ({ palette, variant }) => {
+    // A thin stake with a little pennant (its colour from the fabrics), the tip of the stake in the ground.
+    const w = palette.wood;
+    const f = fab(variant);
+    const b = new PixelBuffer(7, 11);
+    b.vline(1, 0, 10, w.mid);
+    b.set(1, 0, w.light);
+    b.fillRect(2, 1, 4, 3, f.mid);
+    b.hline(2, 5, 1, f.light);
+    b.set(6, 2, f.mid);
+    b.hline(2, 4, 3, f.dark);
+    return done(b, w.outline);
+  },
   signpost: ({ palette }) => {
     const w = palette.wood;
     const b = new PixelBuffer(11, 12);

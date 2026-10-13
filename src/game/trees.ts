@@ -19,6 +19,16 @@ export const REGROW_SECONDS = 240;
 /** M10 phase B: seconds the ground stays clear after the stump before the seedling may come up (`clearing.ts`). */
 export const TREE_RETURN_SECONDS = 600;
 
+/**
+ * M10 phase C: the stages of a regrowing tree, by growth (0..1): a SEEDLING (stepped over, pulled up with the axe
+ * for nothing), a YOUNG TREE (cleared with one swing for a single log), then the grown tree (felled as always).
+ */
+export const SEEDLING_UNTIL = 1 / 3;
+export type TreeStage = 'seedling' | 'young' | 'grown';
+export const treeStage = (growth: number): TreeStage => (growth < SEEDLING_UNTIL ? 'seedling' : growth < 1 ? 'young' : 'grown');
+/** Wood from clearing a tree before it is grown: a seedling gives none, a young tree one log (felling gives 2-4). */
+export const EARLY_WOOD: Record<Exclude<TreeStage, 'grown'>, number> = { seedling: 0, young: 1 };
+
 export interface TreeState {
   /** Axe hits taken since the last regrowth (reset on felling). */
   hits: number;

@@ -1,7 +1,8 @@
 /**
  * THE JOURNAL: quests (main story, side quests, discoveries, the island request) with their story, how to do
  * them, progress and reward; the notes found so far; the discoveries found (the rest as hints). Reading the
- * journal changes nothing in the world.
+ * journal changes nothing in the world — except pinning (M10 phase C): one active side quest can be pinned to the
+ * goal box (PIN, or P), and unpinned the same way.
  */
 import { activeQuests, goalProgress, objectiveById, QUESTS, requestProgress, type Objective } from '../../game/objectives';
 import { LORE, loreById } from '../../content/lore';
@@ -60,7 +61,7 @@ export class JournalScreen implements Screen {
       const out: Row[] = [];
       const req = requestProgress(st, live.tally);
       if (req) out.push({ label: `Request: ${req.request.title} ${req.have}/${req.need}`, colour: UI.good, request: true });
-      for (const q of activeQuests(st)) out.push({ label: `${q.type === 'main' ? `${q.chapter}.` : q.type === 'side' ? 'Side' : 'Find'} ${q.title}`, colour: q.type === 'main' ? UI.accent : UI.ink, quest: q });
+      for (const q of activeQuests(st)) out.push({ label: `${q.type === 'main' ? `${q.chapter}.` : q.type === 'side' ? (live.pinnedQuest === q.id ? 'Pinned' : 'Side') : 'Find'} ${q.title}`, colour: q.type === 'main' ? UI.accent : live.pinnedQuest === q.id ? UI.good : UI.ink, quest: q });
       for (const id of Object.keys(st.completed)) {
         const q = objectiveById(id);
         if (q) out.push({ label: `done: ${q.title}`, colour: UI.muted, quest: q });
@@ -83,12 +84,34 @@ export class JournalScreen implements Screen {
       this.index = 0;
       return true;
     }
+    // P pins the selected side quest to the goal box (or unpins it).
+    if (code === 'KeyP' && this.tab === 'quests') {
+      this.togglePin(ui);
+      return true;
+    }
     const moved = moveSelection(code, this.index, this.rows(ui).length, 1);
     if (moved !== null) {
       this.index = moved;
       return true;
     }
     return isConfirm(code);
+  }
+
+  /** The selected quest, if it is a side quest that can be pinned (active). */
+  private pinnable(ui: GameUI): Objective | null {
+    const q = this.rows(ui)[this.index]?.quest;
+    const live = ui.live!;
+    return q && q.type === 'side' && !(q.id in live.objectives.completed) ? q : null;
+  }
+
+  private togglePin(ui: GameUI): void {
+    const live = ui.live!;
+    const q = this.pinnable(ui);
+    if (!q) return;
+    if (live.pinnedQuest === q.id) {
+      live.pinQuest(null);
+      ui.say('unpinned');
+    } else if (live.pinQuest(q.id)) ui.say('pinned to the goal box');
   }
 
   draw(g: Gfx, ui: GameUI, x: number, y: number, w: number, h: number): void {
@@ -150,6 +173,11 @@ export class JournalScreen implements Screen {
         if (p.need > 1) para(`Progress ${p.have}/${p.need}`, UI.good);
       }
       para(`${done ? 'Got' : 'Reward'}: ${q.reward.text}`, UI.good);
+      // A side quest can be pinned to the goal box (one at a time).
+      if (this.pinnable(ui)) {
+        const pinned = live.pinnedQuest === q.id;
+        g.button(pinned ? 'UNPIN (P)' : 'PIN TO GOALS (P)', dx + 4, ly + h - 14 - 15, () => this.togglePin(ui), { primary: !pinned });
+      }
     } else if (r.note) {
       const note = loreById(r.note)!;
       para(note.title, UI.accent, 2);

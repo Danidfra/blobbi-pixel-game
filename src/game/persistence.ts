@@ -40,8 +40,11 @@ export interface KeyValueStore {
  * (`cleared`), the canoe (`boat`, island frame) and the fish species caught (`caught`). Records 1-10 migrate with
  * none of these: their felled trees and broken rocks keep the old timelines (no `regrowAt`/`reformAt`), nothing
  * is cleared, there is no canoe, no species are recorded.
+ * 12 (M10 phase C): the trees the player planted (`planted`: island frame, the world time each was planted, its
+ * seed and size; `plantedSerial` names the next one) and the side quest pinned to the goal box (`pinnedQuest`).
+ * Records 1-11 migrate with no planted trees (they were never saved before) and nothing pinned.
  */
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 /**
  * Who a world record belongs to. Everything in it (inventory, equipment, buildings, resources, world time) is the
@@ -84,6 +87,15 @@ export interface RockSaveState {
 }
 
 /** The canoe (schema 11): where it is, in the ISLAND FRAME like buildings, which way it points, and who is in it. */
+/** A tree the player planted (schema 12): where (island frame), what (seed, size), when (world time). */
+export interface PlantedSave {
+  x: number;
+  y: number;
+  seed: string;
+  size: number;
+  plantedAt: number;
+}
+
 export interface BoatSave {
   x: number;
   y: number;
@@ -162,6 +174,11 @@ export interface WorldSave {
   boat: BoatSave | null;
   /** Schema 11: the fish species ever caught (item ids, sorted). */
   caught: string[];
+  /** Schema 12: the trees the player planted, oldest first, and the serial the next one is named by. */
+  planted: PlantedSave[];
+  plantedSerial: number;
+  /** Schema 12: the side quest pinned to the goal box, or null. */
+  pinnedQuest: string | null;
 }
 
 /** The intro cinematic of a new island: still to play (a reload mid-intro plays it again), seen, or skipped. */
@@ -409,6 +426,10 @@ export function loadSave(store: KeyValueStore, identity: string): LoadedSave | n
       cleared: parsed.version >= 11 ? clearedFromSave((parsed as { cleared?: unknown }).cleared) : {},
       boat: parsed.version >= 11 ? boatFromSave((parsed as { boat?: unknown }).boat) : null,
       caught: parsed.version >= 11 && Array.isArray((parsed as { caught?: unknown }).caught) ? ((parsed as { caught: unknown[] }).caught.filter((x): x is string => typeof x === 'string')) : [],
+      // Schema 12: planted trees were never saved before, and nothing was pinned.
+      planted: parsed.version >= 12 ? plantedFromSave((parsed as { planted?: unknown }).planted) : [],
+      plantedSerial: parsed.version >= 12 && Number.isInteger((parsed as { plantedSerial?: unknown }).plantedSerial) && ((parsed as { plantedSerial: number }).plantedSerial >= 0) ? (parsed as { plantedSerial: number }).plantedSerial : 0,
+      pinnedQuest: parsed.version >= 12 && typeof (parsed as { pinnedQuest?: unknown }).pinnedQuest === 'string' ? (parsed as { pinnedQuest: string }).pinnedQuest : null,
     };
   } catch {
     return null;
@@ -425,6 +446,51 @@ function clearedFromSave(raw: unknown): Record<string, { at: number; returnedAt:
     if (finite(at)) out[k] = { at, returnedAt: finite(back) ? back : null };
   }
   return out;
+}
+
+function plantedFromSave(raw: unknown): PlantedSave[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PlantedSave[] = [];
+  for (const t of raw) {
+    if (!t || typeof t !== 'object') continue;
+    const r = t as Partial<PlantedSave>;
+    if (!Number.isInteger(r.x) || !Number.isInteger(r.y) || typeof r.seed !== 'string' || !Number.isInteger(r.size) || (r.size as number) <= 0 || (r.size as number) > 64 || !finite(r.plantedAt)) continue;
+    out.push({ x: r.x!, y: r.y!, seed: r.seed, size: r.size!, plantedAt: r.plantedAt });
+  }
+  return out;
+}
+
+/**
+ * What the store holds for a world, without changing it: nothing, a record this code reads, a record from a NEWER
+ * version of the game, or a record it cannot read (damaged). The last two must never be overwritten (M10 phase C).
+ */
+export type SaveStatus = 'none' | 'ok' | 'newer' | 'unreadable';
+export function saveStatus(store: KeyValueStore, identity: string): SaveStatus {
+  const raw = store.get(saveKey(identity));
+  if (raw === null) return 'none';
+  if (loadSave(store, identity)) return 'ok';
+  try {
+    const v = (JSON.parse(raw) as { version?: unknown }).version;
+    if (typeof v === 'number' && v > SAVE_VERSION) return 'newer';
+  } catch {
+    /* not JSON */
+  }
+  return 'unreadable';
+}
+
+/** Where a record that could not be read is kept, untouched (one copy per world; a newer damage never replaces it). */
+export const backupKey = (identity: string): string => `blobbi-pixel-lab:backup:v1:${identity}`;
+
+/** Keep a copy of the raw record before anything could touch it (never overwrites an existing backup). */
+export function backupRecord(store: KeyValueStore, identity: string): boolean {
+  const raw = store.get(saveKey(identity));
+  if (raw === null || store.get(backupKey(identity)) !== null) return false;
+  try {
+    store.set(backupKey(identity), raw);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function boatFromSave(raw: unknown): BoatSave | null {

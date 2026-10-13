@@ -375,7 +375,10 @@ describe('the crafting screen', () => {
     ui.register(screen);
     ui.handleKey('KeyK');
     expect(ui.screen?.id).toBe('crafting');
-    expect(screen.entries(ui).map((e) => e.label)).toEqual(['Simple axe', 'Simple pickaxe', 'Simple hoe']);
+    // The known ones, then (M10 phase C) the ones an open quest is about to teach, shown LOCKED with how to unlock
+    // them ("Deeper stone" is open from the start and teaches the copper tools).
+    expect(screen.entries(ui).filter((e) => !e.locked).map((e) => e.label)).toEqual(['Simple axe', 'Simple pickaxe', 'Simple hoe']);
+    expect(screen.entries(ui).filter((e) => e.locked).every((e) => e.locked === 'Complete "Deeper stone" to unlock.')).toBe(true);
     for (const i of recipeById('blobbi-pixel:recipe:simple-axe')!.ingredients) live.inventory.add(i.item, i.quantity);
     ui.handleKey('Enter');
     expect(live.inventory.count(ITEMS.axe.id)).toBe(1);

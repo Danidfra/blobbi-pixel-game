@@ -4,7 +4,7 @@
  * land already grown. When the island is ready, LET THE ISLAND GROW asks once more, then grows it (the playground
  * rebuilds the world from the save and plays the reveal). Nothing grows by itself.
  */
-import { BIOMES, GROWTH_STAGES } from '../../world/growth';
+import { BIOMES, GROWTH_STAGES, MAX_GROWTH_STAGE } from '../../world/growth';
 import { Gfx, UI } from '../gfx';
 import { hex } from '../../core/color';
 import { isConfirm, type GameUI, type Screen } from '../game-ui';
@@ -29,7 +29,7 @@ export class GrowthScreen implements Screen {
   onGrow: (() => boolean) | null = null;
 
   title(ui: GameUI): string {
-    return `Island growth  stage ${ui.live!.growth.stage} of 3`;
+    return `Island growth  stage ${ui.live!.growth.stage} of ${MAX_GROWTH_STAGE}`;
   }
 
   opened(): void {

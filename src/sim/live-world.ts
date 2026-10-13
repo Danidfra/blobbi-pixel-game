@@ -30,17 +30,17 @@ import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
 import { Brain, NavGrid } from './brain';
 import { BASIC_KINDS, generateResources, isShore, REACH, RESOURCE_ITEM, RESOURCE_LABEL, type ResourceKind, type ResourceNode } from '../game/resources';
 import { Inventory } from '../game/inventory';
-import { loadSave, storeSave, clearSave, worldIdentity, newGrowthSave, newTutorialSave, INTRO_SEEN, SAVE_VERSION, WORLD_OWNER, type GrowthSave, type IntroSave, type IntroState, type KeyValueStore, type TreeSaveState, type TutorialSave } from '../game/persistence';
+import { loadSave, storeSave, clearSave, worldIdentity, newGrowthSave, newTutorialSave, saveStatus, backupRecord, INTRO_SEEN, SAVE_VERSION, WORLD_OWNER, type GrowthSave, type SaveStatus, type WorldSave, type IntroSave, type IntroState, type KeyValueStore, type TreeSaveState, type TutorialSave } from '../game/persistence';
 import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } from '../game/items';
 import { canCraft, craft, type Recipe } from '../game/crafting';
-import { HITS_TO_FELL, STUMP_SECONDS, TREE_RETURN_SECONDS, stumpSprite, treeCondition, woodYield, type TreeCondition, type TreeState } from '../game/trees';
+import { EARLY_WOOD, HITS_TO_FELL, STUMP_SECONDS, TREE_RETURN_SECONDS, stumpSprite, treeCondition, treeStage, woodYield, type TreeCondition, type TreeState } from '../game/trees';
 import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
-import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, type RockCondition, type RockState } from '../game/rocks';
+import { EARLY_STONES, HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, ROCK_STAGE_SIZE, type RockCondition, type RockState } from '../game/rocks';
 import { CANOE, SeaNav, seaRegion, stepBoat, type BoatState, type Heading } from '../game/canoe';
 import { findOceanAccess } from '../game/ocean-access';
 import { movingPartsMask } from '../cinematic/sea';
 import { worldBounds } from '../render/view-camera';
-import { clearableKind, CLEAR_YIELD, RETURN_SECONDS, RETRY_SECONDS, MIN_STANDING_TREES, type ClearState } from '../game/clearing';
+import { clearableKind, keptClear, CLEAR_YIELD, RETURN_SECONDS, RETRY_SECONDS, MIN_STANDING_TREES, KEEP_CLEAR_KIND, KEEP_CLEAR_RADIUS, type ClearState } from '../game/clearing';
 import { RESPAWN_SECONDS } from '../game/resources';
 import type { RockSaveState } from '../game/persistence';
 import { houseLevelInfo, MAX_HOUSE_LEVEL, type HouseLevel } from '../content/houses';
@@ -226,6 +226,7 @@ const USE_VERB: Record<string, (label: string, r: Building) => string> = {
 
 /** What the Blobbi says when looking at something the player made. */
 const ADMIRE: Record<string, string> = {
+  'clearing-flag': 'nothing wild grows back in this circle. pick the flag up to let it',
   'flower-bed': 'pretty flowers',
   table: 'tidy',
   'dining-table': 'room for everyone',
@@ -339,6 +340,15 @@ export class LiveWorld {
   islandCollision!: CollisionMap;
   blobbi: BlobbiEntity;
   readonly planted: PlantedTree[] = [];
+  /** Names the next planted tree (saved; never reused, so no two planted trees share a seed). */
+  plantedSerial = 0;
+  /** The side quest pinned to the goal box (M10 phase C; saved), or null. */
+  pinnedQuest: string | null = null;
+  /**
+   * Why this world does not save (M10 phase C): its record is from a newer version of the game, cannot be read, or
+   * the last write failed (storage full or blocked). The record is never overwritten in the first two cases.
+   */
+  saveProblem: SaveStatus | 'write-failed' | null = null;
   /** Per-object sway phase, so trees do not move in step. */
   readonly swayPhase: Float32Array;
   /** The Blobbi's autonomy: a nav grid over the collision map and a small behaviour machine. */
@@ -502,6 +512,16 @@ export class LiveWorld {
     this.identity = worldIdentity(base);
     // The save first: its growth stage decides which world we stand on (stage 0 when there is none).
     const save = this.store ? loadSave(this.store, this.identity) : null;
+    // M10 phase C: a record that exists but cannot be read here (damaged, or from a newer version of the game) is
+    // never overwritten: it is copied aside, and this world plays without saving (the player is told why).
+    if (this.store && !save && !this.visitor) {
+      const status = saveStatus(this.store, this.identity);
+      if (status === 'newer' || status === 'unreadable') {
+        backupRecord(this.store, this.identity);
+        this.saveProblem = status;
+        this.store = null;
+      }
+    }
     let world = base;
     if (save && save.growth.stage > 0) {
       try {
@@ -581,6 +601,10 @@ export class LiveWorld {
         if (kind && kind !== 'tree' && kind !== 'rock') this.cleared.set(index, { at: v.at, returnedAt: v.returnedAt });
       }
       for (const id of save.caught) this.caught.add(id);
+      // Schema 12: the trees the player planted (in the island frame, so growth never moves them) and the pinned quest.
+      for (const t of save.planted) this.planted.push({ placement: { kind: 'tree', layer: 'vegetation', seed: t.seed, size: t.size, x: t.x + origin.x, y: t.y + origin.y, island: -1 }, plantedAt: t.plantedAt, solid: false });
+      this.plantedSerial = Math.max(save.plantedSerial, save.planted.length);
+      this.pinnedQuest = save.pinnedQuest;
       if (save.boat) this.boat = { x: save.boat.x + origin.x, y: save.boat.y + origin.y, heading: save.boat.heading, vx: 0, vy: 0, aboard: save.boat.aboard };
       // Cleared ground is free: collision and navigation as the island is now.
       this.absentKey = this.absentNow();
@@ -630,6 +654,9 @@ export class LiveWorld {
     this.settleBoat();
     // An island grown before the landing has just been given it (M10 phase C): say so, once.
     if (this.landingUpgraded && this.world.growth?.landing) this.announceSeaPath();
+    // A save that could not be read is kept safe, and this world does not save over it (M10 phase C).
+    if (this.saveProblem === 'newer' || this.saveProblem === 'unreadable')
+      this.notices.push({ heading: 'Not saving', title: this.saveProblem === 'newer' ? 'saved by a newer version of the game' : 'this island\'s save could not be read', text: 'it is kept safe, untouched; nothing here is saved over it', until: this.clock.time + 8 });
   }
 
   // ─── Scenes: the island, or a house interior ───────────────────────────
@@ -912,6 +939,20 @@ export class LiveWorld {
       this.rubbleCache.set(key, s);
       return s;
     }
+    if (p.kind === 'rock' && this.rocks.has(index)) {
+      // M10 phase C: a rock still forming is the same rock, smaller (a deposit, then a growing one).
+      const c = this.rockAt(index);
+      if (c.phase === 'forming' && c.stage && c.stage !== 'whole') {
+        const size = Math.max(5, Math.round(p.size * ROCK_STAGE_SIZE[c.stage]));
+        const key = `${this.world.options.palette}|${p.seed}|${size}|forming`;
+        let hit = this.rubbleCache.get(key);
+        if (!hit) {
+          hit = OBJECT_GENERATORS.rock({ seed: p.seed, size, palette: paletteFor(this.world.options.palette), variation: p.variation as never });
+          this.rubbleCache.set(key, hit);
+        }
+        return hit;
+      }
+    }
     if (p.kind !== 'tree' || !this.trees.has(index)) return this.spriteOf(p);
     const c = this.treeAt(index);
     if (c.phase === 'stump') {
@@ -950,6 +991,7 @@ export class LiveWorld {
       if (this.islandCollision.isBlocked(node.x + 0.5, node.y + 0.5)) continue;
       if (this.plotByCell.has(cellKey(cellAt(node.x, node.y, this.origin)))) continue; // never on a field
       if (this.buildings.some((r) => Math.abs(r.x - node.x) <= footOf(r).footRx + 1 && Math.abs(r.y - node.y) <= footOf(r).footRy + 1)) continue; // nor under a path or a rug
+      if (keptClear(this.buildings, node.x, node.y)) continue; // nor on ground kept clear
       if (Math.abs(node.x - b.x) <= b.footRx + 2 && Math.abs(node.y - b.y) <= b.footRy + 2) continue;
       this.collectedAt.delete(node.id);
       this.collected.delete(node.id);
@@ -989,8 +1031,41 @@ export class LiveWorld {
 
   /** The island's collision with every absent object's ground free. */
   private islandCollisionNow(): CollisionMap {
-    return CollisionMap.fromWorld(this.world, (p) => this.spriteOf(p), [], (i) => this.absentObject(i));
+    return CollisionMap.fromWorld(this.world, (p) => this.collisionSprite(p), [], (i) => this.absentObject(i));
   }
+
+  /**
+   * The footprint an object stands on now (M10 phase C): a stump's, rubble's, a regrowing tree's or a forming rock's
+   * own (a seedling is stepped over), else the object's.
+   */
+  private collisionSprite(p: Placement): Sprite {
+    if (p.kind !== 'tree' && p.kind !== 'rock') return this.spriteOf(p);
+    if (this.objectIndexOf !== this.world) {
+      this.objectIndexOf = this.world;
+      this.objectIndex = new Map(this.world.objects.map((o, i) => [o, i]));
+    }
+    const i = this.objectIndex.get(p);
+    return i !== undefined && (this.trees.has(i) || this.rocks.has(i)) ? this.objectSprite(i) : this.spriteOf(p);
+  }
+  private objectIndexOf: WorldDescription | null = null;
+  private objectIndex = new Map<Placement, number>();
+
+  /** The stages of regrowing trees and forming rocks now: when one changes, the footprints change with it. */
+  private stagesNow(): string {
+    let key = '';
+    for (const [i] of this.trees) {
+      const c = this.treeAt(i);
+      if (c.phase === 'regrowing') key += `t${i}${treeStage(c.growth)[0]},`;
+      else if (c.phase === 'stump') key += `t${i}s,`;
+    }
+    for (const [i] of this.rocks) {
+      const c = this.rockAt(i);
+      if (c.phase === 'forming') key += `r${i}${c.stage![0]},`;
+      else if (c.phase === 'rubble') key += `r${i}u,`;
+    }
+    return key;
+  }
+  private stagesKey = '';
 
   /** The objects absent now (only those with a state can be), in index order. */
   absentIndices(): number[] {
@@ -1029,28 +1104,74 @@ export class LiveWorld {
 
   /** The swing lands: the thing is cleared, what it gives goes into the bag, its ground is free. */
   private landClear(index: number): void {
+    if (index >= this.world.objects.length) return this.digUpPlanted(index - this.world.objects.length);
     const o = this.world.objects[index];
     const kind = o && clearableKind(o);
-    if (!kind || kind === 'tree' || kind === 'rock' || this.absentObject(index)) return;
+    if (!kind || this.absentObject(index)) return;
     const time = this.clock.time;
     const b = this.blobbi;
     const sprite = this.objectSprite(index);
     const palette = paletteFor(this.world.options.palette);
-    this.cleared.set(index, { at: this.worldTime, returnedAt: null });
+    const yields: { item: string; quantity: number }[] = [];
+    let what = 'cleared';
+    if (kind === 'tree') {
+      // M10 phase C: a stump dug out, a seedling pulled up, a young tree cleared: its ground is clear again and the
+      // tree waits its full time before a seedling may come back (so clearing early never pays more than waiting).
+      const c = this.treeAt(index);
+      if (c.phase !== 'stump' && c.phase !== 'regrowing') return;
+      const st = this.trees.get(index)!;
+      const stage = c.phase === 'regrowing' ? treeStage(c.growth) : 'grown';
+      const wood = stage === 'seedling' || stage === 'young' ? EARLY_WOOD[stage] : 0;
+      if (wood) yields.push({ item: ITEMS.wood.id, quantity: wood });
+      what = c.phase === 'stump' ? 'stump dug out' : stage === 'seedling' ? 'seedling pulled up' : 'young tree cleared';
+      st.hits = 0;
+      st.harvestedAt = c.phase === 'stump' ? Math.min(st.harvestedAt ?? this.worldTime, this.worldTime - STUMP_SECONDS) : this.worldTime - STUMP_SECONDS;
+      st.regrowAt = null;
+    } else if (kind === 'rock') {
+      // Rubble cleared away, or a forming rock (a deposit, a growing one) broken up early for fewer stones.
+      const c = this.rockAt(index);
+      if (c.phase !== 'rubble' && c.phase !== 'forming') return;
+      const st = this.rocks.get(index)!;
+      const stones = c.phase === 'forming' && c.stage && c.stage !== 'whole' ? EARLY_STONES[c.stage] : 0;
+      if (stones) yields.push({ item: ITEMS.stone.id, quantity: stones });
+      what = c.phase === 'rubble' ? 'rubble cleared' : c.stage === 'deposit' ? 'small deposit cleared' : 'young rock cleared';
+      st.hits = 0;
+      st.minedAt = c.phase === 'rubble' ? Math.min(st.minedAt ?? this.worldTime, this.worldTime - RUBBLE_CLEAR_SECONDS) : this.worldTime - RUBBLE_CLEAR_SECONDS;
+      st.reformAt = null;
+    } else {
+      this.cleared.set(index, { at: this.worldTime, returnedAt: null });
+      yields.push(...CLEAR_YIELD[kind]);
+    }
     const gave: string[] = [];
-    for (const y of CLEAR_YIELD[kind]) {
+    for (const y of yields) {
       const got = this.inventory.add(y.item, y.quantity);
       if (got) gave.push(`+${got} ${itemLabel(y.item)}`);
     }
-    const stone = kind === 'small-rock';
+    const stone = kind === 'small-rock' || kind === 'rock';
     for (let i = 0; i < 6; i++) this.particles.dust(o.x + this.particles.rng.range(-sprite.footRx, sprite.footRx), o.y - this.particles.rng.range(0, 4), stone ? (i % 2 ? palette.stone.light : palette.stone.mid) : i % 2 ? palette.wood.light : palette.foliage[0].mid);
     if (!stone) for (let i = 0; i < 4; i++) this.particles.leaf(o.x + this.particles.rng.range(-4, 4), o.y - sprite.anchorY + 2, palette.foliage[0].mid);
     this.sound(stone ? 'mine' : 'chop');
     this.stats.chops++;
-    this.bubble = { text: gave.length ? `cleared  ${gave.join(' ')}` : 'cleared', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: gave.length ? `${what}  ${gave.join(' ')}` : what, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.8, 2);
     this.absentKey = this.absentNow();
     this.absentVersion++;
+    this.rebuildIsland();
+    this.save();
+  }
+
+  /** A tree the player planted, dug up (M10 phase C): gone, its ground free; no wood (planting costs nothing). */
+  private digUpPlanted(k: number): void {
+    const t = this.planted[k];
+    if (!t) return;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    this.planted.splice(k, 1);
+    this.stats.planted = this.planted.length;
+    for (let i = 0; i < 5; i++) this.particles.dust(t.placement.x + this.particles.rng.range(-3, 3), t.placement.y - this.particles.rng.range(0, 3), hex('#8a5a33'));
+    this.sound('chop');
+    this.bubble = { text: this.growthOf(t) < 1 ? 'young tree dug up' : 'tree dug up', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    b.animator.react('happy', time, 0.8, 2);
     this.rebuildIsland();
     this.save();
   }
@@ -1075,6 +1196,8 @@ export class LiveWorld {
     }
     for (const plot of this.plots) if (hit(this.plotRect(plot))) return false;
     for (const t of this.planted) if (hit({ x0: t.placement.x - 3, y0: t.placement.y - 2, x1: t.placement.x + 3, y1: t.placement.y + 2 })) return false;
+    // Prepared land (M10 phase C): ground kept clear with a clearing flag.
+    if (keptClear(this.buildings, o.x, o.y)) return false;
     const b = this.blobbi;
     if (!this.inside && hit({ x0: b.x - b.footRx - 2, y0: b.y - b.footRy - 2, x1: b.x + b.footRx + 2, y1: b.y + b.footRy + 2 })) return false;
     if (this.boat && hit({ x0: this.boat.x - 9, y0: this.boat.y - 9, x1: this.boat.x + 9, y1: this.boat.y + 9 })) return false;
@@ -1123,9 +1246,11 @@ export class LiveWorld {
       }
     }
     const key = this.absentNow();
-    if (key !== this.absentKey || returned) {
+    const stages = this.stagesNow();
+    if (key !== this.absentKey || returned || stages !== this.stagesKey) {
       if (key !== this.absentKey) this.absentVersion++;
       this.absentKey = key;
+      this.stagesKey = stages;
       this.rebuildIsland();
       if (returned) this.save();
     }
@@ -1248,21 +1373,19 @@ export class LiveWorld {
     if (this.denied('gather')) return false;
     if (!this.equipped || !toolSupports(this.equipped, 'chop')) return false;
     const target = this.facingObject();
-    if (!target || target.index >= this.world.objects.length) return false;
+    if (!target) return false;
+    // M10 phase C: a tree the player planted is dug up with the axe (it gives no wood: planting is free).
+    if (target.index >= this.world.objects.length) return target.placement.kind === 'tree' ? this.startClear(target.index) : false;
     // M10 phase B: the axe also clears a bush, or a natural stump or mushroom, freeing its ground.
     const kind = clearableKind(target.placement);
     if (kind === 'bush' || kind === 'stump' || kind === 'mushroom') return this.startClear(target.index);
     if (target.placement.kind !== 'tree') return false;
     const time = this.clock.time;
     const b = this.blobbi;
-    const { index, placement: o, sprite } = target;
+    const { index } = target;
     const condition = this.treeAt(index);
-    if (condition.phase === 'stump' || condition.phase === 'regrowing') {
-      const m = Math.ceil(condition.remaining / 60);
-      this.bubble = { text: condition.phase === 'stump' ? `a stump. regrows in ${m} min` : `regrowing, ${m} min to go`, until: time + 1.8, x: o.x, y: o.y - sprite.anchorY - 2 };
-      b.animator.react('neutral', time, 0.5, 0);
-      return true;
-    }
+    // M10 phase C: a stump is dug out, a seedling pulled up, a young tree cleared — one swing each, never a wall.
+    if (condition.phase === 'stump' || condition.phase === 'regrowing') return this.startClear(index);
     // A press during a swing is ignored: one swing at a time, no queue.
     if (this.swing) return true;
     this.swing = { action: 'chop', start: time, index, landed: false };
@@ -1285,11 +1408,10 @@ export class LiveWorld {
     // M10 phase B: a small rock is not mined (no rubble, no ore) but cleared in one swing: a stone, and its ground.
     if (!isLargeRock(o.size)) return this.startClear(index);
     const condition = this.rockAt(index);
-    if (condition.phase === 'rubble') {
-      this.bubble = { text: `rubble. whole again in ${Math.ceil(condition.remaining / 60)} min`, until: time + 1.8, x: o.x, y: o.y - sprite.anchorY - 2 };
-      b.animator.react('neutral', time, 0.5, 0);
-      return true;
-    }
+    // M10 phase C: rubble is cleared away, and a rock still forming (a deposit, a growing one) cleared in one swing.
+    if (condition.phase === 'rubble' || condition.phase === 'forming') return this.startClear(index);
+    void o;
+    void sprite;
     if (this.swing) return true;
     this.swing = { action: 'mine', start: time, index, landed: false };
     b.animator.react('excited', time, SWING.end, 0);
@@ -1448,7 +1570,26 @@ export class LiveWorld {
 
   /** Can a plot be tilled on a cell? */
   plotCheck(cell: Cell = this.targetCell()): PlacementCheck {
-    return checkPlot(this.plotRect(cell), this.placementContext());
+    const check = checkPlot(this.plotRect(cell), this.placementContext());
+    return check.ok && this.growingIn(check) ? { ...check, ok: false, problem: 'growing' } : check;
+  }
+
+  /**
+   * Is a natural thing coming back inside this rectangle (M10 phase C)? A seedling or a forming rock deposit can be
+   * stepped over, but nothing is built, laid or tilled on it — it would grow up through it. (Clear it first.)
+   */
+  growingIn(r: { x0: number; y0: number; x1: number; y1: number }): boolean {
+    for (const [i] of this.trees) {
+      if (this.treeAt(i).phase !== 'regrowing') continue;
+      const o = this.world.objects[i];
+      if (o.x >= r.x0 - 2 && o.x <= r.x1 + 2 && o.y >= r.y0 - 2 && o.y <= r.y1 + 2) return true;
+    }
+    for (const [i] of this.rocks) {
+      if (this.rockAt(i).phase !== 'forming') continue;
+      const o = this.world.objects[i];
+      if (o.x >= r.x0 - 2 && o.x <= r.x1 + 2 && o.y >= r.y0 - 2 && o.y <= r.y1 + 2) return true;
+    }
+    return false;
   }
 
   /** The crop E would plant: the selected one if its seeds are in the bag, else the first crop that has seeds. */
@@ -2090,9 +2231,68 @@ export class LiveWorld {
     if (!done.length) return;
     const b = this.blobbi;
     for (const o of done) this.grantReward(o);
+    // A pinned side quest that is done comes off the goal box by itself.
+    if (this.pinnedQuest && this.pinnedQuest in this.objectives.completed) this.pinnedQuest = null;
     for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-8, 8), b.y - b.size * 0.6 + this.particles.rng.range(-6, 6), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
     b.animator.react('excited', this.clock.time, 1, 3);
     this.save();
+  }
+
+  // ─── Quest tracking (M10 phase C) ───────────────────────────────────────
+
+  /**
+   * Pin one active side quest to the goal box (beside the main quest), or unpin with null. Only an active side
+   * quest can be pinned; pinning another replaces it. Saved.
+   */
+  pinQuest(id: string | null): boolean {
+    if (id === null) {
+      if (this.pinnedQuest === null) return false;
+      this.pinnedQuest = null;
+    } else {
+      const q = objectiveById(id);
+      if (!q || q.type !== 'side' || !activeQuests(this.objectives).some((a) => a.id === id)) return false;
+      this.pinnedQuest = id;
+      this.events.add('pin');
+    }
+    this.save();
+    return true;
+  }
+
+  /** The pinned side quest while it is still open (a stale pin shows nothing), or null. */
+  pinnedObjective(): Objective | null {
+    const id = this.pinnedQuest;
+    if (!id || id in this.objectives.completed) return null;
+    const q = objectiveById(id);
+    return q && q.type === 'side' && activeQuests(this.objectives).some((a) => a.id === id) ? q : null;
+  }
+
+  private progressCache: { key: string; text: string } | null = null;
+  /**
+   * A quest's progress as "have/need" for the goal box. A growth goal counts the island's requirements met (checked
+   * at most once a second of world time).
+   */
+  questProgress(q: Objective): string {
+    if ('stage' in q.goal) {
+      const key = `${q.id}|${Math.floor(this.worldTime)}|${this.growth.stage}`;
+      if (this.progressCache?.key !== key) {
+        const r = this.growthReadiness();
+        const met = r.requirements.filter((x) => x.have >= x.need).length;
+        this.progressCache = { key, text: this.growth.stage >= q.goal.stage ? '' : r.requirements.length ? `${met}/${r.requirements.length}` : '' };
+      }
+      return this.progressCache.text;
+    }
+    return q.progress ? q.progress(this.questContext()) : '';
+  }
+
+  /**
+   * Why a recipe is locked, when the player may know (M10 phase C): its teaching quest is open now (and is not a
+   * discovery: those stay a surprise). Null when it is known, or still a secret.
+   */
+  recipeLockHint(recipe: Recipe): string | null {
+    if (this.recipeKnown(recipe) || !recipe.unlock) return null;
+    const q = objectiveById(recipe.unlock);
+    if (!q || q.type === 'discovery' || !activeQuests(this.objectives).some((a) => a.id === q.id)) return null;
+    return `Complete "${q.title}" to unlock.`;
   }
 
   private grantReward(o: Objective): void {
@@ -3083,9 +3283,20 @@ export class LiveWorld {
     }
     const f = this.facingObject();
     if (f && f.index < this.world.objects.length) {
-      if (f.placement.kind === 'tree' && this.equipped && toolSupports(this.equipped, 'chop') && (this.treeAt(f.index).phase === 'grown' || this.treeAt(f.index).phase === 'chopping')) return 'E  chop';
-      if (f.placement.kind === 'rock' && this.equipped && toolSupports(this.equipped, 'mine') && isLargeRock(f.placement.size) && this.rockAt(f.index).phase !== 'rubble') return 'E  mine';
+      if (f.placement.kind === 'tree' && this.equipped && toolSupports(this.equipped, 'chop')) {
+        const c = this.treeAt(f.index);
+        if (c.phase === 'grown' || c.phase === 'chopping') return 'E  chop';
+        if (c.phase === 'stump') return 'E  dig out the stump';
+        if (c.phase === 'regrowing') return treeStage(c.growth) === 'seedling' ? 'E  pull up the seedling' : 'E  clear the young tree';
+      }
+      if (f.placement.kind === 'rock' && this.equipped && toolSupports(this.equipped, 'mine') && isLargeRock(f.placement.size)) {
+        const c = this.rockAt(f.index);
+        if (c.phase === 'rubble') return 'E  clear the rubble';
+        if (c.phase === 'forming') return c.stage === 'deposit' ? 'E  clear the small deposit' : 'E  clear the young rock';
+        return 'E  mine';
+      }
     }
+    if (f && f.index >= this.world.objects.length && this.equipped && toolSupports(this.equipped, 'chop')) return 'E  dig up the tree you planted';
     const building = this.facingBuilding();
     if (building && this.buildingAt(building) >= 1) return `E  ${USE_VERB[BUILDINGS[building.kind].use ?? 'admire'](BUILDINGS[building.kind].label, building)}`;
     if (this.fishing) return this.clock.time >= this.fishing.biteAt ? 'E  reel it in!' : 'wait for a bite...';
@@ -3579,6 +3790,8 @@ export class LiveWorld {
     const check = this.inside ? checkInterior(kind, spot.x, spot.y, this.interior!.state.furniture, this.blobbi, this.moving?.record, this.roomLayout) : this.islandPlacementCheck(kind, spot, level);
     // Solid things must never cut the way to a door, a chest or a workstation.
     if (check.ok && BUILDINGS[kind].layer === 'solid' && this.cutsOffPath(this.inside ? roomRect({ kind, ...spot }, this.roomLayout) : { x0: check.x0, y0: check.y0, x1: check.x1, y1: check.y1 })) return { ...check, ok: false, problem: 'path' };
+    // Nothing on a seedling or a forming rock (it would grow up through it).
+    if (check.ok && !this.inside && this.growingIn(check)) return { ...check, ok: false, problem: 'growing' };
     return check;
   }
 
@@ -4414,7 +4627,7 @@ export class LiveWorld {
     const collectedAt: Record<string, number> = {};
     for (const id of collected) collectedAt[id] = this.collectedAt.get(id) ?? this.worldTime;
     const plots = this.plots.map((p) => ({ id: p.id, gx: p.gx, gy: p.gy, preparedAt: p.preparedAt, harvests: p.harvests, crop: p.crop ? { ...p.crop } : null }));
-    storeSave(this.store, {
+    const record_: WorldSave = {
       version: SAVE_VERSION,
       owner: WORLD_OWNER,
       world: this.identity,
@@ -4447,7 +4660,20 @@ export class LiveWorld {
       // The canoe in the island frame (like buildings), whole pixels, at rest.
       boat: this.boat ? { x: Math.round(this.boat.x) - origin.x, y: Math.round(this.boat.y) - origin.y, heading: this.boat.heading, aboard: this.boat.aboard } : null,
       caught: [...this.caught].sort(),
-    });
+      planted: this.planted.map((t) => ({ x: t.placement.x - origin.x, y: t.placement.y - origin.y, seed: t.placement.seed, size: t.placement.size, plantedAt: t.plantedAt })),
+      plantedSerial: this.plantedSerial,
+      pinnedQuest: this.pinnedQuest,
+    };
+    try {
+      storeSave(this.store, record_);
+      if (this.saveProblem === 'write-failed') this.saveProblem = null;
+    } catch {
+      // Storage full or blocked: keep playing, say so once; the next save tries again.
+      if (this.saveProblem !== 'write-failed') {
+        this.saveProblem = 'write-failed';
+        this.notices.push({ heading: 'Not saved', title: 'the browser would not keep this island', text: 'free some space or allow storage; it tries again', until: (this.notices.at(-1)?.until ?? this.clock.time) + 5 });
+      }
+    }
     this.lastAutosave = this.clock.time;
   }
 
@@ -4552,6 +4778,9 @@ export class LiveWorld {
     this.trees.clear();
     this.cleared.clear();
     this.caught.clear();
+    this.planted.length = 0;
+    this.plantedSerial = 0;
+    this.pinnedQuest = null;
     // Afloat when the progress is reset: back on the island, by the hub.
     const wasAfloat = !!this.boat?.aboard || !!this.boarding;
     this.boat = null;
@@ -4642,7 +4871,7 @@ export class LiveWorld {
 
   /** Growth of a planted tree at the current time, quantized so sprites are reused. */
   growthOf(t: PlantedTree): number {
-    const g = Math.min(1, (this.clock.time - t.plantedAt) / this.growDuration);
+    const g = Math.min(1, Math.max(0, this.worldTime - t.plantedAt) / this.growDuration);
     return Math.round(g * 24) / 24;
   }
 
@@ -5109,6 +5338,23 @@ export class LiveWorld {
     }
   }
 
+  /**
+   * The clearing flags whose circles to show (M10 phase C): those near the Blobbi, and every one while a flag is
+   * being placed or things are being arranged. Presentation only.
+   */
+  keepClearRings(): { x: number; y: number; r: number }[] {
+    if (this.inside) return [];
+    const all = this.placing?.endsWith(`:${KEEP_CLEAR_KIND}`) || this.manage || this.moving?.record.kind === KEEP_CLEAR_KIND;
+    const b = this.blobbi;
+    const out: { x: number; y: number; r: number }[] = [];
+    for (const f of this.buildings) if (f.kind === KEEP_CLEAR_KIND && (all || Math.hypot(f.x - b.x, f.y - b.y) < KEEP_CLEAR_RADIUS + 28)) out.push({ x: f.x, y: f.y, r: KEEP_CLEAR_RADIUS });
+    if (this.moving?.record.kind === KEEP_CLEAR_KIND || this.placing?.endsWith(`:${KEEP_CLEAR_KIND}`)) {
+      const at = this.placementSpot(KEEP_CLEAR_KIND as BuildingKind);
+      out.push({ x: at.x, y: at.y, r: KEEP_CLEAR_RADIUS });
+    }
+    return out;
+  }
+
   /** A line to read from a bookshelf or a signpost (stable per object). */
   private readLine(building: Building): string {
     const lines = building.kind === 'signpost' ? SIGN_LINES : BOOK_LINES;
@@ -5143,9 +5389,11 @@ export class LiveWorld {
     if (!spot) return false;
     const px = Math.round(spot.x);
     const py = Math.round(spot.y);
-    const seed = `${this.world.seed}/planted/${this.planted.length}`;
+    const seed = `${this.world.seed}/planted/${this.plantedSerial++}`;
     const placement: Placement = { kind: 'tree', layer: 'vegetation', seed, size: 20 + stream(seed, 'size').int(0, 10), x: px, y: py, island: -1 };
-    this.planted.push({ placement, plantedAt: this.clock.time, solid: false });
+    // In world time (M10 phase C), so it keeps growing across saves exactly as it would have.
+    this.planted.push({ placement, plantedAt: this.worldTime, solid: false });
+    this.save();
     this.stats.planted = this.planted.length;
     this.particles.dust(px, py, hex('#8a5a33'));
     this.particles.dust(px + 1, py, hex('#8a5a33'));

@@ -71,3 +71,19 @@ export const CLEAR_YIELD: Record<'small-rock' | 'bush' | 'stump' | 'mushroom', {
   stump: [{ item: 'blobbi-pixel:material:wood', quantity: 1 }],
   mushroom: [{ item: 'blobbi-pixel:food:mushroom', quantity: 1 }],
 };
+
+/**
+ * PREPARED LAND (M10 phase C). Harvested wilderness comes back (the policy above); ground the player is keeping
+ * clear does not: a CLEARING FLAG (a placeable, saved like any other, in the island frame) keeps every wild thing —
+ * trees, rocks, bushes, natural stumps and mushrooms, sticks, stones and forage — from returning within its circle.
+ * Picking the flag up lets them return again (each when its own time has come, if its spot is free). The flag is
+ * walked under, so it never blocks a path; its circle is small, so no flag can empty the island by accident.
+ */
+export const KEEP_CLEAR_KIND = 'clearing-flag';
+export const KEEP_CLEAR_RADIUS = 30;
+
+/** Is (x, y) inside a clearing flag's circle? */
+export function keptClear(buildings: readonly { kind: string; x: number; y: number }[], x: number, y: number): boolean {
+  for (const b of buildings) if (b.kind === KEEP_CLEAR_KIND && (b.x - x) ** 2 + (b.y - y) ** 2 <= KEEP_CLEAR_RADIUS ** 2) return true;
+  return false;
+}

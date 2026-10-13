@@ -5,7 +5,7 @@ import { LiveRenderer, Camera, DEFAULT_LIVE_OPTIONS } from '../src/render/live-r
 import { ITEMS, toolSupports } from '../src/game/items';
 import { RECIPES, canCraft } from '../src/game/crafting';
 import { attachTool, STEEL, toolSprite } from '../src/game/equipment';
-import { HITS_TO_MINE, LARGE_ROCK_SIZE, RUBBLE_SECONDS, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, rockCondition, stoneYield } from '../src/game/rocks';
+import { HITS_TO_MINE, LARGE_ROCK_SIZE, RUBBLE_SECONDS, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, ROCK_FORM_SECONDS, rockCondition, stoneYield } from '../src/game/rocks';
 import { RESPAWN_SECONDS } from '../src/game/resources';
 import { memoryStore, loadSave, saveKey, worldIdentity, SAVE_VERSION } from '../src/game/persistence';
 import { REST_POSE } from '../src/blobbi/sprite';
@@ -179,6 +179,11 @@ describe('mining large rocks', () => {
     live.blobbi.x = live.world.hubs[0].x;
     live.blobbi.y = live.world.hubs[0].y;
     run(live, (ROCK_RETURN_SECONDS + 10) * 60);
+    // M10 phase C: it surfaces as a small deposit and forms into the whole rock.
+    expect(live.rockAt(index).phase).toBe('forming');
+    expect(live.rockAt(index).stage).toBe('deposit');
+    expect(live.objectSprite(index).buffer.width).toBeLessThan(live.spriteOf(rock).buffer.width);
+    run(live, (ROCK_FORM_SECONDS + 2) * 60);
     expect(live.rockAt(index).phase).toBe('whole');
     expect(live.collision.isBlocked(rock.x, rock.y)).toBe(true);
     expect(live.objectSprite(index)).toBe(live.spriteOf(rock));

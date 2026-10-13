@@ -254,7 +254,7 @@ export const quantizeProgress = (p: number): number => Math.round(Math.max(0, Ma
 
 // ─── Placement ───────────────────────────────────────────────────────────────
 
-export type PlacementProblem = 'water' | 'ground' | 'blocked' | 'building' | 'resource' | 'blobbi' | 'edge' | 'plot' | 'doorway' | 'path' | 'outdoor' | 'door';
+export type PlacementProblem = 'water' | 'ground' | 'blocked' | 'building' | 'resource' | 'blobbi' | 'edge' | 'plot' | 'doorway' | 'path' | 'outdoor' | 'door' | 'growing';
 
 export interface PlacementCheck {
   ok: boolean;
@@ -407,6 +407,7 @@ export const PROBLEM_TEXT: Record<PlacementProblem, string> = {
   path: 'that would block the way',
   outdoor: 'that goes inside the house',
   door: 'keep the door clear',
+  growing: 'something is growing there (clear it first)',
 };
 
 // ─── The shelter ─────────────────────────────────────────────────────────────

@@ -156,6 +156,31 @@ export function goalCard(n: number, total: number, title: string, progress: stri
   return b;
 }
 
+/**
+ * The pinned side quest (M10 phase C): a slimmer card than the main goal's, "SIDE" and the title, a thin progress
+ * bar when it counts something. J opens the journal, where it is pinned and unpinned.
+ */
+export function pinnedCard(title: string, progress: string): PixelBuffer {
+  const head = 'SIDE';
+  const name = title.toUpperCase().slice(0, 26);
+  const m = /(\d+)\s*\/\s*(\d+)/.exec(progress);
+  const label = m ? `${Math.min(Number(m[1]), Number(m[2]))}/${Math.max(1, Number(m[2]))}` : '';
+  const w = tw(head) + 4 + tw(name) + (label ? 4 + tw(label) : 0) + 2 * DESIGN.pad + 2;
+  const h = m ? 13 : 11;
+  const b = card(w, h);
+  drawTinyText(b, head, DESIGN.pad + 1, 3, DESIGN.muted);
+  drawTinyText(b, name, DESIGN.pad + 1 + tw(head) + 4, 3, DESIGN.ink);
+  if (m) {
+    const have = Math.min(Number(m[1]), Number(m[2]));
+    const need = Math.max(1, Number(m[2]));
+    drawTinyText(b, label, w - DESIGN.pad - tw(label), 3, DESIGN.muted);
+    const barW = w - 2 * DESIGN.pad - 2;
+    b.fillRect(DESIGN.pad + 1, 9, barW, 2, DESIGN.cardHi);
+    b.fillRect(DESIGN.pad + 1, 9, Math.round((barW * have) / need), 2, have >= need ? DESIGN.good : DESIGN.accent);
+  }
+  return b;
+}
+
 /** The tool in hand: its icon, name and the key that changes it. */
 export function toolChip(icon: PixelBuffer | null, name: string): PixelBuffer {
   const text = `${name.toUpperCase()}  Q`;
