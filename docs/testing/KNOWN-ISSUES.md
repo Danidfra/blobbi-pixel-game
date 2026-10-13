@@ -66,82 +66,14 @@ nicety).
 | KI-66 | Low | Readability | The 3×5 title font keeps its M/N likeness (headings only now). Generated island names stay English words; typed island names stay ASCII (an existing test pins it). | `src/render/live-render.ts`, `src/game/island-name.ts` | Owner decision. |
 | KI-67 | Low | Performance | A full-screen menu now costs about 5.6 ms to draw at 1280×720 (was about 3.6 ms): text is drawn at screen resolution. The world is paused while a menu is open; the play frame with the HUD is unchanged (about 2.0 ms). | `src/ui/surface.ts` | Cache the panel background and glyph runs if a device struggles. |
 | KI-68 | Medium | Blobbis | V1 and V2 Blobbis cannot visit (listed with their colours and a notice). A faithful pixel form needs a mapping agreed with the owner and the kit maintainer, and the original art shown alongside (plan in [Blobbi generations](../architecture/BLOBBI-GENERATION-COMPATIBILITY.md) §5). | `src/nostr/blobbis.ts` | M11D or later, after the mapping decision. |
-| KI-69 | Medium | Blobbis | V3 eggs and babies cannot visit: the pixel renderer draws only the adult body (`stateForPose` fixes `stage: 'adult'`); drawing them as adults would misrepresent them. | `src/blobbi/canonical.ts` | Baby (and egg) poses for the pixel rig. |
 | KI-70 | Low | Controls | HOME moved from key 1 to 0 (and Home) so 1-5 can pick tools: players used to 1 must relearn it. All texts and the guide say 0. | `src/ui/game-ui.ts` | Owner decision if another key is preferred (every letter is already used). |
 | KI-71 | Low | Accounts | "Connected" means the device remembers a public key; it does not check that the extension still holds that account until CHECK THE ACCOUNT AGAIN (by design: no prompts on load). ACCOUNT says so when the extension is missing. | `src/nostr/account.ts` | None needed unless the owner wants a check on load. |
 | KI-72 | Low | Blobbis | The list is read from the two Blobbi relays only (no NIP-65 relay list); a Blobbi stored only elsewhere is not found. Relay answers are capped at 200 events, 60 Blobbis shown. | `src/nostr/relays.ts` | Read the player's relay list (kind 10002) once that is agreed. |
 | KI-73 | Low | Layout | On a 667×375 phone the camera indicator (bottom left) sits partly under the menu bar's first row; this predates M11C. The hotbar avoids both. | `src/render/view-renderer.ts` | Move the indicator above the menu bar on narrow touch screens. |
 | KI-74 | Low | Invitation | The card is rebuilt every frame while it shows (+0.3 ms of UI per frame for at most about 90 s every three days). Keyboard players answer it with the mouse; it also leaves by itself. | `src/ui/game-ui.ts` (`drawInvite`) | Cache it per hover state; a keyboard shortcut if the owner wants one. |
 | KI-75 | Low | Invitation | The trigger numbers (10 active minutes, a pet, 3 main quests, a 3-day cooldown) are first guesses, not tuned by play. | `src/ui/account-invite.ts` | Owner playtest. |
-| KI-18 | Low | Growth | A whale world grown to stage 3 before 2026-10-11 keeps growth version 1, so its mushroom grove may stay partly walled off by trees (only new growth uses version 2). | `src/world/growth.ts` (`GROWTH_VERSIONS`) | Reset growth on that test world, or add an opt-in upgrade of a save's growth version. |
-
-## Fixed in M8 (2026-10-11): the intro is part of making an island
-
-- **KI-19**: the intro cinematic was a dev preview only. NEW ISLAND (and a first-time player's BEGIN) now chooses a
-  Carrier and a name, makes the island, saves it with its intro pending and plays the intro on the real world; the
-  intro ends in play (no return to the title). ABOUT → WATCH THE … INTRO replays it on a preview island.
-
-## Fixed in M8 (2026-10-11): deleting a world asks first
-
-- **KI-01** (High): the sidebar's progress-reset button deleted the world's save immediately. It is now "Delete this
-  island's progress…": it opens a confirmation that names the island and its Carrier, starts with Cancel focused, and
-  keeps Delete disabled for 0.6 s (`ConfirmGate`, `src/game/world-delete.ts`), so a double click cannot confirm.
-  MY ISLANDS on the title can now delete a world too, through the same gate on a page of its own (KEEP IT is the
-  default answer). Tests: `tests/world-delete.test.ts`. Manual: SAVE-DEL-01 … 03 (NOT TESTED).
-
-## Fixed in M8 phase 0 (the playable whale)
-
-- The whale was a preview only (`status: 'prototype'`); it is a playable World Carrier.
-- The example images of the manta in `examples/living-archipelago/` were older than the M7 manta (they were made in
-  M6); regenerated with `scripts/carriers.ts`.
-
-## Fixed 2026-10-11: "the Growth button does nothing" (found in manual play on a whale world)
-
-- **Root cause:** a press inside any in-game panel that missed every live control — including the muted NOT READY
-  YET growth button — fell through to "a press outside the panel closes it". On a world not yet ready to grow, the
-  growth button therefore closed the panel silently: no message, no growth, nothing on screen changed. Fixed in
-  `GameUI` (the panel's own background takes such presses) and `Gfx.button` (`whyNot`: a muted button may explain
-  itself); the growth panel now says how many requirements are left and keeps refusals on screen.
-- **Also unclear:** the dev growth buttons refuse on any world whose seed lacks "test" (a world from NEW ISLAND), and
-  said so only in small text under the buttons; the test plan sent whale testers there from NEW ISLAND. The refusal
-  now also shows on the game view, and the plan says to use the dev tools' Whale test world. The dev stage buttons
-  rebuilt the world with no reveal, no notice and no camera change; a higher stage now plays the reveal. After every
-  reveal the new land stays lit for 3.5 s (thin turtle growth was easy to miss at overview).
-- **Found while testing it:** the whale's stage-3 mushroom grove could be partly walled off by its old trees (about
-  a third unreachable on seed `flow-test-whale`). Fixed for new growth in growth version 2 (whale only; version-1 saves
-  regrow unchanged). The growth panel's GROWN LAND text overlapped its STAGES list.
-- The growth flow itself (stage saved, world rebuilt, renderer, walkability, persistence) worked for all three
-  species; it is now tested from the button press (`tests/growth-flow.test.ts`).
-
-## Fixed during the documentation pass
-
-- The Carrier panel showed the M6 design-only growth model; it now shows the real island growth.
-- `src/carriers/species.ts` described the manta as a prototype; it is playable since M7.
-- `docs/game-design/GAMEPLAY-SYSTEMS.md` began with a second-level heading.
-
-## Fixed in M10 phase C
-
-- KI-02 (High): a save from a newer version of the game (or one that cannot be read) was ignored and then overwritten
-  by the next autosave. Now it is never written over: it is copied aside (`blobbi-pixel-lab:backup:v1:<identity>`),
-  the world plays without saving, and the player is told (`tests/save-reliability.test.ts`).
-- KI-49 (Medium): trees the player plants are saved (island frame, world time, seed), keep growing across reloads and
-  growth, and can be dug up with the axe (`tests/regrowth-stages.test.ts`).
-- KI-51 (Low): the rough-water edge is rounded and breathes; no straight line (`tests/canoe-polish.test.ts`).
-- KI-52 (Low): a moored canoe can be called back into the bag from anywhere ashore (CALL IT BACK in the bag); still
-  one canoe.
-- KI-53 (Low): every fish has its own icon silhouette and markings.
-- Found during phase C: a regrowing seedling (now stepped over) could have had a bench built on it and grown through
-  it; placement and tilling now refuse ground where something is growing back. The growth panel said "stage 0 of 3"
-  since stage 4 was added (M9); it counts four.
-
-## Fixed in M10 phase B
-
-- **KI-34** (2026-10-12): the "generates a default world quickly" budget timed one run by the wall clock, so nine
-  other test processes on the same cores could push it from 0.5 s to 3.3 s. It now measures the test process's own
-  CPU time (vitest runs each file in its own process) and keeps the fastest of three runs; the 1.5 s budget is
-  unchanged, so a real slowdown still fails. The marine-life cost test uses CPU time the same way.
-
-## Reporting a new issue
-
-Add a row with the next ID, a severity, the code location and, if found by a manual test, the test ID (for example
-"found in GROW-04"). When an issue is fixed, move it to a "Fixed" list with the date and remove it from the table.
+| KI-76 | Low | Blobbis | V1 and V2 Babies cannot visit: the kit's one baby drawing has a front and a back only, no walk rig and no expressions; MY BLOBBIS shows their real picture and the reason. | `src/blobbi/v1-baby.ts`, `src/nostr/blobbis.ts` | Owner decision (M11D.1 decision 2). |
+| KI-77 | Low | Blobbis | A Baby is small: the kit's two thirds of the adult (16 px at exploration, 10 px at the overview with its floor); faces read from 16 px. | `src/blobbi/canonical.ts` (`babyHeightFor`) | Owner decision on size (M11D.1 decision 1). |
+| KI-78 | Low | Blobbis | Beds, the canoe, the Carrier's listening spot and the teleport use the adult's anchors with a Baby; sparkles and the "!" mark are placed for an adult's height. | `src/sim/live-world.ts`, `src/render/*` | Review in play (BABY-06, BABY-07); per-stage anchors if needed. |
+| KI-79 | Low | Blobbis | A Baby works, rests and eats exactly like an adult (no 4-segment bars, no smaller energy pool). By design in M11D.1. | `src/game/care.ts` | The M11C.5 energy proposal, after approval. |
+| KI-80 | Low | Settings | A settings record written before M11D.1 that froze REDUCED MOTION on keeps playing the short intro until the player turns it off in SETTINGS (kept on purpose: it may be a real accessibility choice). | `src/ui/game-ui.ts` (`readStoredSettings`) | INTROFIX-01. |

@@ -44,6 +44,7 @@ plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M1
   that cannot be read.
 - [Languages and readable text](architecture/I18N.md) (M11B): catalogues, content overlay, fonts, text size.
 - [Blobbi generations V1/V2/V3](architecture/BLOBBI-GENERATION-COMPATIBILITY.md) (M11B investigation; M11C support and the V1/V2 world-form plan).
+- [M11D.1](milestones/M11D1.md): Baby Blobbis in pixels (V3 Babies visit; V1/V2 Baby pictures), tools held by invisible arms, the baby lab (`baby-lab.html`, dev only), the intro reduced-motion fix.
 - [M11C.5](milestones/M11C5.md): the account invitation; designs for [guest Blobbi identity](architecture/GUEST-BLOBBI-IDENTITY.md), [Baby Blobbi](architecture/BABY-BLOBBI.md), [energy](architecture/BLOBBI-ENERGY.md), [account creation](architecture/ACCOUNT-CREATION.md).
 - [M11C](milestones/M11C.md): the Guest/Connected chip, the tool hotbar, MY BLOBBIS (read-only canonical Blobbi discovery).
 - Nostr: identity is IMPLEMENTED read-only in M11B (`src/nostr/`, [M11B](milestones/M11B.md)); the rest is the M11A design: [identity](architecture/NOSTR-IDENTITY.md),

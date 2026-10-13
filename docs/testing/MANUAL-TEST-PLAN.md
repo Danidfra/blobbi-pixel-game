@@ -462,6 +462,17 @@ All **NOT TESTED**; steps and expected results in [M11C.5](../milestones/M11C5.m
 |---|---|
 | INVITE-01 .. INVITE-10 | NOT TESTED |
 
+## M11D.1: Baby Blobbis and the intro report (BABY, INTROFIX)
+
+All **NOT TESTED**; steps and expected results in [M11D.1](../milestones/M11D1.md) (BABY-01..12, INTROFIX-01..03).
+Automated: `tests/m11d1-baby.test.ts`, `tests/m11d1-intro.test.ts`; images `examples/m11d1/`; the dev-only lab page
+`baby-lab.html`.
+
+| ID | Status |
+|---|---|
+| BABY-01 .. BABY-12 | NOT TESTED |
+| INTROFIX-01 .. INTROFIX-03 | NOT TESTED |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

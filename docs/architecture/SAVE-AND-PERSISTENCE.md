@@ -111,10 +111,10 @@ and never writes.
 
 | Key | What | Source |
 |---|---|---|
-| `blobbi-pixel-lab:selected-blobbi` | the chosen Blobbi (V3 address, V3 seed or demo seed); since M11C optionally `name` and `account` for a Blobbi chosen from MY BLOBBIS (same version 1; older code ignores the two fields; it walks only while that account is connected) | `src/game/blobbi-selection.ts` |
+| `blobbi-pixel-lab:selected-blobbi` | the chosen Blobbi (V3 address, V3 seed or demo seed); since M11C optionally `name` and `account` for a Blobbi chosen from MY BLOBBIS (same version 1; older code ignores the two fields; it walks only while that account is connected); since M11D.1 optionally `stage: 'baby'` beside `account` (older code draws the adult of the same genome) | `src/game/blobbi-selection.ts` |
 | `blobbi-pixel-lab:account-invite` | the account invitation's memory: active play seconds, opt-out, last shown, last answer (M11C.5) | `src/ui/account-invite.ts` |
 | `blobbi-pixel-lab:account` | the remembered account (public key, method, cached profile name; M11B) | `src/nostr/account-store.ts` |
-| `blobbi-pixel-lab:settings` | game settings | `src/playground/main.ts` |
+| `blobbi-pixel-lab:settings` | game settings; since M11D.1 `reducedMotion` is stored only with `reducedMotionChosen: true` (the player's own toggle), otherwise the system preference is followed | `src/playground/main.ts` |
 | `blobbi-pixel-lab:audio` | the audio mix | idem |
 | `blobbi-pixel:camera-mode` | the camera mode | idem |
 | `blobbi-pixel-lab:worlds` | last-played time per world (orders the islands list) | `src/game/worlds.ts` |

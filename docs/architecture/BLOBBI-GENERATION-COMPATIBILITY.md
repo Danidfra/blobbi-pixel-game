@@ -72,7 +72,9 @@ adult** walk the island. Every other Blobbi is listed, never drawn as something 
 | Blobbi | In MY BLOBBIS | Why |
 |---|---|---|
 | V3 adult | its pixel picture; can be brought to the island | the pixel game draws the V3 adult gene for gene (seed from the address, `deriveBlobbiV3Seed`) |
-| V3 egg, V3 baby | its V3 colours, "only grown-up Blobbis can visit this world" | the pixel rig is adult only (`stateForPose` fixes `stage: 'adult'`; KI-69) |
+| V3 egg | its V3 colours; since M11D.1 "Eggs cannot visit this world yet; once it hatches, the Baby can" | an egg does not walk |
+| V3 baby | M11C: colours only. **Since [M11D.1](../milestones/M11D1.md): its pixel picture; can be brought to the island** | the kit's baby of the same genome, rasterized (droplet, simple eyes, hop, tools held by invisible arms) |
+| V1 / V2 baby | since M11D.1 its real picture (the kit's one authored baby art in its own colours; V2 draws the V1 art, as the kit does); cannot visit | front and back art only, no walk rig or expressions (KI-76) |
 | V1, V2 | its colours (the kit's `visualTraits`), "earlier generation, its form for this pixel world is not ready yet" | other artwork, another seed (§1); drawing V3 from it would show an unrelated creature |
 | unknown `visual_generation` | "a style this version does not know yet" | the kit would fall back to V1 (and then call it legacy); this game refuses to guess |
 

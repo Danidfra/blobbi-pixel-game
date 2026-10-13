@@ -1,6 +1,9 @@
 # Baby Blobbi in the pixel world (M11C.5, DESIGN)
 
-**Status: INVESTIGATION + PROPOSAL.** Nothing is implemented; the initial Blobbi is unchanged (the demo adult).
+**Status: INVESTIGATION + PROPOSAL (M11C.5); the visual part is IMPLEMENTED in [M11D.1](../milestones/M11D1.md)**: V3
+Babies are drawn from the kit's baby with a whole-pixel hop, tools are held by invisible arms, V3 Babies can visit
+from MY BLOBBIS and V1/V2 Babies show their kit picture. Still proposals: baby bars, energy, growth, the guest's own
+Baby. The initial Blobbi is unchanged (the demo adult).
 Facts are **VERIFIED** with paths (kit = `~/Developer/blobbi-kit/packages`, matching the installed `@blobbi-kit/core`
 0.9.0 and renderer 0.6.0) or **PROPOSED**. Identity and registration: [guest Blobbi identity](GUEST-BLOBBI-IDENTITY.md).
 
@@ -85,7 +88,7 @@ baby size per zoom; whether eggs ever appear in Pixel (an egg cannot walk: recom
 2. Stage-aware rendering in `canonical.ts` and the native renderer, behind a flag; snapshot hashes.
 3. The carry and swing for babies; fishing-line and bed anchors.
 4. Baby bars (4 segments) in the HUD and care panel.
-5. Only then: babies selectable in MY BLOBBIS (lifting KI-69), and the guest Baby ([guest identity](GUEST-BLOBBI-IDENTITY.md)).
+5. Only then: babies selectable in MY BLOBBIS (lifting KI-69: done in M11D.1), and the guest Baby ([guest identity](GUEST-BLOBBI-IDENTITY.md)).
 
 ## 7. Manual test checklist (future, all NOT TESTED)
 
