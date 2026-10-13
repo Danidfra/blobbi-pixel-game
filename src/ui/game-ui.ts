@@ -81,6 +81,36 @@ export function readSettings(raw: unknown, base: UiSettings = DEFAULT_SETTINGS):
   return out;
 }
 
+/**
+ * M11D.1, REDUCED MOTION FOLLOWS THE SYSTEM UNTIL THE PLAYER CHOOSES. The settings record used to store
+ * `reducedMotion` whenever ANY setting changed, so the system preference of that moment (or a toggle made once while
+ * testing) was frozen for good, silently: every later intro played its short reduced form (the Carrier's shadow
+ * already there, a one-second surfacing). Now the record keeps `reducedMotion` only beside `reducedMotionChosen: true`,
+ * set when the player toggles it in SETTINGS. Records written before M11D.1 (a stored value, no marker) are kept
+ * exactly as they read before: their value may have been a real choice, and an accessibility setting is never
+ * dropped by an update.
+ */
+export function reducedMotionChosen(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const v = raw as Record<string, unknown>;
+  if (typeof v.reducedMotion !== 'boolean') return false;
+  return v.reducedMotionChosen === true || !('reducedMotionChosen' in v);
+}
+
+/** The settings as stored: `reducedMotion` (with its marker) only when the player chose it; else left to the system. */
+export function settingsRecord(s: UiSettings, chosen: boolean): Record<string, unknown> {
+  const { reducedMotion, ...rest } = s;
+  return chosen ? { ...rest, reducedMotion, reducedMotionChosen: true } : { ...rest, reducedMotionChosen: false };
+}
+
+/** Settings read from a record, the system's reduced motion used unless the record holds the player's own choice. */
+export function readStoredSettings(raw: unknown, base: UiSettings, systemReduced: boolean): { settings: UiSettings; chosen: boolean } {
+  const chosen = reducedMotionChosen(raw);
+  const settings = readSettings(raw, { ...base, reducedMotion: systemReduced });
+  if (!chosen) settings.reducedMotion = systemReduced;
+  return { settings, chosen };
+}
+
 /** The HUD's scale for a text size (the HUD is not a fixed panel: it can always grow). */
 export const hudScale = (s: Pick<UiSettings, 'textSize'>): number => (s.textSize === 'large' ? 3 : 2);
 /** The largest menu scale a text size allows (menus use less when the screen is smaller). */

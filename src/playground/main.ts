@@ -37,7 +37,7 @@ import { ViewCamera, CAMERA_CYCLE, CAMERA_MODES, DEFAULT_CAMERA_MODE, isCameraMo
 import { ViewRenderer, DEFAULT_VIEW_UI } from '../render/view-renderer';
 import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
-import { GameUI, hudScale, readSettings } from '../ui/game-ui';
+import { GameUI, hudScale, readStoredSettings, settingsRecord } from '../ui/game-ui';
 import { hotbarIndexForKey, isTypingTarget, nextToolInCycle } from '../ui/hotbar';
 import { AccountInvite, isBusy } from '../ui/account-invite';
 import { textPreference } from '../ui/surface';
@@ -577,14 +577,18 @@ gameUI.register(settingsScreen);
 }
 // Settings are viewer preferences in this browser, never part of a save.
 const SETTINGS_KEY = 'blobbi-pixel-lab:settings';
-// The system's reduced-motion preference is the default until the player chooses.
-gameUI.settings.reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+// The system's reduced-motion preference is the default until the player chooses (M11D.1: a change to another
+// setting no longer freezes it; see `readStoredSettings`).
+const systemReduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+gameUI.settings.reducedMotion = systemReduced;
+let reducedChosen = false;
 try {
   const raw = localStorage.getItem(SETTINGS_KEY);
-  if (raw) gameUI.settings = readSettings(JSON.parse(raw), gameUI.settings);
+  if (raw) ({ settings: gameUI.settings, chosen: reducedChosen } = readStoredSettings(JSON.parse(raw), gameUI.settings, systemReduced));
 } catch {
   /* private mode or bad JSON: defaults */
 }
+let lastReduced = gameUI.settings.reducedMotion;
 // Audio: the engine starts on the first key or tap (browsers require a gesture); its mix is kept like the settings.
 const AUDIO_KEY = 'blobbi-pixel-lab:audio';
 const audioEngine = new AudioEngine();
@@ -695,7 +699,10 @@ settingsScreen.onChange = () => {
   else unlockAudio();
   try {
     localStorage.setItem(AUDIO_KEY, JSON.stringify(audioEngine.settings));
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(gameUI.settings));
+    // Toggling REDUCED MOTION is the player's choice; any other change leaves it to the system.
+    if (gameUI.settings.reducedMotion !== lastReduced) reducedChosen = true;
+    lastReduced = gameUI.settings.reducedMotion;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsRecord(gameUI.settings, reducedChosen)));
   } catch {
     /* not stored: fine */
   }
