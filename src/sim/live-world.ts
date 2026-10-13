@@ -25,7 +25,8 @@ import type { TreeResult } from '../objects/tree';
 import type { HouseResult } from '../objects/structures';
 import { paletteFor } from '../world/generate';
 import { T, WALKABLE, type Placement, type WorldDescription } from '../world/types';
-import { blobbiIdentity, type PixelBlobbiIdentity } from '../blobbi/identity';
+import { blobbiIdentity, stagedIdentity, type PixelBlobbiIdentity } from '../blobbi/identity';
+import type { BlobbiStage } from '../blobbi/canonical';
 import { sourceFromSeed, type BlobbiSource } from '../blobbi/source';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
@@ -294,6 +295,8 @@ export interface LiveOptions {
    * own, and every lasting change is refused (see `permissions`). Nothing is ever written.
    */
   visitor?: boolean;
+  /** M11D.1: the life stage the Blobbi is drawn at (default the adult; a canonical Baby chosen in MY BLOBBIS). */
+  stage?: BlobbiStage;
 }
 
 /** Wind strength 0..1 at a world x and time: slow gusts that travel across the map. */
@@ -526,7 +529,7 @@ export class LiveWorld {
     this.collision = CollisionMap.fromWorld(world, (p) => this.spriteOf(p));
     // Stage-0 collision and navigation, for everything derived from the base world (identical to an ungrown world's).
     const baseCollision = world === base ? this.collision : CollisionMap.fromWorld(base, (p) => this.spriteOf(p));
-    this.blobbi = this.makeBlobbi(blobbi, blobbiSize);
+    this.blobbi = this.makeBlobbi(blobbi, blobbiSize, options.stage ?? 'adult');
     this.rig = new EquipmentRig(this.blobbi.identity, this.blobbi.size);
     this.teleport = new TeleportController(world.seed, blobbiSize, Math.max(4, Math.round(blobbiSize * 0.42)));
     this.placeBlobbiAtStart();
@@ -4808,11 +4811,13 @@ export class LiveWorld {
     this.brain.extras = () => this.pointsOfInterest();
   }
 
-  private makeBlobbi(blobbi: string | BlobbiSource, size: number): BlobbiEntity {
+  private makeBlobbi(blobbi: string | BlobbiSource, size: number, stage: BlobbiStage): BlobbiEntity {
     const source = typeof blobbi === 'string' ? sourceFromSeed(blobbi) : blobbi;
     const seed = source.seed;
-    const identity = blobbiIdentity(seed);
-    const sprite = buildBlobbiSprite(identity, { view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 }, size);
+    const identity = stage === 'adult' ? blobbiIdentity(seed) : stagedIdentity(seed, stage);
+    // The footprint is the ADULT's of the same genome at every stage (M11D.1): a baby walks, collides, reaches and
+    // pathfinds exactly as its adult self, so choosing a Baby never changes where the Blobbi can go.
+    const sprite = buildBlobbiSprite(stage === 'adult' ? identity : blobbiIdentity(seed), { view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 }, size);
     return { seed, source, identity, animator: new BlobbiAnimator(seed), x: 0, y: 0, size, footRx: Math.max(2, sprite.footRx - 1), footRy: 2, speed: 42 };
   }
 
@@ -4828,9 +4833,9 @@ export class LiveWorld {
    * Another Blobbi walks this island. Only the Blobbi changes: the inventory, equipment, buildings and resources
    * are the world's and stay exactly as they are (and are saved under the world, never under a Blobbi).
    */
-  setBlobbi(blobbi: string | BlobbiSource, size = this.blobbi.size): void {
+  setBlobbi(blobbi: string | BlobbiSource, size = this.blobbi.size, stage: BlobbiStage = 'adult'): void {
     const { x, y } = this.blobbi;
-    this.blobbi = this.makeBlobbi(blobbi, size);
+    this.blobbi = this.makeBlobbi(blobbi, size, stage);
     this.blobbi.x = x;
     this.blobbi.y = y;
     this.blobbiCache.clear();
@@ -4874,7 +4879,7 @@ export class LiveWorld {
 
   /** The Blobbi's sprite for a pose, cached. */
   blobbiSprite(pose: BlobbiPose): Sprite {
-    const key = `${this.blobbi.seed}|${this.blobbi.size}|${poseKey(pose)}`;
+    const key = `${this.blobbi.seed}|${this.blobbi.identity.stage}|${this.blobbi.size}|${poseKey(pose)}`;
     const hit = this.blobbiCache.get(key);
     if (hit) return hit;
     const s = buildBlobbiSprite(this.blobbi.identity, pose, this.blobbi.size);

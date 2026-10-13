@@ -18,7 +18,14 @@
  * `version` and `source`, so the record stays readable both ways; no island save changes (saves never name a Blobbi).
  * A Blobbi chosen with an account walks only while that account is connected on this device: otherwise the visiting
  * Blobbi does (`effectiveSelection`), and the choice comes back when the same account connects again.
+ *
+ * M11D.1, BABIES. A canonical Baby chosen from MY BLOBBIS adds one more optional, presentational field to the same
+ * version-1 record: `stage: 'baby'` (the stage its event stated when it was chosen; absent means the adult). It is
+ * kept only beside an account, like `name`. Older code ignores it and draws the adult of the same genome (the same
+ * Blobbi, grown up): never another creature. The stage is a drawing choice, never identity: the seed, the address and
+ * every island save are unchanged by it, and MY BLOBBIS refreshes it when the Blobbi has grown up in another app.
  */
+import type { BlobbiStage } from '../blobbi/canonical';
 import { resolveBlobbi, type BlobbiSource } from '../blobbi/source';
 import type { KeyValueStore } from './persistence';
 
@@ -32,6 +39,8 @@ export interface BlobbiSelection {
   name?: string;
   /** M11C: the public key of the account it was chosen with (64 hex). */
   account?: string;
+  /** M11D.1: `baby` for a canonical Baby (absent: the adult). Only beside `account`. */
+  stage?: 'baby';
 }
 
 /** A stored selection, checked: the source re-validated, the name cleaned, the account a well-formed key or absent. */
@@ -39,6 +48,8 @@ export interface SelectionRecord {
   source: BlobbiSource;
   name: string | null;
   account: string | null;
+  /** M11D.1: the stage to draw ('adult' unless an account's Baby was chosen; always set by `loadSelectionRecord`). */
+  stage?: BlobbiStage;
 }
 
 export function loadSelection(store: KeyValueStore): BlobbiSource | null {
@@ -65,7 +76,7 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
   }
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd', unknown>>; name?: unknown; account?: unknown };
+    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd', unknown>>; name?: unknown; account?: unknown; stage?: unknown };
     if (parsed.version !== SELECTION_VERSION || !parsed.source || typeof parsed.source !== 'object') return null;
     const s = parsed.source;
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
@@ -75,17 +86,20 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
     const account = typeof parsed.account === 'string' && KEY_HEX.test(parsed.account) ? parsed.account : null;
     // An account marker only makes sense on that account's own Blobbi (an address with the same owner).
     if (account && (resolved.source.kind !== 'v3-address' || resolved.source.pubkey !== account)) return null;
-    return { source: resolved.source, name: account ? cleanSelectionName(parsed.name) : null, account };
+    // An unknown stage value reads as the adult (the same Blobbi), never as a refusal of the whole record.
+    const stage: BlobbiStage = account && parsed.stage === 'baby' ? 'baby' : 'adult';
+    return { source: resolved.source, name: account ? cleanSelectionName(parsed.name) : null, account, stage };
   } catch {
     return null;
   }
 }
 
-export function storeSelection(store: KeyValueStore, source: BlobbiSource, from?: { name: string; account: string }): void {
+export function storeSelection(store: KeyValueStore, source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }): void {
   const record: BlobbiSelection = { version: SELECTION_VERSION, source };
   if (from && source.kind === 'v3-address' && source.pubkey === from.account && KEY_HEX.test(from.account)) {
     record.name = cleanSelectionName(from.name) ?? 'Blobbi';
     record.account = from.account;
+    if (from.stage === 'baby') record.stage = 'baby';
   }
   store.set(SELECTION_KEY, JSON.stringify(record));
 }

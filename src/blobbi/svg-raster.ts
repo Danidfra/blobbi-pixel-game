@@ -167,7 +167,10 @@ function supportIssues(root: Node): string[] {
         continue;
       }
       if (k === 'fill' && !ref(v, ['linearGradient', 'radialGradient'], `${where} fill`) && !COLOR.test(v)) issues.add(`${where} fill "${v}"`);
-      if ((k === 'stroke' || k === 'stop-color') && !COLOR.test(v)) issues.add(`${where} ${k} "${v}"`);
+      // A stroke may name a gradient (the kit's baby mouth): a pixel line has no room for one, so it is drawn in
+      // the gradient's middle colour (`strokeOf`).
+      if (k === 'stroke' && !ref(v, ['linearGradient', 'radialGradient'], `${where} stroke`) && !COLOR.test(v)) issues.add(`${where} stroke "${v}"`);
+      if (k === 'stop-color' && !COLOR.test(v)) issues.add(`${where} ${k} "${v}"`);
       if (k === 'clip-path' && !ref(v, ['clipPath'], `${where} clip-path`)) issues.add(`${where} clip-path "${v}"`);
       if (k === 'filter' && !ref(v, ['filter'], `${where} filter`)) issues.add(`${where} filter "${v}"`);
       if (k === 'transform' || k === 'gradientTransform')
@@ -546,6 +549,12 @@ export interface RasterOptions {
    * span 1.2-1.5 px at 24 px (one to three freckle pixels), 2.3-2.9 px at 48 px (two or three) and 0.6-0.7 px at 12 px.
    */
   clusters?: readonly string[];
+  /**
+   * M11D.1: parts (by `data-part` prefix) painted only where the body (`body-base`) is. The kit's baby cheeks are
+   * half-transparent ovals that reach past the narrow droplet body; in pixels the overhang becomes an opaque,
+   * outlined nub that reads as a little arm, which a baby has not got. Inside the body they stay a blush.
+   */
+  insideBody?: readonly string[];
 }
 
 /**
@@ -640,11 +649,22 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
   /** The dots of the cluster group being walked that were too small to paint alone (see `RasterOptions.clusters`). */
   let pool: { cov: NonNullable<ReturnType<typeof coverage>>; box: [number, number, number, number]; color: (px: number, py: number) => Color; opacity: number; clip: Mask | null; sparesEyes: boolean }[] | null = null;
 
+  /** A stroke's one colour: its own, or the middle of the gradient it names (a pixel line is one colour wide). */
+  const strokeOf = (node: Node): Color | null => {
+    const v = node.attrs.stroke;
+    const id = v?.startsWith('url(#') ? v.slice(5, -1) : null;
+    if (id === null) return parseColor(v);
+    const grad = gradients.get(id);
+    return grad ? stopColor(grad.stops, 0.5) : null;
+  };
+
   const paintFill = (node: Node, ctm: Matrix, opacity: number, clip: Mask | null) => {
     const fill = node.attrs.fill;
     if (!fill || fill === 'none') return;
     const part = node.attrs['data-part'] ?? '';
     const sparesEyes = part.includes('cheek') || part.includes('freckle');
+    const inBody = (o.insideBody ?? []).some((p) => part.startsWith(p));
+    const isBody = part === 'body-base';
     const polys = shapePolys(node, ctm);
     const cov = coverage(polys, o.width, o.height);
     if (!cov) return;
@@ -688,6 +708,8 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
         const py = cov.y0 + y;
         if (clip && !clip.get(px, py)) continue;
         if (sparesEyes && eyeMask.get(px, py)) continue;
+        if (inBody && !bodyMask.get(px, py)) continue;
+        if (isBody) bodyMask.set(px, py);
         // The shape won this pixel. A band's stop opacity composites like the shape's own; a band under 1/64
         // (a transparent stop) paints nothing.
         painted++;
@@ -713,13 +735,13 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
       const px = cov.x0 + (bestI % cov.w);
       const py = cov.y0 + Math.floor(bestI / cov.w);
       const paint = paintAt(px, py);
-      if (opacity * paint.opacity >= 0.5 && (!clip || clip.get(px, py))) buf.set(px, py, over(buf.get(px, py), paint.color, opacity * best * paint.opacity));
+      if (opacity * paint.opacity >= 0.5 && (!clip || clip.get(px, py)) && (!inBody || bodyMask.get(px, py))) buf.set(px, py, over(buf.get(px, py), paint.color, opacity * best * paint.opacity));
     }
   };
 
   const paintStroke = (node: Node, ctm: Matrix, opacityIn: number, clip: Mask | null) => {
     let opacity = opacityIn;
-    const stroke = parseColor(node.attrs.stroke);
+    const stroke = strokeOf(node);
     if (stroke === null) return;
     const widthPx = Number(node.attrs['stroke-width'] ?? 1) * scaleOf(ctm);
     const polylines = node.tag === 'path' ? flattenPath(node.attrs.d ?? '').map((sp) => ({ pts: sp.points.map(([x, y]) => apply(ctm, x, y)), closed: sp.closed })) : shapePolys(node, ctm).map((pts) => ({ pts, closed: true }));
@@ -772,10 +794,15 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
     return { cx, cy, rx: Number(node.attrs.rx ?? node.attrs.r ?? 0) * k, ry: Number(node.attrs.ry ?? node.attrs.r ?? 0) * k };
   };
 
+  /** The pixels the body (`body-base`) won, for `insideBody` parts. */
+  const bodyMask = new Mask(o.width, o.height);
+
   /** Every eye white painted so far: cheeks and other later features never paint over an eye. */
   const eyeMask = new Mask(o.width, o.height);
 
   /** Eyes are painted in groups: the white is remembered so the iris, pupil and highlights can stay inside it. */
+  /** Whether the eye being painted has an iris of its own (a simple eye has only a pupil). */
+  let irisSeen = false;
   let currentWhite: { cx: number; cy: number; ecx: number; ecy: number; rx: number; ry: number; mask: Mask; box: { x0: number; y0: number; x1: number; y1: number } } | null = null;
 
   const paintFeature = (node: Node, part: string, ctm: Matrix, opacity: number, clip: Mask | null): boolean => {
@@ -796,8 +823,12 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
       const scy = wantH % 2 === 0 ? Math.round(e.cy) : Math.floor(e.cy) + 0.5;
       const mask = new Mask(o.width, o.height);
       forEachEllipsePixel(scx, scy, rx, ry, (x, y) => mask.set(x, y));
-      const white = parseColor(node.attrs.fill) ?? hex('#ffffff');
+      // A white painted with a gradient (the kit's baby eye) takes its light side; a pixel eye white is one colour.
+      const whiteFill = node.attrs.fill ?? '';
+      const whiteGrad = whiteFill.startsWith('url(') ? gradients.get(whiteFill.slice(5, -1)) : undefined;
+      const white = whiteGrad ? stopColor(whiteGrad.stops, 0.25) : (parseColor(whiteFill) ?? hex('#ffffff'));
       for (let y = 0; y < o.height; y++) for (let x = 0; x < o.width; x++) if (mask.get(x, y)) put(x, y, white);
+      irisSeen = false;
       eyeMask.union(mask);
       const box = mask.bounds() ?? { x: Math.floor(e.cx), y: Math.floor(e.cy), w: 1, h: 1 };
       currentWhite = { cx: scx, cy: scy, ecx: e.cx, ecy: e.cy, rx, ry, mask, box: { x0: box.x, y0: box.y, x1: box.x + box.w - 1, y1: box.y + box.h - 1 } };
@@ -807,7 +838,9 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
       if (!currentWhite) return false;
       const e = ellipsePx(node, ctm);
       const whiteW = currentWhite.rx * 2;
-      const isIris = part.endsWith('iris');
+      // The kit's SIMPLE eye (a baby's) has no iris: its pupil is the dark disc in the white, drawn by the iris rule.
+      const isIris = part.endsWith('iris') || (part.endsWith('pupil') && !irisSeen);
+      if (part.endsWith('iris')) irisSeen = true;
       // The iris fills most of the white, as in the drawing: at least 2 px wide once the white is 3 px wide,
       // and never the whole white (a ring of white stays). The pupil only exists when it can be its own pixel.
       if (!isIris && e.rx < 0.75) return true;
@@ -913,7 +946,7 @@ export function rasterizeSvg(svg: string, o: RasterOptions): PixelBuffer {
       // A curve needs three pixels to show; a flat mouth may be two.
       const w = Math.max(depth > 0 ? 3 : 2, Math.round(widthPx));
       const dir = sag >= 0 ? 1 : -1;
-      const ink = parseColor(node.attrs.stroke) ?? hex('#000000');
+      const ink = strokeOf(node) ?? hex('#000000');
       const x0 = Math.round((a[0] + b[0]) / 2 - w / 2);
       const yCorner = Math.floor((a[1] + b[1]) / 2);
       // A symmetric arc: the two corner pixels on the corner row, the rest bulging `depth` rows toward the sag

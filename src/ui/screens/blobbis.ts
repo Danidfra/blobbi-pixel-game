@@ -3,10 +3,13 @@
  * of which one walks the island. Read-only: nothing here publishes, signs or changes a Blobbi, and choosing changes
  * only who walks (the island, its bag, buildings and progress are the island's and stay exactly as they are).
  *
- * - A V3 adult may visit: its preview is the pixel game's own drawing of it (the kit's V3 renderer, rasterized), the
- *   same picture that will walk.
- * - V1 and V2 Blobbis, eggs and babies are listed with the reason they cannot visit yet, and only their colours are
- *   shown (never an unrelated V3 creature drawn in their place).
+ * - A V3 adult or (M11D.1) a V3 Baby may visit: its preview is the pixel game's own drawing of it (the kit's V3
+ *   renderer, rasterized, at its stage), the same picture that will walk.
+ * - V1 and V2 Blobbis and eggs are listed with the reason they cannot visit yet. A V1/V2 Baby shows its real picture
+ *   (the kit's one baby drawing in its own colours, `v1-baby.ts`); other V1/V2 Blobbis and eggs show only their
+ *   colours (never an unrelated V3 creature drawn in their place).
+ * - Choosing stays explicit: connecting an account never changes who walks. If a chosen Baby has grown up in another
+ *   app, the list (when read again) updates the stage it is drawn at; nothing else changes.
  * - Nothing found: says so. The game never creates a Blobbi and never sends the player elsewhere.
  *
  * The list is read when the screen opens (at most every few minutes, never during play) through the account's
@@ -16,7 +19,8 @@ import { PixelBuffer } from '../../core/pixel';
 import { hex } from '../../core/color';
 import { Gfx, UI } from '../gfx';
 import { isConfirm, moveSelection, type GameUI, type Screen } from '../game-ui';
-import { blobbiIdentity } from '../../blobbi/identity';
+import { stagedIdentity } from '../../blobbi/identity';
+import type { BlobbiStage } from '../../blobbi/canonical';
 import { generateGenome } from '@blobbi-kit/renderer/procedural';
 import { buildBlobbiSprite, REST_POSE } from '../../blobbi/sprite';
 import { t, upper, type MessageKey } from '../../i18n';
@@ -26,6 +30,8 @@ import type { BlobbiCollectionPort, OwnedBlobbi } from '../../nostr/port';
 export interface BlobbiChooser {
   /** The address (`31124:pubkey:d`) of the canonical Blobbi walking the island now, or null (the visiting Blobbi). */
   selectedAddress(): string | null;
+  /** M11D.1: the stage the chosen canonical Blobbi is drawn at, or null when none is walking. */
+  selectedStage?(): BlobbiStage | null;
   /** Bring this Blobbi to the island (only ever called for an `available` one). True when it happened. */
   choose(blobbi: OwnedBlobbi): boolean;
   /** Back to the island's visiting Blobbi. */
@@ -89,15 +95,55 @@ export class BlobbisScreen implements Screen {
     else ui.say(t('blobbis.couldNotChoose'), false);
   }
 
-  /** The pixel game's own picture of a V3 Blobbi (the sprite that will walk), as large as fits `box`, cached. */
-  preview(seed: string, box: number): PixelBuffer {
-    const key = `${seed}|${box}`;
+  /** The pixel game's own picture of a V3 Blobbi at its stage (the sprite that will walk), as large as fits `box`, cached. */
+  preview(seed: string, box: number, stage: BlobbiStage = 'adult'): PixelBuffer {
+    const key = `${seed}|${box}|${stage}`;
     let p = this.previews.get(key);
     if (!p) {
       // The sprite's buffer is taller than its standing size (antennae, outline): step down until it fits the box.
-      for (let size = box; size >= 6; size -= 2) {
-        p = buildBlobbiSprite(blobbiIdentity(seed), REST_POSE, size).buffer;
+      // A Baby is drawn for an adult size up to 1.5 times the box (it stands about two thirds as tall).
+      for (let size = stage === 'baby' ? Math.round(box * 1.5) : box; size >= 6; size -= 2) {
+        p = buildBlobbiSprite(stagedIdentity(seed, stage), REST_POSE, size).buffer;
         if (p.height <= box && p.width <= box) break;
+      }
+      if (this.previews.size > 40) this.previews.clear();
+      this.previews.set(key, p!);
+    }
+    return p!;
+  }
+
+  /**
+   * The V1/V2 baby art module (`v1-baby.ts`), loaded only when a V1 or V2 Baby is first listed: the kit's authored
+   * artwork is a large chunk the island itself never needs. Until it arrives the Baby shows its colours.
+   */
+  private v1: typeof import('../../blobbi/v1-baby') | null = null;
+  private v1Loading = false;
+
+  /** A V1/V2 Baby's picture, as large as fits `box`, cached; null while the art loads or if it could not be read. */
+  /** Tests and scripts: wait until the V1/V2 baby art is ready. */
+  async loadOlderArt(): Promise<void> {
+    this.v1 ??= await import('../../blobbi/v1-baby');
+  }
+
+  private olderPreview(b: OwnedBlobbi, box: number): PixelBuffer | null {
+    const key = `${b.generation}|${b.colors!.base}|${b.colors!.secondary}|${b.colors!.eye}|${box}`;
+    let p = this.previews.get(key);
+    if (!p) {
+      if (!this.v1) {
+        if (!this.v1Loading) {
+          this.v1Loading = true;
+          void import('../../blobbi/v1-baby').then((m) => (this.v1 = m)).catch(() => {});
+        }
+        return null;
+      }
+      const { buildV1BabySprite } = this.v1;
+      try {
+        for (let size = Math.round(box * 1.5); size >= 6; size -= 2) {
+          p = buildV1BabySprite(b.colors!, REST_POSE, size, b.generation === 'v2' ? 'v2' : 'v1').buffer;
+          if (p.height <= box && p.width <= box) break;
+        }
+      } catch {
+        return null;
       }
       if (this.previews.size > 40) this.previews.clear();
       this.previews.set(key, p!);
@@ -135,6 +181,9 @@ export class BlobbisScreen implements Screen {
     }
     this.index = Math.min(this.index, items.length - 1);
     const selected = this.chooser?.selectedAddress() ?? null;
+    // A chosen Baby that has grown up (or the other way round) in another app: draw it at the stage just read.
+    const walking = selected ? items.find((it) => it.address === selected) : undefined;
+    if (walking && walking.availability === 'available' && this.chooser?.selectedStage && this.chooser.selectedStage() !== walking.stage) this.chooser.choose(walking);
     // The list: a small preview, the name, stage and generation; the one walking with you is marked.
     const listW = 132;
     const first = Math.max(0, Math.min(this.index - Math.floor(ROWS / 2), items.length - ROWS));
@@ -164,13 +213,13 @@ export class BlobbisScreen implements Screen {
     if (selected === b.address) g.text(t('blobbis.withYou'), dx + 58, cy + 30, UI.good);
     cy += 56;
     if (b.availability === 'available') {
-      cy += g.para(t('blobbis.ready'), dx, cy, dw, UI.muted, 3) + 3;
+      cy += g.para(t(b.stage === 'baby' ? 'blobbis.readyBaby' : 'blobbis.ready'), dx, cy, dw, UI.muted, 3) + 3;
       if (selected === b.address) g.button(t('blobbis.walkingWithYou'), dx, cy, () => {}, { w: Math.min(dw, 150), enabled: false });
       else g.button(t('blobbis.bring'), dx, cy, () => this.choose(b, ui), { w: Math.min(dw, 150), primary: true });
       cy += 14;
     } else {
       cy += g.para(t(reasonKey(b), { g: b.generation.toUpperCase() }), dx, cy, dw, UI.ink, 5) + 2;
-      cy += g.para(t('blobbis.colorsOnly'), dx, cy, dw, UI.muted, 2) + 3;
+      if (!olderBaby(b)) cy += g.para(t('blobbis.colorsOnly'), dx, cy, dw, UI.muted, 2) + 3;
     }
     if (selected) g.button(t('blobbis.useVisitor'), dx, Math.max(cy, y + h - 26), () => (this.chooser?.useVisitor(), ui.say(t('blobbis.visitorBack'))), { w: Math.min(dw, 150) });
     // What could not be read, and relays that did not answer: said plainly, in small text.
@@ -184,9 +233,17 @@ export class BlobbisScreen implements Screen {
   /** A V3 adult's own pixel picture; anything else only as its colours (an honest swatch, not a guess). */
   private thumb(g: Gfx, b: OwnedBlobbi, x: number, y: number, size: number): void {
     if (b.availability === 'available' && b.seed) {
-      const p = this.preview(b.seed, size);
+      const p = this.preview(b.seed, size, b.stage === 'baby' ? 'baby' : 'adult');
       g.buf.blit(p, x + Math.floor((size - p.width) / 2), y + size - p.height);
       return;
+    }
+    // A V1/V2 Baby: the kit's own baby drawing in its own colours (it cannot visit yet; see `reasonKey`).
+    if (olderBaby(b) && b.colors) {
+      const p = this.olderPreview(b, size);
+      if (p) {
+        g.buf.blit(p, x + Math.floor((size - p.width) / 2), y + size - p.height);
+        return;
+      }
     }
     const cs = colorsOf(b);
     if (!cs) {
@@ -211,7 +268,13 @@ function colorsOf(b: OwnedBlobbi): string[] | null {
   return null;
 }
 
+/** A V1 or V2 Baby with its three colours: the kit draws it with its one authored baby art. */
+function olderBaby(b: OwnedBlobbi): boolean {
+  return b.stage === 'baby' && (b.generation === 'v1' || b.generation === 'v2') && !!b.colors;
+}
+
 export function reasonKey(b: OwnedBlobbi): MessageKey {
+  if (olderBaby(b)) return 'blobbis.reason.olderBaby';
   if (b.availability === 'egg') return 'blobbis.reason.egg';
   if (b.availability === 'baby') return 'blobbis.reason.baby';
   if (b.availability === 'older-generation') return 'blobbis.reason.older';

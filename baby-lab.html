@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Baby Blobbi Lab</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; background: #14171f; color: #e8e4da; font: 13px/1.4 ui-monospace, Menlo, monospace; }
+      header { padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-bottom: 1px solid #2a2f3b; }
+      main { padding: 16px; }
+      canvas { image-rendering: pixelated; display: block; margin: 0 0 16px; max-width: none; }
+      select, button { font: inherit; }
+      .note { color: #9aa3b2; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <b>Baby Blobbi lab (development only, M11D.1)</b>
+      <label>sheet <select id="sheet"></select></label>
+      <label>pixel scale <select id="zoom"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+      <span class="note">Live: a Baby hops, swings and fishes below. Nothing here is part of the game build.</span>
+    </header>
+    <main>
+      <canvas id="live"></canvas>
+      <canvas id="view"></canvas>
+    </main>
+    <script type="module" src="/src/dev/baby-lab.ts"></script>
+  </body>
+</html>

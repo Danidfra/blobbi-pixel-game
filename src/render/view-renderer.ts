@@ -33,6 +33,7 @@ import { getLocale, sentence, t as lang, upper } from '../i18n';
 import { itemIcon } from '../ui/icons';
 import { FRIEND_TITLES, friendLevel } from '../game/friendship';
 import { REST_POSE } from '../blobbi/pose';
+import { babyHeightFor } from '../blobbi/canonical';
 import { hex as hexColour, mix as mixColour } from '../core/color';
 
 /** The window's sky over the day: blue, gold at dawn and dusk, a deep blue at night. */
@@ -340,7 +341,8 @@ export class ViewRenderer {
 
     // ── 5. Text, HUD and the camera indicator at the UI scale ─────────────
     // A bubble over the Blobbi rests on the head as drawn (its native height in world pixels), not as simulated.
-    const drawnHeight = size / restScale;
+    // A baby's head is lower: its drawn height is the baby's (M11D.1).
+    const drawnHeight = (this.live.blobbi.identity.stage === 'baby' ? babyHeightFor(size) : size) / restScale;
     for (const t of this.layers.texts) {
       const y = t.head ? t.y + t.head - drawnHeight : t.y;
       this.drawText(screen, t, (t.x - originX) * s, (y - originY) * s, ui.uiScale);

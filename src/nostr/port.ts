@@ -57,8 +57,8 @@ export interface AccountPort {
 export type BlobbiGeneration = 'v1' | 'v2' | 'v3' | 'unknown';
 
 /**
- * Whether a Blobbi can visit this pixel world: only a V3 adult is drawn faithfully here. The others are listed with
- * the reason, never drawn as something they are not.
+ * Whether a Blobbi can visit this pixel world: a V3 adult or a V3 baby (M11D.1) is drawn faithfully here. The others
+ * are listed with the reason, never drawn as something they are not. `baby` is no longer produced (kept for callers).
  */
 export type BlobbiAvailability = 'available' | 'egg' | 'baby' | 'older-generation' | 'unknown-generation';
 

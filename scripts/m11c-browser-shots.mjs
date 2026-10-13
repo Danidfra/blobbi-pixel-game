@@ -222,7 +222,7 @@ Object.assign(scenarios, {
   },
 });
 
-export { open, island, pagePoint, scenarios, ACCOUNT, sleep, myBlobbis, COLLECTION, relayStub, TEST_PUBKEY };
+export { open, island, pagePoint, scenarios, ACCOUNT, sleep, myBlobbis, COLLECTION, relayStub, TEST_PUBKEY, fixture };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const wanted = process.argv.slice(2);

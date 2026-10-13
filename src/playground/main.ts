@@ -74,7 +74,7 @@ import { activeWorld, listWorlds, newWorldSeeds, resolveFrame, readIndex, touchI
 import { worldIdentity } from '../game/persistence';
 import { ConfirmGate, CONFIRM_ARM_SECONDS, deleteWorld } from '../game/world-delete';
 import { blobbiIdentity } from '../blobbi/identity';
-import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT } from '../blobbi/canonical';
+import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT, type BlobbiStage } from '../blobbi/canonical';
 import { buildNativeSprite } from '../blobbi/native-sprite';
 import { DOCUMENT_TRANSFORM, MOTION_STYLESHEET, buildBlobbiGeometry, deriveMorphology, normalizeState, renderBlobbiSvg } from '@blobbi-kit/renderer/procedural';
 import { buildBlobbiSprite, EXPRESSIONS, REST_POSE, type BlobbiPose, type Expression } from '../blobbi/sprite';
@@ -101,6 +101,8 @@ interface State {
   /** The selected Blobbi: a V3 address, a V3 seed or a demo seed. Persisted per browser; owns nothing. */
   blobbi: BlobbiSource;
   blobbiSize: number;
+  /** M11D.1: the stage the walking Blobbi is drawn at (an account's canonical Baby; else the adult). */
+  blobbiStage: BlobbiStage;
   turtleSeed: string;
   shellVariant: ShellVariant;
   playZoom: number;
@@ -121,7 +123,7 @@ const params = new URLSearchParams(location.hash.slice(1));
  * browser before (survives reloads), else the demo Blobbi. A link that names an invalid Blobbi is reported, not
  * repaired, and the next choice is used.
  */
-const startupBlobbi: { source: BlobbiSource; message: string; error: boolean } = (() => {
+const startupBlobbi: { source: BlobbiSource; message: string; error: boolean; stage?: BlobbiStage } = (() => {
   let message = '';
   if (params.has('pubkey') || params.has('d') || params.has('blobbi')) {
     const r = params.has('pubkey') || params.has('d') ? resolveBlobbi({ pubkey: params.get('pubkey') ?? '', d: params.get('d') ?? '' }) : resolveBlobbi({ seed: params.get('blobbi') ?? '' });
@@ -137,6 +139,8 @@ const startupBlobbi: { source: BlobbiSource; message: string; error: boolean } =
   const store = localStore();
   const rec = store ? loadSelectionRecord(store) : null;
   if (rec?.account && rec.source.seed === startupBlobbi.source.seed && loadAccount(store!)?.pubkey !== rec.account) startupBlobbi.source = sourceFromSeed(DEMO_BLOBBI_SEED);
+  // M11D.1: a canonical Baby walks as a Baby (only the stored choice itself, never a link or the demo).
+  else if (rec?.stage === 'baby' && rec.source.seed === startupBlobbi.source.seed) startupBlobbi.stage = 'baby';
 }
 /** Guest or Connected, for the HUD chip (M11C): what the account remembers on this device, never a guess. */
 let identity: 'guest' | 'connected' = 'guest';
@@ -160,6 +164,7 @@ const state: State = {
   blobbiSeed: startupBlobbi.source.seed,
   blobbi: startupBlobbi.source,
   blobbiSize: 16,
+  blobbiStage: startupBlobbi.stage ?? 'adult',
   turtleSeed: params.get('turtle') ?? 'turtle-0',
   shellVariant: params.has('variant') && isShellVariant(Number(params.get('variant'))) ? (Number(params.get('variant')) as ShellVariant) : DEFAULT_SHELL_VARIANT,
   playZoom: 3,
@@ -603,10 +608,10 @@ gameUI.register(blobbisScreen);
 blobbisScreen.collection = account;
 settingsScreen.onMyBlobbis = () => gameUI.open('blobbis');
 /** The canonical Blobbi walking now (chosen from MY BLOBBIS with the connected account), or null. */
-function walkingCanonical(): { address: string; name: string } | null {
+function walkingCanonical(): { address: string; name: string; stage: BlobbiStage } | null {
   const rec = effectiveSelection(storeOrNull(loadSelectionRecord), connectedPubkey);
   if (!rec?.account || rec.source.kind !== 'v3-address' || rec.source.seed !== state.blobbi.seed) return null;
-  return { address: `31124:${rec.source.pubkey}:${rec.source.d}`, name: rec.name ?? 'Blobbi' };
+  return { address: `31124:${rec.source.pubkey}:${rec.source.d}`, name: rec.name ?? 'Blobbi', stage: rec.stage ?? 'adult' };
 }
 function storeOrNull<T>(f: (store: NonNullable<ReturnType<typeof localStore>>) => T): T | null {
   const store = localStore();
@@ -614,12 +619,14 @@ function storeOrNull<T>(f: (store: NonNullable<ReturnType<typeof localStore>>) =
 }
 blobbisScreen.chooser = {
   selectedAddress: () => walkingCanonical()?.address ?? null,
+  selectedStage: () => walkingCanonical()?.stage ?? null,
   choose: (b) => {
-    // Only the connected account's own V3 adult, and only if the kit derives the same seed from its address.
+    // Only the connected account's own V3 adult or Baby, and only if the kit derives the same seed from its address.
     if (b.availability !== 'available' || !connectedPubkey || b.pubkey !== connectedPubkey) return false;
+    if (b.stage !== 'adult' && b.stage !== 'baby') return false;
     const r = resolveBlobbi({ pubkey: b.pubkey, d: b.d });
     if (!r.ok || r.source.kind !== 'v3-address' || r.source.seed !== b.seed) return false;
-    selectBlobbi(r.source, { name: b.name, account: b.pubkey });
+    selectBlobbi(r.source, { name: b.name, account: b.pubkey, stage: b.stage });
     return true;
   },
   useVisitor: () => selectBlobbi(sourceFromSeed(DEMO_BLOBBI_SEED)),
@@ -642,7 +649,7 @@ function syncAccountBlobbi(restore = true): void {
   if (rec?.account) {
     const effective = effectiveSelection(rec, connectedPubkey);
     if (!effective && state.blobbi.seed === rec.source.seed) applyBlobbi(sourceFromSeed(DEMO_BLOBBI_SEED));
-    else if (restore && effective && state.blobbi.kind === 'demo' && state.blobbi.seed === DEMO_BLOBBI_SEED) applyBlobbi(effective.source);
+    else if (restore && effective && state.blobbi.kind === 'demo' && state.blobbi.seed === DEMO_BLOBBI_SEED) applyBlobbi(effective.source, effective.stage);
   }
   shownName = blobbiDisplayName();
 }
@@ -697,7 +704,7 @@ settingsScreen.onChange = () => {
 function startLive(): void {
   if (!world) return;
   playStarted = false;
-  live = new LiveWorld(world, state.blobbi, state.blobbiSize, { store: localStore() });
+  live = new LiveWorld(world, state.blobbi, state.blobbiSize, { stage: state.blobbiStage, store: localStore() });
   if (linkedWorld && linkedIdentity === null) linkedIdentity = live.identity;
   liveRenderer = new LiveRenderer(live);
   viewRenderer = new ViewRenderer(live, liveRenderer);
@@ -858,7 +865,7 @@ function createWorld(kind: CarrierKind, name: string): string | null {
     state.turtleSeed = turtleSeed;
     world = makeWorld(seed);
     const store = localStore();
-    const made = new LiveWorld(world, state.blobbi, state.blobbiSize, { store });
+    const made = new LiveWorld(world, state.blobbi, state.blobbiSize, { stage: state.blobbiStage, store });
     if (hasSave(made.identity, storeGet)) throw new Error(t('create.exists'));
     made.islandName = name || null;
     made.intro = { state: 'pending', at: 0 };
@@ -1049,13 +1056,13 @@ function stepVisit(): void {
     homeWorld = world;
     const host = worldFor(visit.target!);
     world = host;
-    live = new LiveWorld(host, state.blobbi, state.blobbiSize, { store: transport.open(visit.target!), visitor: true });
+    live = new LiveWorld(host, state.blobbi, state.blobbiSize, { stage: state.blobbiStage, store: transport.open(visit.target!), visitor: true });
     live.visitLabel = visit.target!.name;
     arriveHere(live.listenSpot ?? null);
   } else if (visit.phase === 'returning' && visit.arriveHome(presence)) {
     world = homeWorld ?? makeWorld(state.seed);
     homeWorld = null;
-    live = new LiveWorld(world, state.blobbi, state.blobbiSize, { store: localStore() });
+    live = new LiveWorld(world, state.blobbi, state.blobbiSize, { stage: state.blobbiStage, store: localStore() });
     arriveHere(visit.homeSpot);
   }
 }
@@ -1158,7 +1165,7 @@ function finishWorldIntro(target: LiveWorld, r: IntroResult): void {
  */
 function startIntroPreview(kind: CarrierKind, reduced = gameUI.settings.reducedMotion): void {
   endIntroPreview();
-  const previewLive = new LiveWorld(introPreviewWorld(kind), state.blobbi, state.blobbiSize, { store: null });
+  const previewLive = new LiveWorld(introPreviewWorld(kind), state.blobbi, state.blobbiSize, { stage: state.blobbiStage, store: null });
   const previewRenderer = new LiveRenderer(previewLive);
   const previewView = new ViewRenderer(previewLive, previewRenderer);
   intro = new IntroCinematic(
@@ -1593,7 +1600,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -1729,7 +1736,7 @@ $('blobbi-random-v3').addEventListener('click', () => {
 $('blobbi-address').addEventListener('click', () => chooseBlobbi(resolveBlobbi({ pubkey: $<HTMLInputElement>('blobbi-pubkey').value, d: $<HTMLInputElement>('blobbi-d').value })));
 $('blobbi-size').addEventListener('change', (e) => {
   state.blobbiSize = Number((e.target as HTMLSelectElement).value);
-  live?.setBlobbi(state.blobbi, state.blobbiSize);
+  live?.setBlobbi(state.blobbi, state.blobbiSize, state.blobbiStage);
 });
 for (const [id, key] of [
   ['live-water', 'animateWater'],
@@ -1760,20 +1767,21 @@ function chooseBlobbi(r: ResolvedBlobbi): void {
   showBlobbiStatus(r.notes.join(' '), false);
 }
 
-function selectBlobbi(source: BlobbiSource, from?: { name: string; account: string }): void {
+function selectBlobbi(source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }): void {
   const store = localStore();
   if (store) storeSelection(store, source, from);
-  applyBlobbi(source);
+  applyBlobbi(source, from?.stage ?? 'adult');
 }
 
 /** Walk with a Blobbi without changing the stored choice (the account rule, `syncAccountBlobbi`). */
-function applyBlobbi(source: BlobbiSource): void {
+function applyBlobbi(source: BlobbiSource, stage: BlobbiStage = 'adult'): void {
   state.blobbi = source;
   state.blobbiSeed = source.seed;
+  state.blobbiStage = stage;
   shownName = blobbiDisplayName();
   syncControls();
   // Only the Blobbi changes: the world's inventory, equipment and buildings stay (they are the world's).
-  live?.setBlobbi(source, state.blobbiSize);
+  live?.setBlobbi(source, state.blobbiSize, stage);
   saveHash();
   renderBlobbiView();
 }
@@ -1899,7 +1907,7 @@ function previewFrame(now: number): void {
 $('blobbi-seed-2').addEventListener('change', (e) => chooseBlobbi(resolveBlobbi({ seed: (e.target as HTMLInputElement).value })));
 $('blobbi-random-2').addEventListener('click', () => setBlobbiSeed(randomSeed('blobbi')));
 $('blobbi-use').addEventListener('click', () => {
-  live?.setBlobbi(state.blobbi, state.blobbiSize);
+  live?.setBlobbi(state.blobbi, state.blobbiSize, state.blobbiStage);
   setMode('play');
 });
 $('blobbi-size-2').addEventListener('change', renderBlobbiView);

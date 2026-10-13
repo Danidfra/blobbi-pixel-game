@@ -12,7 +12,7 @@ import { hex, type Color } from '../core/color';
 import { ramp, type Ramp, type WorldPalette } from '../core/palette';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { poseKey, type BlobbiPose } from '../blobbi/sprite';
-import { buildCanonicalSprite } from '../blobbi/canonical';
+import { babyHeightFor, buildCanonicalSprite } from '../blobbi/canonical';
 import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { ITEMS } from './items';
 
@@ -235,6 +235,11 @@ export interface HandPoint {
   behind: boolean;
   /** Fallback used when the arm has no visible pixels. */
   guessed: boolean;
+  /**
+   * M11D.1, a baby seen from the side: how far (sprite pixels, signed) the invisible hand moves forward to the body's
+   * front edge for a strike, a cast or a held rod. Absent for adults (their hand is on the kit's arm).
+   */
+  forward?: number;
 }
 
 /**
@@ -253,6 +258,11 @@ export class EquipmentRig {
     const hit = this.hands.get(key);
     if (hit) return hit;
     const full = spriteOf(pose);
+    if (this.identity.stage === 'baby') {
+      const point = babyHand(pose, arm, full);
+      this.hands.set(key, point);
+      return point;
+    }
     // The arm alone: the canonical drawing with every other part left out (so a hand hidden behind the body in
     // the back view is still found), without the outline.
     const names = new Set([...buildCanonicalSprite(this.identity.genome, pose, this.size).svg.matchAll(/data-part="([^"]+)"/g)].map((m) => m[1]));
@@ -280,6 +290,59 @@ export class EquipmentRig {
 }
 
 /**
+ * M11D.1, THE BABY'S INVISIBLE HANDS. The kit's baby has no arms (`procedural/plan/baby.ts`), and none is drawn
+ * here. A tool is held against the side of the droplet body as though by an arm nobody sees: the grip sits one
+ * pixel outside the silhouette at the body's widest height (its lower middle), on the side the adult's hand would
+ * be; seen from the side, the near hand holds it against the front half of the body, the far hand behind it. It is
+ * measured on the very sprite drawn, so the tool rides every hop frame with the body.
+ */
+export function babyHand(pose: BlobbiPose, arm: string, full: Sprite): HandPoint {
+  const buf = full.buffer;
+  let top = -1;
+  let bottom = -1;
+  for (let y = 0; y < buf.height; y++)
+    for (let x = 0; x < buf.width; x++)
+      if (buf.get(x, y) >>> 24) {
+        if (top < 0) top = y;
+        bottom = y;
+        break;
+      }
+  const behind = pose.view === 'back';
+  if (top < 0) return { dx: 0, dy: -4, behind, guessed: true };
+  // The widest row of the droplet's lower half (ties: the lower one), where an arm would hang.
+  const span = (y: number): [number, number] => {
+    let x0 = -1;
+    let x1 = -1;
+    for (let x = 0; x < buf.width; x++)
+      if (buf.get(x, y) >>> 24) {
+        if (x0 < 0) x0 = x;
+        x1 = x;
+      }
+    return [x0, x1];
+  };
+  const mid = Math.round(top + (bottom - top) * 0.45);
+  let row = mid;
+  let widest = -1;
+  for (let y = mid; y <= Math.round(top + (bottom - top) * 0.8); y++) {
+    const [x0, x1] = span(y);
+    if (x1 - x0 >= widest) {
+      widest = x1 - x0;
+      row = y;
+    }
+  }
+  const [x0, x1] = span(row);
+  if (pose.view === 'side') {
+    // Seen from the side the tool hangs just behind the body's back edge (never across the face, the M2.3 lesson),
+    // and the swing carries the hand to the front edge (`forward`), so the blow lands ahead of the baby.
+    const back = pose.facing > 0 ? x0 - 1 : x1 + 1;
+    const front = pose.facing > 0 ? x1 + 1 : x0 - 1;
+    return { dx: back - full.anchorX, dy: row - full.anchorY, behind, guessed: false, forward: front - back };
+  }
+  const x = arm === 'right-arm' ? x1 + 1 : x0 - 1;
+  return { dx: x - full.anchorX, dy: row - full.anchorY, behind, guessed: false };
+}
+
+/**
  * Where the tool goes for a pose and animation state: the arm that is the holding hand in this view, the hand on
  * it, orientation, mirroring, layer, offset and visibility. The tool never changes hands: facing screen-right the
  * holding (left) hand is the far one, so the tool sits behind the body, hidden while it hangs there and showing
@@ -288,14 +351,17 @@ export class EquipmentRig {
 export function attachTool(item: string, pose: BlobbiPose, animation: EquipmentAnimation, rig: EquipmentRig, spriteOf: (pose: BlobbiPose) => Sprite, palette: WorldPalette): Attachment {
   const visual = EQUIPMENT[item];
   const arm = armForHand(pose, visual.hand);
+  const baby = rig.identity.stage === 'baby';
   const hand = rig.hand(pose, arm, spriteOf);
-  const scale = Math.max(1, Math.round(rig.size / 16));
+  // A baby's tool is sized to the baby (about two thirds of its adult self's), so it never swamps the little body.
+  const scale = Math.max(1, Math.round((baby ? babyHeightFor(rig.size) : rig.size) / 16));
   const farSide = arm === 'far-arm';
   // The edge faces away from the body (front and back views) or forward (side views).
   const outward = pose.view === 'side' ? pose.facing : hand.dx < 0 ? -1 : 1;
   const mirrored = outward < 0;
   // At rest the axe hangs at the side (front and back) or rides on the shoulder (side views, clear of the face).
-  let orientation: ToolOrientation = pose.view === 'side' ? 'carry' : 'rest';
+  // A baby has no shoulder to rest it on: from the side it hangs at the back edge too (M11D.1).
+  let orientation: ToolOrientation = pose.view === 'side' && !baby ? 'carry' : 'rest';
   let behind = hand.behind || farSide;
   if (animation === 'raise') orientation = 'raised';
   else if (animation === 'strike' || animation === 'cast') orientation = pose.view === 'front' ? 'strike-down' : pose.view === 'back' ? 'strike-up' : 'strike';
@@ -307,6 +373,8 @@ export function attachTool(item: string, pose: BlobbiPose, animation: EquipmentA
   // is drawn behind the body, so only what the swing carries past the silhouette shows.
   const visible = !farSide || animation !== 'idle';
   const sprite = toolSprite(item, orientation, palette, mirrored, scale);
-  const tip = sprite.tipX === null || sprite.tipY === null ? null : { dx: hand.dx + sprite.tipX - sprite.anchorX, dy: hand.dy + sprite.tipY - sprite.anchorY };
-  return { sprite, dx: hand.dx, dy: hand.dy, behind, visible, arm, orientation, mirrored, tip };
+  // The baby's invisible hand swings to the body's front edge for the blow, the cast and the held rod.
+  const dx = hand.dx + (hand.forward !== undefined && (animation === 'strike' || animation === 'cast' || animation === 'fishing') ? hand.forward : 0);
+  const tip = sprite.tipX === null || sprite.tipY === null ? null : { dx: dx + sprite.tipX - sprite.anchorX, dy: hand.dy + sprite.tipY - sprite.anchorY };
+  return { sprite, dx, dy: hand.dy, behind, visible, arm, orientation, mirrored, tip };
 }

@@ -9,6 +9,7 @@ import { generateGenome, type BlobbiGenome } from '@blobbi-kit/renderer/procedur
 import { hex, type Color } from '../core/color';
 import { ramp, type Ramp } from '../core/palette';
 import { clamp } from '../core/math';
+import type { BlobbiStage } from './canonical';
 
 export type AntennaCount = 0 | 1 | 2;
 export type HornKind = 'none' | 'forehead' | 'top' | 'side';
@@ -19,6 +20,8 @@ export type MarkKind = 'none' | 'star' | 'heart' | 'sparkle' | 'moon';
 
 export interface PixelBlobbiIdentity {
   seed: string;
+  /** M11D.1: the life stage drawn (the same genome is a baby or an adult; identity never changes with it). */
+  stage: BlobbiStage;
   /** The kit's genome, the source of everything below and of the canonical drawing. */
   genome: BlobbiGenome;
   /** Body ramp derived from the base colour; markings, eye and accent as single colours. */
@@ -72,7 +75,7 @@ function mixColor(a: Color, b: Color, t: number): Color {
   return ((0xff << 24) | (bb << 16) | (gg << 8) | r) >>> 0;
 }
 
-export function identityFromGenome(genome: BlobbiGenome): PixelBlobbiIdentity {
+export function identityFromGenome(genome: BlobbiGenome, stage: BlobbiStage = 'adult'): PixelBlobbiIdentity {
   const base = genome.colors.base ?? '#8749ef';
   const secondary = genome.colors.secondary ?? '#481696';
   const eye = genome.colors.eye ?? '#201538';
@@ -82,6 +85,7 @@ export function identityFromGenome(genome: BlobbiGenome): PixelBlobbiIdentity {
   const t = genome.traits;
   return {
     seed: genome.seed,
+    stage,
     genome,
     body,
     secondary: hex(secondary),
@@ -120,4 +124,9 @@ export function identityFromGenome(genome: BlobbiGenome): PixelBlobbiIdentity {
 /** The identity of a seed: the kit's genome, read into pixel terms. */
 export function blobbiIdentity(seed: string): PixelBlobbiIdentity {
   return identityFromGenome(generateGenome(seed));
+}
+
+/** M11D.1: the identity of a seed drawn at a life stage (the same genes; only the drawing's stage differs). */
+export function stagedIdentity(seed: string, stage: BlobbiStage): PixelBlobbiIdentity {
+  return identityFromGenome(generateGenome(seed), stage);
 }

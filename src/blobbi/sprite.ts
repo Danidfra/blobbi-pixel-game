@@ -16,5 +16,5 @@ export { buildNativeSprite } from './native-sprite';
 export type SpriteStrategy = 'canonical' | 'native';
 
 export function buildBlobbiSprite(id: PixelBlobbiIdentity, pose: BlobbiPose, size: number, options: CanonicalOptions = {}): Sprite {
-  return buildCanonicalSprite(id.genome, pose, size, options);
+  return buildCanonicalSprite(id.genome, pose, size, { stage: id.stage, ...options });
 }

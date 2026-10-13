@@ -47,15 +47,15 @@ describe('reading the events (pickBlobbis)', () => {
     expect(items).toEqual([expect.objectContaining({ name: 'Mochi', stage: 'adult', generation: 'v3', availability: 'available', d, address: `31124:${PK}:${d}`, seed: deriveBlobbiV3Seed(PK, d), colors: null })]);
   });
 
-  it('V1 and V2 are listed but not available, with their real colours; V3 eggs and babies wait too', () => {
+  it('V1 and V2 are listed but not available, with their real colours; V3 eggs wait (M11D.1: a V3 Baby may visit)', () => {
     const { items } = pickBlobbis([blobbiEvent({ pet: '0000000001', gen: 'v1' }), blobbiEvent({ pet: '0000000002', gen: 'v2' }), blobbiEvent({ pet: '0000000003', stage: 'egg' }), blobbiEvent({ pet: '0000000004', stage: 'baby' })], PK);
     const by = (pet: string) => items.find((b) => b.d.endsWith(pet))!;
     expect(by('0000000001')).toMatchObject({ generation: 'v1', availability: 'older-generation', seed: null });
     expect(by('0000000002')).toMatchObject({ generation: 'v2', availability: 'older-generation', seed: null });
     for (const c of Object.values(by('0000000002').colors!)) expect(c).toMatch(/^#[0-9a-f]{6}$/);
     expect(by('0000000003').availability).toBe('egg');
-    expect(by('0000000004').availability).toBe('baby');
-    expect(items.filter((b) => b.availability === 'available')).toEqual([]);
+    expect(by('0000000004').availability).toBe('available');
+    expect(items.filter((b) => b.availability === 'available').map((b) => b.stage)).toEqual(['baby']);
   });
 
   it('an unknown future generation is "unknown", never treated as V1 or drawn', () => {
@@ -282,10 +282,10 @@ describe('the selection (stored beside the island, never in it)', () => {
     const raw = JSON.parse(store.get(SELECTION_KEY)!);
     expect(raw).toEqual({ version: 1, source: src(), name: 'Mochi', account: PK });
     expect(loadSelection(store)).toEqual(src()); // what M3.4-M11B code reads
-    expect(loadSelectionRecord(store)).toEqual({ source: src(), name: 'Mochi', account: PK });
-    // An M11B record (no name, no account) reads as before.
+    expect(loadSelectionRecord(store)).toEqual({ source: src(), name: 'Mochi', account: PK, stage: 'adult' });
+    // An M11B record (no name, no account) reads as before (M11D.1: drawn as the adult).
     store.set(SELECTION_KEY, JSON.stringify({ version: 1, source: { kind: 'demo', seed: 'blobbi-9' } }));
-    expect(loadSelectionRecord(store)).toEqual({ source: { kind: 'demo', seed: 'blobbi-9' }, name: null, account: null });
+    expect(loadSelectionRecord(store)).toEqual({ source: { kind: 'demo', seed: 'blobbi-9' }, name: null, account: null, stage: 'adult' });
   });
 
   it('an account marker that does not own the address, or a tampered seed, makes the record invalid', () => {

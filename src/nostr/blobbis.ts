@@ -12,8 +12,8 @@
  * (`classifyBlobbiEvent`: the ecosystem marker, a known stage and state, a canonical d, a name, a seed). Legacy and
  * invalid ones are counted, never shown, never "repaired" (the kit's collection does the same).
  *
- * What may visit: a V3 adult (Blobbi Pixel draws only the V3 adult form, gene for gene). V1 and V2 Blobbis use other
- * artwork and another seed, eggs and babies have other bodies: they are listed with the reason, never drawn as an
+ * What may visit: a V3 adult or (M11D.1) a V3 baby (Blobbi Pixel draws the kit's V3 forms gene for gene). V1 and V2
+ * Blobbis use other artwork and no V3 seed, and eggs cannot walk: they are listed with the reason, never drawn as an
  * unrelated V3 creature. An unknown future `visual_generation` is "unknown", not V1 (the kit would fall back to V1).
  */
 import { classifyBlobbiEvent, deriveBlobbiV3Seed, isCanonicalBlobbiD, isValidBlobbiEvent, KIND_BLOBBI_STATE, parseBlobbiEvent } from '@blobbi-kit/core';
@@ -91,7 +91,8 @@ function readBlobbi(e: NostrEventLike, owner: string, d: string): OwnedBlobbi | 
     if (blobbi.v3Identity && blobbi.v3Identity.seed !== seed) return null;
   }
   const stage = blobbi.stage;
-  const availability = generation === 'unknown' ? 'unknown-generation' : generation !== 'v3' ? 'older-generation' : stage === 'adult' ? 'available' : stage;
+  // M11D.1: a V3 baby visits too (the kit's own baby of the same genome, drawn in pixels); eggs do not walk.
+  const availability = generation === 'unknown' ? 'unknown-generation' : generation !== 'v3' ? 'older-generation' : stage === 'egg' ? 'egg' : 'available';
   const traits = blobbi.visualTraits;
   const hex = (c: unknown) => (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c) ? c.toLowerCase() : null);
   const colors = generation === 'v1' || generation === 'v2' ? { base: hex(traits.baseColor), secondary: hex(traits.secondaryColor), eye: hex(traits.eyeColor) } : null;

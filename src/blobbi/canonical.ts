@@ -21,6 +21,14 @@ export const CANONICAL_STANDING_HEIGHT = (() => {
   return (geo.ground.y - geo.body.top) * DOCUMENT_TRANSFORM.scale;
 })();
 
+/** How tall the canonical baby stands against its adult self (the kit's baby plan, measured on the canonical genome). */
+export const BABY_HEIGHT_RATIO = (() => {
+  const g = canonicalGenome();
+  const adult = buildBlobbiGeometry(deriveMorphology(g, 'adult'), { view: 'front' });
+  const baby = buildBlobbiGeometry(deriveMorphology(g, 'baby'), { view: 'front', stage: 'baby' });
+  return (baby.ground.y - baby.body.top) / (adult.ground.y - adult.body.top);
+})();
+
 export const VIEWBOX_W = 211.66666;
 export const VIEWBOX_H = 238.125;
 
@@ -42,12 +50,21 @@ export interface CanonicalOptions {
    * reproduces the raw raster (for comparison).
    */
   snapRig?: boolean;
+  /**
+   * M11D.1: the life stage to draw (default the adult). A baby is the kit's own baby of the same genome: its droplet
+   * body, simple eyes, budding traits, no arms or feet, and the hop gait; drawn at the same pixels per kit unit as
+   * its adult self, so it stands about two thirds as tall (`BABY_HEIGHT_RATIO`).
+   */
+  stage?: BlobbiStage;
 }
 
+/** The life stages the pixel game draws. Eggs are not drawn (an egg cannot walk; see BABY-BLOBBI.md). */
+export type BlobbiStage = 'adult' | 'baby';
+
 /** Map a lab pose onto the kit's state. */
-export function stateForPose(pose: BlobbiPose): Partial<BlobbiState> {
+export function stateForPose(pose: BlobbiPose, stage: BlobbiStage = 'adult'): Partial<BlobbiState> {
   const state: Partial<BlobbiState> = {
-    stage: 'adult',
+    stage,
     view: pose.view,
     direction: pose.facing < 0 ? 'left' : 'right',
     // Gaze is NOT handed to the kit: moved by sub-pixel amounts and snapped per eye, the irises drift apart
@@ -81,12 +98,34 @@ export function gazeShiftFor(pose: BlobbiPose, size: number): { dx: number; dy: 
 }
 
 /** Build the canonical pixel Blobbi of a genome, `size` pixels tall (standing height). */
+/** A baby is never drawn shorter than this many pixels (its face needs them); above it, the kit's own proportion. */
+export const BABY_MIN_HEIGHT = 10;
+
+/** The standing height in pixels of a baby whose adult self stands `size` pixels tall. */
+export function babyHeightFor(size: number): number {
+  return Math.max(BABY_MIN_HEIGHT, Math.round(size * BABY_HEIGHT_RATIO));
+}
+
+/**
+ * THE BABY HOP, in whole pixels, for a walk frame. The kit's hop gait lifts the body by 9.6 kit units on four of
+ * its six walk frames and lands (squashed) on the other two (`procedural/motion.ts`): under one pixel at play sizes,
+ * so drawn as is the baby would glide. The pixel baby keeps the kit's rhythm and makes the lift readable: about a
+ * twelfth of its height, at least one pixel.
+ */
+export function babyHopFor(walk: number, babyHeight: number): number {
+  if (walk < 0 || walk % 3 === 0) return 0;
+  return Math.max(1, Math.round(babyHeight / 12));
+}
+
 export function buildCanonicalSprite(genome: BlobbiGenome, pose: BlobbiPose, size: number, options: CanonicalOptions = {}): CanonicalResult {
-  const scale = size / CANONICAL_STANDING_HEIGHT;
+  const baby = options.stage === 'baby';
+  // A baby is drawn at its adult self's pixels per kit unit (so it is the kit's own two thirds), up to the floor.
+  const scale = baby ? babyHeightFor(size) / BABY_HEIGHT_RATIO / CANONICAL_STANDING_HEIGHT : size / CANONICAL_STANDING_HEIGHT;
   const margin = 2;
   const width = Math.ceil(VIEWBOX_W * scale) + margin * 2;
   const height = Math.ceil(VIEWBOX_H * scale) + margin * 2;
-  const state = stateForPose(pose);
+  const stage = options.stage ?? 'adult';
+  const state = stateForPose(pose, stage);
   const svg = renderBlobbiSvg(genome, state, { idPrefix: 'p' });
   const palette = derivePalette(genome.colors);
   const outline: Color | null = options.outline === false ? null : shift(hex(palette.bodyDark), -0.16, 1.05, 6);
@@ -105,15 +144,18 @@ export function buildCanonicalSprite(genome: BlobbiGenome, pose: BlobbiPose, siz
     // The kit's freckles are three dots under each eye, under a fifth of a pixel each until 48 px: each trio is read
     // as one freckle mark when its dots cannot be drawn one by one.
     clusters: ['freckles'],
+    // A baby's cheeks reach past its narrow body: kept to the body, so no nub reads as an arm (svg-raster).
+    insideBody: stage === 'baby' ? ['left-cheek', 'right-cheek', 'cheek'] : undefined,
     gazeShift: gazeShiftFor(pose, size),
     snapRig: options.snapRig ?? pose.walk >= 0,
   });
   // The ground point of this very drawing, so the sprite stands where the kit says it stands.
-  const geo = buildBlobbiGeometry(deriveMorphology(genome, 'adult'), state);
+  const geo = buildBlobbiGeometry(deriveMorphology(genome, stage), state);
   const gx = geo.ground.x * DOCUMENT_TRANSFORM.scale + DOCUMENT_TRANSFORM.tx;
   const gy = geo.ground.y * DOCUMENT_TRANSFORM.scale + DOCUMENT_TRANSFORM.ty;
   const anchorX = Math.round(gx * scale + margin);
-  const anchorY = Math.round(gy * scale + margin);
+  // A hopping baby is drawn higher above the same ground point (the world's shadow stays on the ground).
+  const anchorY = Math.round(gy * scale + margin) + (baby ? babyHopFor(pose.walk, babyHeightFor(size)) : 0);
   const halfW = ((geo.body.right - geo.body.left) * DOCUMENT_TRANSFORM.scale * scale) / 2;
   return { buffer, anchorX, anchorY, footRx: Math.max(2, Math.round(halfW * 0.7)), footRy: 2, svg };
 }
