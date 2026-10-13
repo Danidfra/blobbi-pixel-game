@@ -116,3 +116,7 @@ when the tab is backgrounded.
 - **Identity**: the address `31124:pk:d` stays the identity (the selection stores a `v3-address`); the seed is derived
   by the kit on every load and never stored as identity. Guests keep the visiting demo Blobbi.
 - **Never**: publishing, editing a 31124, claiming an island, syncing saves, reading or making secret keys.
+
+## M11D.4
+
+Signing and publishing now exist, confined to the key vault, the extension signer and the publisher, and only for a consented registration of a Blobbi met in this game: see [M11D.4](../milestones/M11D4.md). Reading stays as described above.

@@ -44,6 +44,7 @@ plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M1
   that cannot be read.
 - [Languages and readable text](architecture/I18N.md) (M11B): catalogues, content overlay, fonts, text size.
 - [Blobbi generations V1/V2/V3](architecture/BLOBBI-GENERATION-COMPATIBILITY.md) (M11B investigation; M11C support and the V1/V2 world-form plan).
+- [M11D.4](milestones/M11D4.md): reserved identities, the key vault, the secret backup and restore, registration, the threat model.
 - [M11D.3](milestones/M11D3.md): the main menu, several islands, the pixel egg and the first birth, visit timing.
 - [M11D.2](milestones/M11D2.md): V1/V2 world forms, departure and arrival, Baby effects and tools; the [guest identity plan](architecture/GUEST-IDENTITY-PLAN.md) (design only).
 - [M11D.1](milestones/M11D1.md): Baby Blobbis in pixels (V3 Babies visit; V1/V2 Baby pictures), tools held by invisible arms, the baby lab (`baby-lab.html`, dev only), the intro reduced-motion fix.

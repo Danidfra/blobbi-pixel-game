@@ -497,6 +497,15 @@ images `examples/m11d3/`.
 | BIRTH-01 .. BIRTH-08 | NOT TESTED |
 | VISIT-01 .. VISIT-04 | NOT TESTED |
 
+## M11D.4: a Blobbi's true beginning (ID)
+
+All **NOT TESTED**; steps and expected results in [M11D.4](../milestones/M11D4.md) (ID-01..20). Automated:
+`tests/m11d4.test.ts`, `tests/m11d4-vault.test.ts`; images `examples/m11d4/`. Live publishing is off in this build.
+
+| ID | Status |
+|---|---|
+| ID-01 .. ID-20 | NOT TESTED |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
