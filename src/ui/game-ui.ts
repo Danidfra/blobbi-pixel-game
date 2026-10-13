@@ -19,7 +19,7 @@ import { card } from './hud';
 import { getLocale, t, upper, type MessageKey } from '../i18n';
 import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
 
-export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide';
+export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis';
 
 export interface Screen {
   readonly id: ScreenId;

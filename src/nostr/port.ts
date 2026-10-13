@@ -47,4 +47,57 @@ export interface AccountPort {
   disconnect(): void;
   /** Read the public profile again if it is older than a few minutes (or `force`). Never prompts the signer. */
   refreshProfile(force?: boolean): Promise<void>;
+  /** M11C: be told when the status, the account or its profile changes (returns the way to stop listening). */
+  onChange?(listener: () => void): () => void;
+}
+
+// ── The player's canonical Blobbis (M11C, read-only) ───────────────────────────
+
+/** Which artwork generation draws a Blobbi (`visual_generation`; absent = V1). `unknown`: a value this game does not know. */
+export type BlobbiGeneration = 'v1' | 'v2' | 'v3' | 'unknown';
+
+/**
+ * Whether a Blobbi can visit this pixel world: only a V3 adult is drawn faithfully here. The others are listed with
+ * the reason, never drawn as something they are not.
+ */
+export type BlobbiAvailability = 'available' | 'egg' | 'baby' | 'older-generation' | 'unknown-generation';
+
+/** One of the player's Blobbis, as read (and checked) from its newest kind 31124 event. Plain public data. */
+export interface OwnedBlobbi {
+  /** `31124:<owner pubkey>:<d>`: the Blobbi's identity. */
+  address: string;
+  pubkey: string;
+  d: string;
+  /** Its name, cleaned (one line, no control or direction characters, at most 24 characters). */
+  name: string;
+  stage: 'egg' | 'baby' | 'adult';
+  generation: BlobbiGeneration;
+  availability: BlobbiAvailability;
+  /** The V3 visual seed (derived from the address by the kit), for a V3 Blobbi; else null. */
+  seed: string | null;
+  /** A V1/V2 Blobbi's three colours (the kit's trait reading), for an honest swatch; else null. */
+  colors: { base: string; secondary: string; eye: string } | null;
+  /** The event's created_at (seconds). */
+  updatedAt: number;
+}
+
+export type CollectionStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
+
+export interface CollectionSnapshot {
+  status: CollectionStatus;
+  /** Whose Blobbis these are (the connected public key when read), or null. */
+  owner: string | null;
+  items: readonly OwnedBlobbi[];
+  /** Some relays did not answer (the list may miss a newer state). */
+  partial: boolean;
+  /** Events that could not be used (malformed, another author, legacy, older duplicates). */
+  skipped: number;
+  /** When the list was last read (ms), or null. */
+  fetchedAt: number | null;
+}
+
+export interface BlobbiCollectionPort {
+  blobbis(): CollectionSnapshot;
+  /** Read the connected player's Blobbis, unless read a few minutes ago (or `force`). Never prompts the signer. */
+  loadBlobbis(force?: boolean): Promise<void>;
 }

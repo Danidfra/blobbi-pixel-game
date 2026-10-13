@@ -4,15 +4,15 @@
  * account and hands the UI its `AccountPort`.
  *
  * M11B scope: read-only identity. Connect a browser extension signer (NIP-07), remember the public key, read the
- * public profile name. Never: publish, sign, encrypt, ask for or make a secret key, claim or sync an island.
+ * public profile name. M11C: read the player's canonical Blobbis (kind 31124), also read-only. Never: publish, sign, encrypt, ask for or make a secret key, claim or sync an island.
  */
 import { NostrAccount } from './account';
 import type { AccountStore } from './account-store';
-import { DEFAULT_RELAYS, relayProfileReader } from './relays';
+import { DEFAULT_RELAYS, relayBlobbiReader, relayProfileReader } from './relays';
 import { browserExtensionSigner } from './signer';
 
-export type { AccountPort, AccountSnapshot } from './port';
+export type { AccountPort, AccountSnapshot, BlobbiCollectionPort, CollectionSnapshot, OwnedBlobbi } from './port';
 
 export function createNostrAccount(store: AccountStore): NostrAccount {
-  return new NostrAccount({ store, signer: browserExtensionSigner(), reader: relayProfileReader(), relays: DEFAULT_RELAYS });
+  return new NostrAccount({ store, signer: browserExtensionSigner(), reader: relayProfileReader(), blobbiReader: relayBlobbiReader(), relays: DEFAULT_RELAYS });
 }

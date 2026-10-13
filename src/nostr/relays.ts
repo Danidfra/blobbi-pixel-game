@@ -1,6 +1,6 @@
 /**
- * READING PUBLIC PROFILES FROM RELAYS. Read-only by construction: a `ProfileReader` can only ask relays for
- * kind 0 events (REQ) and close; it has no way to send an event (EVENT), answer an AUTH challenge or sign.
+ * READING PUBLIC PROFILES (AND, M11C, CANONICAL BLOBBIS) FROM RELAYS. Read-only by construction: a reader can only
+ * ask relays for events (REQ) and close; it has no way to send an event (EVENT), answer an AUTH challenge or sign.
  *
  * The default reader opens a Nostrify `NRelay1` per relay only for the request (no reconnection, closed straight
  * after), and NRelay1 verifies every event's signature before returning it. The relays are the ones the Blobbi apps
@@ -23,27 +23,41 @@ export interface ProfileReader {
 
 /** Ask every relay for the author's newest kind 0; each relay is opened for the request and closed after. */
 export function relayProfileReader(): ProfileReader {
-  return {
-    async readProfile(pubkey, relays, signal) {
-      const { NRelay1 } = await import('@nostrify/nostrify');
-      const answers = await Promise.allSettled(
-        relays.map(async (url) => {
-          const relay = new NRelay1(url, { backoff: false, idleTimeout: false });
-          try {
-            return await relay.query([{ kinds: [0], authors: [pubkey], limit: 1 }], { signal });
-          } finally {
-            void relay.close().catch(() => {});
-          }
-        }),
-      );
-      const events: unknown[] = [];
-      let reachable = 0;
-      for (const a of answers)
-        if (a.status === 'fulfilled') {
-          reachable++;
-          events.push(...a.value);
-        }
-      return { events, reachable };
-    },
-  };
+  return { readProfile: (pubkey, relays, signal) => queryRelays(relays, { kinds: [0], authors: [pubkey], limit: 1 }, signal) };
+}
+
+/** The ecosystem marker every canonical Blobbi carries (`b` tag); collections are queried by it. */
+export const BLOBBI_MARKER = 'blobbi:ecosystem:v1';
+
+export interface BlobbiReader {
+  /** The owner's kind 31124 Blobbi state events, as the relays return them (checked later, never trusted). */
+  readBlobbis(pubkey: string, relays: readonly string[], signal: AbortSignal): Promise<ProfileReadResult>;
+}
+
+/** M11C: every relay is asked for the owner's Blobbis (kind 31124 by that author, with the ecosystem marker). */
+export function relayBlobbiReader(): BlobbiReader {
+  return { readBlobbis: (pubkey, relays, signal) => queryRelays(relays, { kinds: [31124], authors: [pubkey], '#b': [BLOBBI_MARKER], limit: 200 }, signal) };
+}
+
+/** One REQ per relay, each relay opened for it and closed after (no reconnection); answers merged, never trusted. */
+async function queryRelays(relays: readonly string[], filter: { kinds: number[]; authors: string[]; limit: number; '#b'?: string[] }, signal: AbortSignal): Promise<ProfileReadResult> {
+  const { NRelay1 } = await import('@nostrify/nostrify');
+  const answers = await Promise.allSettled(
+    relays.map(async (url) => {
+      const relay = new NRelay1(url, { backoff: false, idleTimeout: false });
+      try {
+        return await relay.query([filter], { signal });
+      } finally {
+        void relay.close().catch(() => {});
+      }
+    }),
+  );
+  const events: unknown[] = [];
+  let reachable = 0;
+  for (const a of answers)
+    if (a.status === 'fulfilled') {
+      reachable++;
+      events.push(...a.value);
+    }
+  return { events, reachable };
 }

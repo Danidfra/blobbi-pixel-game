@@ -40,6 +40,8 @@ export class SettingsScreen implements Screen {
   audio: AudioSettings | null = null;
   /** The player's account (optional; without it the ACCOUNT page says accounts are not available). */
   account: AccountPort | null = null;
+  /** M11C: open MY BLOBBIS (the playground sets it; without it the button is not shown). */
+  onMyBlobbis: (() => void) | null = null;
   /** The ACCOUNT page's details (public key, signer, relays) are shown. */
   advanced = false;
   /** The ACCOUNT page's short explanation is shown. */
@@ -122,6 +124,7 @@ export class SettingsScreen implements Screen {
         help,
       ];
     return [
+      ...(this.onMyBlobbis ? [{ label: t('account.myBlobbis'), run: () => this.onMyBlobbis?.() }] : []),
       { label: t('account.disconnect'), run: () => (acc.disconnect(), (this.index = 0), ui.say(t('account.disconnected'))) },
       { label: t('account.checkAgain'), run: () => void acc.connect() },
       { label: t(this.advanced ? 'account.hideAdvanced' : 'account.advanced'), run: () => (this.advanced = !this.advanced) },

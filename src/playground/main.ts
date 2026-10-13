@@ -21,7 +21,8 @@ import { hex } from '../core/color';
 import { LiveWorld, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
-import { loadSelection, storeSelection } from '../game/blobbi-selection';
+import { loadAccount } from '../nostr/account-store';
+import { effectiveSelection, loadSelection, loadSelectionRecord, storeSelection } from '../game/blobbi-selection';
 import { resolveBlobbi, describeSource, sourceFromSeed, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
@@ -47,6 +48,7 @@ import { CraftingScreen } from '../ui/screens/crafting';
 import { JournalScreen } from '../ui/screens/journal';
 import { CareScreen } from '../ui/screens/care';
 import { SettingsScreen } from '../ui/screens/settings';
+import { BlobbisScreen } from '../ui/screens/blobbis';
 import { CarrierScreen } from '../ui/screens/carrier';
 import { MapScreen } from '../ui/screens/map';
 import { GrowthScreen } from '../ui/screens/growth';
@@ -129,6 +131,18 @@ const startupBlobbi: { source: BlobbiSource; message: string; error: boolean } =
   const saved = store ? loadSelection(store) : null;
   return { source: saved ?? sourceFromSeed(DEMO_BLOBBI_SEED), message, error: message !== '' };
 })();
+// M11C: a Blobbi chosen with an account walks only while that account is connected here (a link naming it too).
+{
+  const store = localStore();
+  const rec = store ? loadSelectionRecord(store) : null;
+  if (rec?.account && rec.source.seed === startupBlobbi.source.seed && loadAccount(store!)?.pubkey !== rec.account) startupBlobbi.source = sourceFromSeed(DEMO_BLOBBI_SEED);
+}
+/** Guest or Connected, for the HUD chip (M11C): what the account remembers on this device, never a guess. */
+let identity: 'guest' | 'connected' = 'guest';
+/** The connected public key (kept in step by the account's change events: no per-frame work). */
+let connectedPubkey: string | null = null;
+/** The canonical Blobbi's name for the HUD (null: the seed, as before). */
+let shownName: string | null = null;
 
 const state: State = {
   seed: params.get('seed') ?? 'blobbi',
@@ -578,9 +592,62 @@ const gameAudio = new GameAudio(audioEngine);
 settingsScreen.audio = audioEngine.settings;
 // The player's account (M11B, optional and read-only): remembered per browser, never part of a save. Creating it reads
 // one small local record; nothing touches the network until the player opens the ACCOUNT page or connects.
-settingsScreen.account = createNostrAccount(localStore() ?? memoryStore());
-/** Guest or Connected, for the HUD chip (M11C): what the account remembers on this device, never a guess. */
-const identityNow = (): 'guest' | 'connected' => (settingsScreen.account?.snapshot().status === 'connected' ? 'connected' : 'guest');
+const account = createNostrAccount(localStore() ?? memoryStore());
+settingsScreen.account = account;
+const identityNow = (): 'guest' | 'connected' => identity;
+
+// ─── M11C: the player's canonical Blobbis (MY BLOBBIS) ───────────────────────
+const blobbisScreen = new BlobbisScreen();
+gameUI.register(blobbisScreen);
+blobbisScreen.collection = account;
+settingsScreen.onMyBlobbis = () => gameUI.open('blobbis');
+/** The canonical Blobbi walking now (chosen from MY BLOBBIS with the connected account), or null. */
+function walkingCanonical(): { address: string; name: string } | null {
+  const rec = effectiveSelection(storeOrNull(loadSelectionRecord), connectedPubkey);
+  if (!rec?.account || rec.source.kind !== 'v3-address' || rec.source.seed !== state.blobbi.seed) return null;
+  return { address: `31124:${rec.source.pubkey}:${rec.source.d}`, name: rec.name ?? 'Blobbi' };
+}
+function storeOrNull<T>(f: (store: NonNullable<ReturnType<typeof localStore>>) => T): T | null {
+  const store = localStore();
+  return store ? f(store) : null;
+}
+blobbisScreen.chooser = {
+  selectedAddress: () => walkingCanonical()?.address ?? null,
+  choose: (b) => {
+    // Only the connected account's own V3 adult, and only if the kit derives the same seed from its address.
+    if (b.availability !== 'available' || !connectedPubkey || b.pubkey !== connectedPubkey) return false;
+    const r = resolveBlobbi({ pubkey: b.pubkey, d: b.d });
+    if (!r.ok || r.source.kind !== 'v3-address' || r.source.seed !== b.seed) return false;
+    selectBlobbi(r.source, { name: b.name, account: b.pubkey });
+    return true;
+  },
+  useVisitor: () => selectBlobbi(sourceFromSeed(DEMO_BLOBBI_SEED)),
+};
+/** The HUD's name for the Blobbi: a canonical Blobbi's own name; else none (the seed, as before). */
+function blobbiDisplayName(): string | null {
+  return walkingCanonical()?.name ?? null;
+}
+
+/**
+ * Keep the walking Blobbi in step with the account (start-up, connect, disconnect, account switch): a Blobbi chosen
+ * with an account walks only while that account is connected; otherwise the visiting Blobbi walks. The stored
+ * choice is kept, so it comes back when the same account connects again. Islands and saves are never touched.
+ */
+function syncAccountBlobbi(restore = true): void {
+  const snap = account.snapshot();
+  identity = snap.status === 'connected' ? 'connected' : 'guest';
+  connectedPubkey = snap.status === 'connected' ? snap.pubkey : null;
+  const rec = storeOrNull(loadSelectionRecord);
+  if (rec?.account) {
+    const effective = effectiveSelection(rec, connectedPubkey);
+    if (!effective && state.blobbi.seed === rec.source.seed) applyBlobbi(sourceFromSeed(DEMO_BLOBBI_SEED));
+    else if (restore && effective && state.blobbi.kind === 'demo' && state.blobbi.seed === DEMO_BLOBBI_SEED) applyBlobbi(effective.source);
+  }
+  shownName = blobbiDisplayName();
+}
+account.onChange(() => syncAccountBlobbi());
+// At start-up the choice already follows the rule (`startupBlobbi`); this only reads the identity and the name.
+syncAccountBlobbi(false);
 /** Open SETTINGS on the ACCOUNT page (the HUD's identity chip). */
 function openAccountPage(): void {
   settingsScreen.showPage('account');
@@ -1214,7 +1281,7 @@ function playFrame(now: number): void {
   viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
   const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
-  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox });
+  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox, blobbiName: shownName });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;
@@ -1669,11 +1736,17 @@ function chooseBlobbi(r: ResolvedBlobbi): void {
   showBlobbiStatus(r.notes.join(' '), false);
 }
 
-function selectBlobbi(source: BlobbiSource): void {
+function selectBlobbi(source: BlobbiSource, from?: { name: string; account: string }): void {
+  const store = localStore();
+  if (store) storeSelection(store, source, from);
+  applyBlobbi(source);
+}
+
+/** Walk with a Blobbi without changing the stored choice (the account rule, `syncAccountBlobbi`). */
+function applyBlobbi(source: BlobbiSource): void {
   state.blobbi = source;
   state.blobbiSeed = source.seed;
-  const store = localStore();
-  if (store) storeSelection(store, source);
+  shownName = blobbiDisplayName();
   syncControls();
   // Only the Blobbi changes: the world's inventory, equipment and buildings stay (they are the world's).
   live?.setBlobbi(source, state.blobbiSize);

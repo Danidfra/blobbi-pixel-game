@@ -9,14 +9,17 @@
 import { forgetAccount, loadAccount, saveAccount, type AccountRecord, type AccountStore } from './account-store';
 import { isPublicKeyHex, npubEncode, shortNpub } from './keys';
 import { pickProfile } from './profile';
-import type { AccountPort, AccountSnapshot, AccountStatus, ConnectProblem, ProfileStatus } from './port';
-import type { ProfileReader } from './relays';
+import { pickBlobbis } from './blobbis';
+import type { AccountPort, AccountSnapshot, AccountStatus, BlobbiCollectionPort, CollectionSnapshot, ConnectProblem, ProfileStatus } from './port';
+import type { BlobbiReader, ProfileReader } from './relays';
 import type { PublicKeySigner } from './signer';
 
 export interface AccountOptions {
   store: AccountStore;
   signer: PublicKeySigner;
   reader: ProfileReader;
+  /** M11C: reads the player's canonical Blobbis (kind 31124); without it the collection stays empty. */
+  blobbiReader?: BlobbiReader;
   relays: readonly string[];
   now?: () => number;
   /** A profile read this recently is not read again unless forced. */
@@ -25,11 +28,15 @@ export interface AccountOptions {
   readTimeoutMs?: number;
   /** How long the player gets to answer the signer's prompt. */
   connectTimeoutMs?: number;
+  /** M11C: a Blobbi list read this recently is not read again unless forced (memory only, never stored). */
+  blobbiTtlMs?: number;
 }
+
+const EMPTY_COLLECTION: CollectionSnapshot = { status: 'idle', owner: null, items: [], partial: false, skipped: 0, fetchedAt: null };
 
 const TIMEOUT = Symbol('timeout');
 
-export class NostrAccount implements AccountPort {
+export class NostrAccount implements AccountPort, BlobbiCollectionPort {
   private record: AccountRecord | null;
   private status: AccountStatus;
   private problem: ConnectProblem | null = null;
@@ -37,6 +44,10 @@ export class NostrAccount implements AccountPort {
   private profileTask: Promise<void> | null = null;
   private abort: AbortController | null = null;
   private readonly now: () => number;
+  private collection: CollectionSnapshot = EMPTY_COLLECTION;
+  private collectionTask: Promise<void> | null = null;
+  private collectionAbort: AbortController | null = null;
+  private readonly listeners = new Set<() => void>();
 
   constructor(private readonly opts: AccountOptions) {
     this.now = opts.now ?? Date.now;
@@ -67,6 +78,7 @@ export class NostrAccount implements AccountPort {
     if (this.status === 'connecting') return;
     if (!this.opts.signer.available()) {
       this.problem = 'no-signer';
+      this.changed();
       return;
     }
     const before = this.status;
@@ -78,21 +90,27 @@ export class NostrAccount implements AccountPort {
     } catch (e) {
       this.status = before;
       this.problem = e === TIMEOUT ? 'timeout' : /not available/i.test(String((e as Error)?.message)) ? 'no-signer' : 'rejected';
+      this.changed();
       return;
     }
     const pubkey = typeof answer === 'string' && /^[0-9a-fA-F]{64}$/.test(answer) ? answer.toLowerCase() : null;
     if (!pubkey || !isPublicKeyHex(pubkey)) {
       this.status = before;
       this.problem = 'invalid-key';
+      this.changed();
       return;
     }
     // The same account keeps its cached profile; another account starts fresh (account switching).
     const same = this.record?.pubkey === pubkey;
-    if (!same) this.cancelProfile();
+    if (!same) {
+      this.cancelProfile();
+      this.forgetBlobbis();
+    }
     this.record = { version: 1, pubkey, method: 'nip07', connectedAt: same ? this.record!.connectedAt : this.now(), profile: same ? this.record!.profile : null };
     if (!same) this.profileStatus = 'idle';
     saveAccount(this.opts.store, this.record);
     this.status = 'connected';
+    this.changed();
     void this.refreshProfile(!same);
   }
 
@@ -103,6 +121,8 @@ export class NostrAccount implements AccountPort {
     this.status = 'guest';
     this.problem = null;
     this.profileStatus = 'idle';
+    this.forgetBlobbis();
+    this.changed();
   }
 
   refreshProfile(force = false): Promise<void> {
@@ -141,6 +161,7 @@ export class NostrAccount implements AccountPort {
         // Relays unreachable or answering nonsense: keep showing the last good name.
         this.profileStatus = 'found';
       }
+      this.changed();
     })().finally(() => {
       if (this.profileTask === task) this.profileTask = null;
       if (this.abort === abort) this.abort = null;
@@ -149,9 +170,84 @@ export class NostrAccount implements AccountPort {
     return task;
   }
 
-  /** Resolves when no profile read is in flight (tests). */
+  /** Resolves when no profile or Blobbi read is in flight (tests). */
   async settled(): Promise<void> {
-    while (this.profileTask) await this.profileTask;
+    while (this.profileTask || this.collectionTask) await (this.profileTask ?? this.collectionTask);
+  }
+
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private changed(): void {
+    for (const l of [...this.listeners]) {
+      try {
+        l();
+      } catch {
+        // A listener's trouble is its own.
+      }
+    }
+  }
+
+  // ─── The player's canonical Blobbis (M11C, read-only) ──────────────────
+
+  blobbis(): CollectionSnapshot {
+    const pk = this.record?.pubkey ?? null;
+    // Only ever this account's list: anything read for another key is not shown.
+    if (this.status !== 'connected' || !pk || (this.collection.owner && this.collection.owner !== pk)) return EMPTY_COLLECTION;
+    return this.collection;
+  }
+
+  /**
+   * Read the connected player's Blobbis from the relays (one REQ per relay, closed after). Never prompts the signer,
+   * never during play (only when the MY BLOBBIS screen opens or asks again), at most every few minutes unless forced.
+   */
+  loadBlobbis(force = false): Promise<void> {
+    const r = this.record;
+    const reader = this.opts.blobbiReader;
+    if (!r || this.status !== 'connected' || !reader) return Promise.resolve();
+    if (this.collectionTask) return this.collectionTask;
+    const c = this.collection;
+    const fresh = c.owner === r.pubkey && c.status === 'ready' && c.fetchedAt !== null && this.now() - c.fetchedAt < (this.opts.blobbiTtlMs ?? 5 * 60_000);
+    if (fresh && !force) return Promise.resolve();
+    const owner = r.pubkey;
+    const abort = (this.collectionAbort = new AbortController());
+    const timer = setTimeout(() => abort.abort(), this.opts.readTimeoutMs ?? 8000);
+    // Keep showing what was there while looking again.
+    this.collection = { ...(c.owner === owner ? c : EMPTY_COLLECTION), owner, status: 'loading' };
+    this.changed();
+    const task = (async () => {
+      let next: CollectionSnapshot;
+      try {
+        const res = await reader.readBlobbis(owner, this.opts.relays, abort.signal);
+        if (res.reachable === 0) next = { ...this.collection, status: 'unavailable', partial: false };
+        else {
+          const picked = pickBlobbis(res.events, owner);
+          next = { status: 'ready', owner, items: picked.items, skipped: picked.skipped, partial: res.reachable < this.opts.relays.length, fetchedAt: this.now() };
+        }
+      } catch {
+        next = { ...this.collection, status: 'unavailable' };
+      } finally {
+        clearTimeout(timer);
+      }
+      // Disconnected or switched meanwhile: this answer is about someone else now.
+      if (this.collectionAbort !== abort || this.record?.pubkey !== owner) return;
+      this.collection = next;
+      this.changed();
+    })().finally(() => {
+      if (this.collectionTask === task) this.collectionTask = null;
+      if (this.collectionAbort === abort) this.collectionAbort = null;
+    });
+    this.collectionTask = task;
+    return task;
+  }
+
+  private forgetBlobbis(): void {
+    this.collectionAbort?.abort();
+    this.collectionAbort = null;
+    this.collectionTask = null;
+    this.collection = EMPTY_COLLECTION;
   }
 
   private cancelProfile(): void {
