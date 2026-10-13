@@ -33,7 +33,7 @@ Columns: **ID** · **Prerequisites** · **Steps** · **Expected result** · **St
 | TITLE-05 | Carrier chosen | Type a name (letters, digits, space); Backspace; SURPRISE ME; on a phone TYPE A NAME. | The name shows with a caret and a count up to 16; unsupported characters never appear; SURPRISE ME suggests a name; a phone keyboard opens for TYPE A NAME. | NOT TESTED | M8 |
 | TITLE-06 | Name page | CREATE ISLAND (press it twice quickly). | "THE SEA STIRS…", then the intro of the chosen Carrier on the new island, ending directly in play on that island. Exactly one new island in MY ISLANDS, with the typed name (or a generated one when left empty). | NOT TESTED | M8 |
 | TITLE-07 | A saved island | ABOUT → WATCH THE WHALE INTRO; let it end or skip it. | The intro plays on a preview island; afterwards the title returns; the saved island is unchanged. | NOT TESTED | M8 |
-| TITLE-08 | Saves exist, link with `#islands=many` (development) | ISLANDS → NEW ISLAND → … → CREATE. | Same steps as the first time; earlier islands remain listed in ISLANDS. Without `#islands=many` there is no NEW ISLAND anywhere. | NOT TESTED | M10 phase C: one island per player |
+| TITLE-08 | Saves exist | NEW ADVENTURE (M11D.3: it asks first) → … → CREATE. | Same steps as the first time; earlier islands remain listed. | NOT TESTED | M11D.3 supersedes the M10 phase C one-island rule |
 
 ## Gathering and tools (GATHER)
 
@@ -484,6 +484,18 @@ images `examples/m11d2/`.
 | SWAP-01 .. SWAP-08 | NOT TESTED |
 | BPART-01 .. BPART-03 | NOT TESTED |
 | BTOOL-01 .. BTOOL-03 | NOT TESTED |
+
+## M11D.3: main menu, islands, the egg and the first birth (MENU, ISLE, BIRTH, VISIT)
+
+All **NOT TESTED**; steps and expected results in [M11D.3](../milestones/M11D3.md). Automated: `tests/m11d3.test.ts`;
+images `examples/m11d3/`.
+
+| ID | Status |
+|---|---|
+| MENU-01 .. MENU-08 | NOT TESTED |
+| ISLE-01 .. ISLE-07 | NOT TESTED |
+| BIRTH-01 .. BIRTH-08 | NOT TESTED |
+| VISIT-01 .. VISIT-04 | NOT TESTED |
 
 ## Camera and regressions M1–M3 (CAM, REG)
 

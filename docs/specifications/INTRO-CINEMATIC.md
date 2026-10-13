@@ -166,3 +166,10 @@ A new species needs an entry in `surfacingOrder` and `travelDirection` (the form
 scene lengths are one `IntroTiming` per presentation; the message is `INTRO_MESSAGE`; the host integration is
 `new IntroCinematic(ctx, { onComplete })` + `frame` per animation frame + `skip` on input, then
 `viewCamera.setMode(result.cameraMode, true)` and a snapped update.
+
+## M11D.3: the first birth
+
+For a genuinely new (local, unborn) Blobbi the Blobbi scene becomes a birth: its own kit egg arrives by the arrival's
+particles, rocks, cracks and hatches, then the usual performance (`birthTiming`, `IntroOptions.birth`); about 37 s,
+21.5 s with reduced motion. Without a birth the timing is exactly as before. A local presentation: no canonical stage
+is stated or changed. See [M11D.3](../milestones/M11D3.md) §8.
