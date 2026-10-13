@@ -453,6 +453,15 @@ inside the page) are evidence for development only and do not count as passes.
 | MINE-07 | MINE-02 | USE THE VISITING BLOBBI; then DISCONNECT with the canonical one chosen. | The visiting Blobbi returns each time; reconnecting the same account brings the chosen one back. | NOT TESTED | |
 | MINE-08 | MINE-01 with a second device/app | Check the Blobbi in nostr-pet after playing. | Unchanged: Blobbi Pixel never published or edited anything (the extension never asked to sign). | NOT TESTED | the fake relay saw only REQ and CLOSE |
 
+## M11C.5: the account invitation (INVITE)
+
+All **NOT TESTED**; steps and expected results in [M11C.5](../milestones/M11C5.md) (INVITE-01..10). Automated:
+`tests/m11c5-invite.test.ts`; images `examples/m11c5/`.
+
+| ID | Status |
+|---|---|
+| INVITE-01 .. INVITE-10 | NOT TESTED |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
