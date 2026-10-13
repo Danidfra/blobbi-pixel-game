@@ -19,7 +19,8 @@ import { PALETTES, COZY } from '../core/palette';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex } from '../core/color';
 import { LiveWorld, type LiveInput } from '../sim/live-world';
-import { localStore } from '../game/persistence';
+import { localStore, memoryStore } from '../game/persistence';
+import { createNostrAccount } from '../nostr';
 import { loadSelection, storeSelection } from '../game/blobbi-selection';
 import { resolveBlobbi, describeSource, sourceFromSeed, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
@@ -535,6 +536,9 @@ try {
 }
 const gameAudio = new GameAudio(audioEngine);
 settingsScreen.audio = audioEngine.settings;
+// The player's account (M11B, optional and read-only): remembered per browser, never part of a save. Creating it reads
+// one small local record; nothing touches the network until the player opens the ACCOUNT page or connects.
+settingsScreen.account = createNostrAccount(localStore() ?? memoryStore());
 gameUI.onSound = (name) => {
   if (gameUI.settings.sound) audioEngine.play(name);
 };
