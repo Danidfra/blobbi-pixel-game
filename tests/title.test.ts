@@ -153,7 +153,7 @@ describe('title screen', () => {
     title.key('Enter'); // CREATE ISLAND (unnamed)
     title.key('Enter'); // a second press while creating does nothing more
     expect(title.page).toBe('creating');
-    expect(title.takeCreate()).toEqual({ kind: 'turtle', name: '', companion: 'new' });
+    expect(title.takeCreate()).toEqual({ kind: 'turtle', name: '', companion: 'new', owner: 'guest' }); // M11D.4: a guest's new Blobbi gets its own identity
     expect(title.takeCreate()).toBeNull(); // taken exactly once
   });
 

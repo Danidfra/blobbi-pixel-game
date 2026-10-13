@@ -42,6 +42,12 @@ export class SettingsScreen implements Screen {
   account: AccountPort | null = null;
   /** M11C: open MY BLOBBIS (the playground sets it; without it the button is not shown). */
   onMyBlobbis: (() => void) | null = null;
+  /**
+   * M11D.4: the reserved Blobbi walking now (its name, whether it is registered) and the account flow (activate or
+   * restore). Without them the rows are not shown.
+   */
+  reservedWalking: (() => { name: string; registered: boolean } | null) | null = null;
+  onIdentity: ((page: 'activate' | 'restore') => void) | null = null;
   /** M11D.3: back to the main menu (the island is saved first; the playground sets it while playing). */
   onMainMenu: (() => void) | null = null;
   /** Whether MAIN MENU applies now (only while playing, never from the title itself). */
@@ -116,6 +122,14 @@ export class SettingsScreen implements Screen {
     if (!acc) return [];
     const s = acc.snapshot();
     const help: Row = { label: t(this.explain ? 'account.hideExplanation' : 'account.whatIsThis'), run: () => (this.explain = !this.explain) };
+    // M11D.4: the walking Blobbi's own account (save it for other worlds), and bringing a Blobbi back from a backup.
+    const mine = this.reservedWalking?.() ?? null;
+    const identityRows: Row[] = this.onIdentity
+      ? [
+          ...(mine ? [{ label: t(mine.registered ? 'account.blobbiReady' : 'account.saveBlobbi', { name: mine.name }), run: () => this.onIdentity?.('activate') }] : []),
+          { label: t('account.haveBackup'), run: () => this.onIdentity?.('restore') },
+        ]
+      : [];
     if (s.status !== 'connected')
       return [
         {
@@ -126,10 +140,12 @@ export class SettingsScreen implements Screen {
             void acc.connect();
           },
         },
+        ...identityRows,
         help,
       ];
     return [
       ...(this.onMyBlobbis ? [{ label: t('account.myBlobbis'), run: () => this.onMyBlobbis?.() }] : []),
+      ...identityRows,
       { label: t('account.disconnect'), run: () => (acc.disconnect(), (this.index = 0), ui.say(t('account.disconnected'))) },
       { label: t('account.checkAgain'), run: () => void acc.connect() },
       { label: t(this.advanced ? 'account.hideAdvanced' : 'account.advanced'), run: () => (this.advanced = !this.advanced) },

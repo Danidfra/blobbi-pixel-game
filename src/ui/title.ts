@@ -31,7 +31,10 @@ import { MAX_NAME, sanitizeIslandName, suggestIslandName, typingIslandName } fro
 import { getLocale, LOCALES, t, upper } from '../i18n';
 import { nextLocale } from './screens/settings';
 
-export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login';
+export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login' | 'owner';
+
+/** M11D.4: whose a new Blobbi is: a new identity of its own on this device, or the connected account. */
+export type NewOwner = 'guest' | 'account';
 
 /** M11D.3: who lives on a new island: a Blobbi met there (an egg hatches) or the one already chosen. */
 export type Companion = 'new' | 'current';
@@ -41,6 +44,8 @@ export interface TitleAccount {
   status: 'connected' | 'connecting' | 'disconnected';
   name: string | null;
   signerAvailable: boolean;
+  /** M11D.4: how it is connected ('vault': an identity this game keeps; 'nip07': a browser extension). */
+  method?: 'nip07' | 'vault' | null;
 }
 
 export interface TitleActions {
@@ -76,6 +81,8 @@ export interface TitleActions {
   currentBlobbi?(): { name: string } | null;
   /** M11D.3: one more line for an island's card: when it was last played and who came last. */
   islandNote?(w: WorldEntry): string;
+  /** M11D.4: open the backup restore (I HAVE A BACKUP) over the title. */
+  restoreBackup?(): void;
 }
 
 /** What each Carrier is like: the same game on each, a different look and mood (in the current language). */
@@ -120,7 +127,9 @@ export class TitleScreen {
   /** The island name being typed (may be empty). */
   name = '';
   /** A CREATE ISLAND waiting for the host (taken once with `takeCreate`). */
-  pendingCreate: { kind: CarrierKind; name: string; companion: Companion } | null = null;
+  pendingCreate: { kind: CarrierKind; name: string; companion: Companion; owner: NewOwner } | null = null;
+  /** M11D.4: whose the new Blobbi will be (asked when an account is connected). */
+  private owner: NewOwner = 'guest';
   /** M11D.3: the companion already decided for this adventure (LOGIN WITH NOSTR's MEET A NEW BLOBBI), or null. */
   companionPreset: Companion | null = null;
   /** Why the last island could not be made. */
@@ -200,15 +209,26 @@ export class TitleScreen {
     }
     if (this.page === 'login') {
       const acc = a.account?.();
+      const backup: Item[] = a.restoreBackup ? [{ label: upper(t('title.login.backup')), detail: upper(t('title.login.backupDetail')), minor: true, run: () => a.restoreBackup!() }] : [];
       if (acc?.status === 'connected')
         return [
           ...(a.myBlobbis ? [{ label: upper(t('title.login.mine')), detail: upper(t('title.login.mineDetail')), run: () => a.myBlobbis!() }] : []),
           { label: upper(t('title.meetNew')), detail: upper(t('title.login.newDetail')), run: () => this.newAdventure('new') },
+          ...backup,
           { label: upper(t('title.back')), run: () => this.back() },
         ];
       return [
         { label: upper(t(acc?.status === 'connecting' ? 'title.login.connecting' : 'title.login.connect')), detail: upper(t('title.login.connectDetail')), run: () => (acc?.status === 'connecting' ? undefined : a.connect?.()) },
         { label: upper(t('title.login.guest')), detail: upper(t('title.login.guestDetail')), run: () => this.back() },
+        ...backup,
+      ];
+    }
+    if (this.page === 'owner') {
+      const acc = a.account?.();
+      return [
+        { label: upper(t('title.owner.account', { name: acc?.name ?? t('title.login.connectedAnon') })), detail: upper(t('title.owner.accountDetail')), run: () => this.createAs('account') },
+        { label: upper(t('title.owner.device')), detail: upper(t('title.owner.deviceDetail')), run: () => this.createAs('guest') },
+        { label: upper(t('title.back')), run: () => this.back() },
       ];
     }
     if (this.page === 'delete') {
@@ -251,6 +271,7 @@ export class TitleScreen {
   private back(): void {
     if (this.page === 'name') return this.go('carrier');
     if (this.page === 'companion') return this.go('name');
+    if (this.page === 'owner') return this.go('name');
     if (this.page === 'carrier' || this.page === 'about' || this.page === 'error' || this.page === 'islands' || this.page === 'newConfirm' || this.page === 'login') {
       if (this.page !== 'login') this.companionPreset = null;
       const first = this.actions.worlds().length === 0 && !this.actions.current().saved && !this.actions.current().linked;
@@ -298,12 +319,27 @@ export class TitleScreen {
     this.create('new');
   }
 
-  /** CREATE ISLAND: leave the request for the host, once. */
+  /**
+   * CREATE ISLAND: leave the request for the host, once. M11D.4: a NEW Blobbi met while an account is connected asks
+   * whose it will be first (the account's, or a new identity of its own on this device): never decided silently.
+   */
   private create(companion: Companion = 'new'): void {
     if (this.pendingCreate || this.page === 'creating') return;
-    this.pendingCreate = { kind: CARRIER_CARDS[this.carrier].kind, name: sanitizeIslandName(this.name), companion };
+    if (companion === 'new' && this.actions.account?.().status === 'connected' && this.page !== 'owner') {
+      this.companionPreset = 'new';
+      this.go('owner');
+      return;
+    }
+    this.pendingCreate = { kind: CARRIER_CARDS[this.carrier].kind, name: sanitizeIslandName(this.name), companion, owner: this.owner };
     this.companionPreset = null;
+    this.owner = 'guest';
     this.go('creating');
+  }
+
+  /** M11D.4: the owner chosen on the owner page. */
+  private createAs(owner: NewOwner): void {
+    this.owner = owner;
+    this.create('new');
   }
 
   /** LOGIN WITH NOSTR (optional): a row on the first pages when the host has an account to offer. */
@@ -315,7 +351,7 @@ export class TitleScreen {
   }
 
   /** The host takes the request (exactly once) when it is ready to make the island. */
-  takeCreate(): { kind: CarrierKind; name: string; companion: Companion } | null {
+  takeCreate(): { kind: CarrierKind; name: string; companion: Companion; owner: NewOwner } | null {
     const p = this.pendingCreate;
     this.pendingCreate = null;
     return p;
@@ -509,7 +545,7 @@ export class TitleScreen {
     const px = named ? 18 : Math.floor((W - panelW) / 2);
     const menu = this.page === 'welcome' || this.page === 'main';
     let y = named ? 24 : menu ? 64 : 56;
-    const headings: Partial<Record<TitlePage, string>> = { islands: t('title.heading.islands'), about: t('title.heading.about'), delete: t('title.heading.delete'), name: t('title.heading.name'), error: t('title.heading.error'), newConfirm: t('title.newConfirm.title'), companion: t('title.companion.title'), login: t('title.login.title') };
+    const headings: Partial<Record<TitlePage, string>> = { islands: t('title.heading.islands'), about: t('title.heading.about'), delete: t('title.heading.delete'), name: t('title.heading.name'), error: t('title.heading.error'), newConfirm: t('title.newConfirm.title'), companion: t('title.companion.title'), login: t('title.login.title'), owner: t('title.owner.title') };
     const heading = headings[this.page];
     if (heading) {
       g.heading(heading, px, y, UI.accent, SHADE);
@@ -521,6 +557,7 @@ export class TitleScreen {
     if (this.page === 'about') y += g.para(t('title.aboutText'), px, y, panelW, UI.ink, 5, SHADE) + 4;
     if (this.page === 'newConfirm') y += g.para(t('title.newConfirm.body'), px, y, panelW, UI.ink, 6, SHADE) + 5;
     if (this.page === 'companion') y += g.para(t('title.companion.body'), px, y, panelW, UI.ink, 4, SHADE) + 4;
+    if (this.page === 'owner') y += g.para(t('title.owner.body'), px, y, panelW, UI.ink, 5, SHADE) + 4;
     if (this.page === 'login') {
       const acc = this.actions.account?.();
       const text = acc?.status === 'connected' ? (acc.name ? t('title.login.welcome', { name: acc.name }) : t('title.login.welcomeAnon')) : acc && !acc.signerAvailable ? `${t('title.login.body')} ${t('title.login.noSigner')}` : t('title.login.body');

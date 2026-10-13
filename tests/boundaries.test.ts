@@ -18,11 +18,26 @@ describe('cross-game and network boundaries', () => {
     }
   });
 
-  it('nothing, not even src/nostr/, can publish, sign, encrypt, or handle a secret key (M11B is read-only)', () => {
+  it('secrets, signing and publishing live in exactly the M11D.4 modules that need them; nowhere else', () => {
+    // M11D.4 narrows the M11B rule ("nothing can"), never removes it: one module holds secrets (the key vault: it makes,
+    // seals and uses keys, and makes NIP-49 backups), one asks a browser extension to sign (the signer, only for a
+    // Blobbi of the player's existing account), one sends events (the publisher, only for a consented registration).
+    const allowed: Record<string, RegExp> = {
+      [join('src', 'nostr', 'keystore.ts')]: /finalizeEvent|generateSecretKey|nip49/,
+      [join('src', 'nostr', 'signer.ts')]: /signEvent/,
+      [join('src', 'nostr', 'publisher.ts')]: /\.event\(/,
+    };
+    // Code only: comments may name what a module never does.
+    const code = (f: string) => readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     for (const f of all) {
-      const text = readFileSync(f, 'utf8');
-      expect(text, f).not.toMatch(/signEvent|finalizeEvent|\.event\(|\bnip44\b|\bnip04\b|NSecSigner|NConnectSigner|generateSecretKey|getSecretKey|nsec1|bunker:\/\/|nostrconnect:/);
+      let text = code(f);
+      if (allowed[f]) text = text.replace(new RegExp(allowed[f].source, 'g'), '');
+      expect(text, f).not.toMatch(/signEvent|finalizeEvent|\.event\(|\bnip44\b|\bnip04\b|nip49|NSecSigner|NConnectSigner|generateSecretKey|getSecretKey|nsec1|nsecEncode|bunker:\/\/|nostrconnect:|localStorage[^\n]*secret/);
     }
+    // No plaintext secret ever goes to localStorage: the vault uses IndexedDB and Web Crypto only.
+    const vault = code(join('src', 'nostr', 'keystore.ts'));
+    expect(vault).not.toMatch(/localStorage|sessionStorage|console\./);
+    expect(vault).toMatch(/generateKey\(\{ name: 'AES-GCM', length: 256 \}, false/); // non-extractable wrapping key
   });
 
   it('gameplay, rendering, generation and the simulation never import the Nostr module; the UI sees only its port', () => {

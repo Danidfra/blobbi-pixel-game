@@ -114,6 +114,25 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
     void this.refreshProfile(!same);
   }
 
+  /**
+   * M11D.4: make a reserved identity of this game's key vault the player's account (after its Blobbi was registered,
+   * or restored from a backup). No prompt: the identity is the game's own. Public data only is remembered.
+   */
+  adoptVaultIdentity(pubkey: string): void {
+    if (!isPublicKeyHex(pubkey)) return;
+    const same = this.record?.pubkey === pubkey;
+    if (!same) {
+      this.cancelProfile();
+      this.forgetBlobbis();
+    }
+    this.record = { version: 1, pubkey, method: 'vault', connectedAt: same ? this.record!.connectedAt : this.now(), profile: same ? this.record!.profile : null };
+    if (!same) this.profileStatus = 'idle';
+    saveAccount(this.opts.store, this.record);
+    this.status = 'connected';
+    this.problem = null;
+    this.changed();
+  }
+
   disconnect(): void {
     this.cancelProfile();
     forgetAccount(this.opts.store);

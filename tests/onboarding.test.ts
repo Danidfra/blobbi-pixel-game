@@ -62,7 +62,7 @@ describe('the first-time flow on the title', () => {
     t.key('KeyR', 'r');
     t.key('Enter');
     expect(t.page).toBe('creating');
-    expect(t.takeCreate()).toEqual({ kind: 'whale', name: 'Kelp Harbour', companion: 'new' }) // M11D.3: a first adventure meets a new Blobbi;
+    expect(t.takeCreate()).toEqual({ kind: 'whale', name: 'Kelp Harbour', companion: 'new', owner: 'guest' }) // M11D.3: a first adventure meets a new Blobbi (M11D.4: its own identity);
   });
 
   it('every Carrier can be chosen, with the mouse or a tap: one tap selects, a second goes on', () => {

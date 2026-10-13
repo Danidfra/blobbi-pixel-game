@@ -172,7 +172,9 @@ describe('LOGIN WITH NOSTR (optional, the existing read-only connection)', () =>
     choose('START A NEW ADVENTURE');
     t.key('Enter'); // the Carrier
     t.key('Enter'); // CREATE ISLAND: no "who lives here" question, the new Blobbi was chosen
-    expect(t.takeCreate()).toMatchObject({ companion: 'new' });
+    expect(t.page).toBe('owner'); // M11D.4: connected, so whose it will be is asked (never decided silently)
+    t.key('Enter'); // ON MY ACCOUNT
+    expect(t.takeCreate()).toMatchObject({ companion: 'new', owner: 'account' });
   });
 
   it('the new copy exists in three languages, without an em dash, and never promises account saving for a new Blobbi', () => {

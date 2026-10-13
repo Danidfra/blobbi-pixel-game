@@ -111,6 +111,8 @@ interface Cue {
 }
 
 const STEP = 1 / 60;
+/** M11D.4: a player's skip is ignored this long after the cinematic starts (a double press must not skip it). */
+export const SKIP_GRACE = 1.5;
 const TYPE_RATE = 30;
 const FADE_IN = 0.7;
 const TITLE_TINT = hex('#1b2440');
@@ -556,7 +558,7 @@ export class IntroCinematic {
       drawTeleportParticles(screen, this.burst, time, at.x, at.y, view.scale);
     }
     if (t < FADE_IN) tint(screen, TITLE_TINT, 1 - smooth(t / FADE_IN));
-    if (t >= 1.2 && t < this.timing.beginning) this.drawHint(screen);
+    if (t >= SKIP_GRACE && t < this.timing.beginning) this.drawHint(screen);
     if (t >= this.timing.line1) this.drawMessage(screen, t);
     this.lastView = view;
     this.lastScreen = screen;
@@ -611,6 +613,18 @@ export class IntroCinematic {
   }
 
   // ─── Ending ─────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * M11D.4, A PLAYER'S SKIP (a key, a click, a tap): ignored for the first `SKIP_GRACE` seconds. The cinematic
+   * starts a frame or two after CREATE ISLAND, so the second press of a double press (or a key bounce) used to land
+   * on it and skip the whole intro at 0.0 s: a new Blobbi's birth was then counted as seen and its egg never showed
+   * (the M11D.3 "the egg did not appear" report, reproduced in the browser). Returns whether it skipped.
+   */
+  requestSkip(): boolean {
+    if (this.finished || this.t < SKIP_GRACE) return false;
+    this.skip();
+    return true;
+  }
 
   /** Skip: the handoff state at once, then the callbacks (`onSkip`, then `onComplete` with `skipped: true`). */
   skip(): void {

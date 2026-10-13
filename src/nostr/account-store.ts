@@ -42,10 +42,11 @@ export function loadAccount(store: AccountStore): AccountRecord | null {
   try {
     const v = JSON.parse(raw) as Record<string, unknown>;
     if (!v || typeof v !== 'object' || Object.keys(v).some((k) => !FIELDS.includes(k))) return null;
-    if (v.version !== ACCOUNT_VERSION || !isPublicKeyHex(v.pubkey) || v.method !== 'nip07' || typeof v.connectedAt !== 'number') return null;
+    if (v.version !== ACCOUNT_VERSION || !isPublicKeyHex(v.pubkey) || (v.method !== 'nip07' && v.method !== 'vault') || typeof v.connectedAt !== 'number') return null;
     const p = v.profile as Record<string, unknown> | null | undefined;
     const profile = p && typeof p === 'object' && typeof p.at === 'number' ? { name: cleanName(p.name), at: p.at } : null;
-    return { version: ACCOUNT_VERSION, pubkey: v.pubkey, method: 'nip07', connectedAt: v.connectedAt, profile };
+    // M11D.4: 'vault' is a reserved identity registered here (its secret in the key vault, never in this record).
+    return { version: ACCOUNT_VERSION, pubkey: v.pubkey, method: v.method, connectedAt: v.connectedAt, profile };
   } catch {
     return null;
   }

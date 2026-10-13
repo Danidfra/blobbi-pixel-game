@@ -22,11 +22,14 @@ import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
-import { effectiveSelection, loadSelection, loadSelectionRecord, storeLocalSelection, storeSelection } from '../game/blobbi-selection';
+import { effectiveSelection, loadSelection, loadSelectionRecord, storeGuestSelection, storeSelection } from '../game/blobbi-selection';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
-import { createLocalBlobbi, forgetLocalBlobbi, isLocalBlobbiSeed, localBlobbi, markBorn } from '../game/local-blobbis';
+import { isLocalBlobbiSeed, localBlobbi, markBorn } from '../game/local-blobbis';
+import { forgetUnbornGuestBlobbi, guestBlobbi, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
+import { IdentityScreen } from '../ui/screens/identity';
+import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
@@ -65,7 +68,7 @@ import { installCustomisation } from '../ui/screens/home-style';
 import { LocalVisitTransport, VisitSession, localPlayerId, OWNERS_KEY, type WorldRef } from '../game/visiting';
 import { AudioEngine, DEFAULT_AUDIO } from '../audio/engine';
 import { GameAudio } from '../audio/director';
-import { TitleScreen, CARD_PIC, type Companion } from '../ui/title';
+import { TitleScreen, CARD_PIC, type Companion, type NewOwner } from '../ui/title';
 import { displayName } from '../game/island-name';
 import { generateMantaWorld } from '../carriers/manta-world';
 import { generateWhaleWorld } from '../carriers/whale-world';
@@ -620,6 +623,181 @@ blobbisScreen.forms = {
   accept: (address) => void storeOrNull((st) => acceptWorldForm(st, address)),
 };
 settingsScreen.onMyBlobbis = () => gameUI.open('blobbis');
+
+// ─── M11D.4: reserved identities, the secret backup, registration ───────────────────────────
+/**
+ * The identity service (the key vault, backups, registration) is loaded only when first needed: the game's first
+ * screen never loads it. Publishing is a REHEARSAL (an in-browser relay: nothing leaves the device) unless the page was
+ * opened with `#publish=live` (the owner decides when live publishing ships; docs/milestones/M11D4.md).
+ */
+let identityTask: Promise<IdentityService> | null = null;
+function identityService(): Promise<IdentityService> {
+  identityTask ??= (async () => {
+    const [{ IdentityService: Service }, keys, pub, signer] = await Promise.all([import('../nostr/identity'), import('../nostr/keystore'), import('../nostr/publisher'), import('../nostr/signer')]);
+    let backend: import('../nostr/keystore').VaultBackend;
+    try {
+      backend = keys.indexedDbVaultBackend();
+    } catch {
+      backend = keys.memoryVaultBackend(); // the service reports the vault unavailable; nothing is pretended
+    }
+    const publisher = params.get('publish') === 'live' ? pub.relayPublisher() : pub.memoryRelay();
+    const store = localStore() ?? memoryStore();
+    return new Service({
+      store,
+      vault: new keys.KeyVault(backend),
+      publisher,
+      accountSigner: (tpl) => signer.browserExtensionSignEvent(tpl),
+      onChanged: () => (shownName = blobbiDisplayName()),
+      onRegistered: (b) => {
+        // A guest identity becomes the player's account (an identity this game keeps); the same Blobbi stays, in
+        // place: no departure, no arrival, nothing about the island changes.
+        if (b.ownerKind === 'guest') account.adoptVaultIdentity(b.owner);
+        shownName = blobbiDisplayName();
+      },
+    });
+  })();
+  identityTask.catch(() => (identityTask = null));
+  return identityTask;
+}
+const identityScreen = new IdentityScreen();
+gameUI.register(identityScreen);
+/** Open the account flow (on ACTIVATE for the walking Blobbi, or on RESTORE). */
+async function openIdentity(page: 'activate' | 'restore'): Promise<void> {
+  identityScreen.identity = await identityService();
+  identityScreen.start(page);
+  gameUI.open('identity');
+}
+settingsScreen.onIdentity = (page) => void openIdentity(page);
+settingsScreen.reservedWalking = () => {
+  const src = state.blobbi;
+  if (src.kind !== 'v3-address') return null;
+  const g = storeOrNull((st) => guestBlobbi(st, src.d));
+  return g && g.born ? { name: g.name, registered: !!g.activatedAt } : null;
+};
+// The screen's host: hidden page inputs for text (passwords are type=password), a file picker, a paste area, a
+// download and the clipboard. Typed values go straight to the screen and are cleared with its page.
+const secretInput = document.createElement('input');
+secretInput.style.cssText = 'position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0';
+secretInput.autocomplete = 'off';
+secretInput.spellcheck = false;
+const pasteArea = document.createElement('textarea');
+pasteArea.style.cssText = 'position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0';
+const filePicker = document.createElement('input');
+filePicker.type = 'file';
+filePicker.accept = '.txt,text/plain';
+filePicker.style.cssText = 'display:none';
+document.body.append(secretInput, pasteArea, filePicker);
+let secretSink: ((v: string) => void) | null = null;
+secretInput.addEventListener('input', () => secretSink?.(secretInput.value));
+secretInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === 'Escape') {
+    e.preventDefault();
+    secretInput.value = '';
+    secretSink = null;
+    view.focus();
+  }
+});
+secretInput.addEventListener('blur', () => {
+  secretInput.value = ''; // the screen keeps its copy only while its page is open
+  secretSink = null;
+});
+let pasteSink: ((v: string) => void) | null = null;
+pasteArea.addEventListener('input', () => {
+  pasteSink?.(pasteArea.value);
+  pasteArea.value = '';
+  pasteSink = null;
+  view.focus();
+});
+let fileSink: ((v: string) => void) | null = null;
+filePicker.addEventListener('change', () => {
+  const f = filePicker.files?.[0];
+  filePicker.value = '';
+  if (!f || f.size > 16_384) return;
+  void f.text().then((text) => fileSink?.(text));
+});
+identityScreen.host = {
+  editText: (field, current, secret, set) => {
+    secretInput.type = secret ? 'password' : 'text';
+    secretInput.maxLength = field === 'name' ? 24 : 128;
+    secretInput.value = current;
+    secretSink = set;
+    secretInput.focus();
+  },
+  pickFile: (done) => {
+    fileSink = done;
+    filePicker.click();
+  },
+  pasteText: (done) => {
+    pasteSink = done;
+    pasteArea.focus();
+  },
+  download: (fileName, text) => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
+  copy: async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  walking: () => {
+    const src = state.blobbi;
+    const g = src.kind === 'v3-address' ? storeOrNull((st) => guestBlobbi(st, src.d)) : null;
+    const reserved = g && g.born ? { owner: g.owner, ownerKind: g.ownerKind, petId: g.petId, d: g.d, name: g.name, born: g.born, activatedAt: g.activatedAt } : null;
+    return { reserved, legacyLocal: isLocalBlobbiSeed(src.seed) };
+  },
+  bring: (d) => {
+    const g = storeOrNull((st) => guestBlobbi(st, d));
+    if (!g) return;
+    const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
+    if (!r.ok) return;
+    storeOrNull((st) => storeGuestSelection(st, r.source, 'baby'));
+    applyBlobbi(r.source, 'baby');
+  },
+};
+
+/**
+ * M11D.4, A NEW ADVENTURE: a new Blobbi gets its owner FIRST (a new identity sealed in the vault, or the connected
+ * account), then the island is made and its egg hatches from that very identity. If the identity cannot be kept
+ * safely, nothing is made (said plainly); an island whose making fails forgets its unborn Blobbi.
+ */
+let creatingAdventure = false;
+async function createAdventure(req: { kind: CarrierKind; name: string; companion: Companion; owner: NewOwner }): Promise<void> {
+  if (creatingAdventure) return;
+  creatingAdventure = true;
+  try {
+    let reserved: GuestBlobbi | null = null;
+    if (req.companion === 'new') {
+      const svc = await identityService();
+      const acc = account.snapshot();
+      const owner = req.owner === 'account' && acc.status === 'connected' && acc.pubkey ? (acc.method === 'vault' ? { kind: 'vault' as const, pubkey: acc.pubkey } : { kind: 'account' as const, pubkey: acc.pubkey }) : { kind: 'guest' as const };
+      const r = (await svc.vaultAvailable()) || owner.kind === 'account' ? await svc.reserve(owner, null) : ({ ok: false } as const);
+      if (!r.ok) {
+        title.createFailed(t('create.identityFailed'));
+        return;
+      }
+      reserved = r.value;
+    }
+    const error = createWorld(req.kind, req.name, req.companion, reserved);
+    if (error) {
+      if (reserved) storeOrNull((st) => forgetUnbornGuestBlobbi(st, reserved!.d));
+      title.createFailed(error);
+    } else beginPlay();
+  } catch (e) {
+    title.createFailed(`${t('create.identityFailed')} (${(e as Error).message})`);
+  } finally {
+    creatingAdventure = false;
+  }
+}
 // M11D.3: SETTINGS > MAIN MENU while playing: the island is saved, play stops, the title comes back (nothing lost).
 settingsScreen.mainMenuAvailable = () => !!live && !title.active && !intro;
 settingsScreen.onMainMenu = () => {
@@ -664,6 +842,12 @@ blobbisScreen.chooser = {
 };
 /** The HUD's name for the Blobbi: a canonical Blobbi's own name; else none (the seed, as before). */
 function blobbiDisplayName(): string | null {
+  // M11D.4: a Blobbi met here (its reserved owner) is known by its own name.
+  const src = state.blobbi;
+  if (src.kind === 'v3-address') {
+    const g = storeOrNull((st) => guestBlobbi(st, src.d));
+    if (g) return g.name;
+  }
   return walkingCanonical()?.name ?? null;
 }
 
@@ -815,6 +999,12 @@ function recordVisitOf(island: string, seed: string, stage: BlobbiStage): void {
 }
 /** M11D.3: a local Blobbi met on this island whose birth has not been seen yet. */
 function unbornHere(l: LiveWorld): boolean {
+  // M11D.4: a Blobbi met here with a reserved owner, its birth not seen yet, on the island it was met on.
+  const src = l.blobbi.source;
+  if (src.kind === 'v3-address') {
+    const g = storeOrNull((st) => guestBlobbi(st, src.d));
+    return !!g && !g.born && g.island === l.identity;
+  }
   if (!isLocalBlobbiSeed(l.blobbi.seed)) return false;
   const b = storeOrNull((st) => localBlobbi(st, l.blobbi.seed));
   return !!b && !b.born && b.island === l.identity;
@@ -901,8 +1091,9 @@ const title = new TitleScreen({
   // M11D.3: the optional account (the existing NIP-07 connection), MY BLOBBIS over the title, who walks now.
   account: () => {
     const s = account.snapshot();
-    return { status: s.status === 'connected' ? 'connected' : s.status === 'connecting' ? 'connecting' : 'disconnected', name: s.status === 'connected' ? s.displayName : null, signerAvailable: s.signerAvailable };
+    return { status: s.status === 'connected' ? 'connected' : s.status === 'connecting' ? 'connecting' : 'disconnected', name: s.status === 'connected' ? s.displayName : null, signerAvailable: s.signerAvailable, method: s.method };
   },
+  restoreBackup: () => void openIdentity('restore'),
   connect: () => void account.connect(),
   myBlobbis: () => gameUI.open('blobbis'),
   currentBlobbi: () => {
@@ -937,9 +1128,8 @@ function islandLabel(identity: string): string {
  * reload during the intro plays it again rather than losing the island), then the intro on the real world. On any
  * failure the playground's previous world and settings are restored and nothing is saved.
  */
-function createWorld(kind: CarrierKind, name: string, companion: Companion = 'current'): string | null {
+function createWorld(kind: CarrierKind, name: string, companion: Companion = 'current', reserved: GuestBlobbi | null = null): string | null {
   const keep = { seed: state.seed, options: state.options, turtleSeed: state.turtleSeed, shellVariant: state.shellVariant, blobbi: state.blobbi, blobbiSeed: state.blobbiSeed, blobbiStage: state.blobbiStage };
-  let newBlobbi: string | null = null;
   const keepWorld = { world, live, liveRenderer, viewRenderer, bounds };
   try {
     // A new world has no generated cottage: the player builds the first home (M8).
@@ -952,12 +1142,14 @@ function createWorld(kind: CarrierKind, name: string, companion: Companion = 'cu
     state.turtleSeed = turtleSeed;
     world = makeWorld(seed);
     const store = localStore();
-    // M11D.3, MEET A NEW BLOBBI: a local Blobbi, an egg to hatch on this island (no key, no event; see local-blobbis).
-    if (companion === 'new' && store) {
-      const b = createLocalBlobbi(store, worldIdentity(world), Date.now());
-      newBlobbi = b.id;
-      state.blobbi = sourceFromSeed(b.id);
-      state.blobbiSeed = b.id;
+    // M11D.4, MEET A NEW BLOBBI: the Blobbi with its reserved owner (made before this, see `createAdventure`): its
+    // canonical address (owner, d) gives its V3 look, the egg's and the Baby's alike. Nothing is signed or published.
+    if (companion === 'new') {
+      if (!reserved) throw new Error(t('create.identityFailed'));
+      const r = resolveBlobbi({ pubkey: reserved.owner, d: reserved.d });
+      if (!r.ok) throw new Error(r.error);
+      state.blobbi = r.source;
+      state.blobbiSeed = r.source.seed;
       state.blobbiStage = 'baby';
     }
     const made = new LiveWorld(world, state.blobbi, state.blobbiSize, { stage: state.blobbiStage, store });
@@ -967,7 +1159,10 @@ function createWorld(kind: CarrierKind, name: string, companion: Companion = 'cu
     made.save();
     if (store && !hasSave(made.identity, storeGet)) throw new Error(t('create.storage'));
     // The new Blobbi walks from now on (the choice is kept in this browser, beside the islands, never in one).
-    if (newBlobbi && store) storeLocalSelection(store, state.blobbi, 'baby');
+    if (reserved && store) {
+      updateGuestBlobbi(store, reserved.d, { island: made.identity });
+      storeGuestSelection(store, state.blobbi, 'baby');
+    }
     shownName = blobbiDisplayName();
     live = made;
     liveRenderer = new LiveRenderer(live);
@@ -981,8 +1176,6 @@ function createWorld(kind: CarrierKind, name: string, companion: Companion = 'cu
     return null;
   } catch (e) {
     Object.assign(state, keep);
-    // An egg that never got its island is forgotten (nothing else refers to it).
-    if (newBlobbi) storeOrNull((st) => forgetLocalBlobbi(st, newBlobbi!));
     ({ world, live, liveRenderer, viewRenderer, bounds } = keepWorld);
     syncControls();
     return `The island could not be made: ${(e as Error).message}. Nothing was saved.`;
@@ -1256,6 +1449,8 @@ function finishWorldIntro(target: LiveWorld, r: IntroResult): void {
   target.setIntro(r.skipped ? 'skipped' : 'done');
   // The birth was seen (or skipped): it never plays again; and the Blobbi has now been on this island.
   if (isLocalBlobbiSeed(target.blobbi.seed)) storeOrNull((st) => markBorn(st, target.blobbi.seed, Date.now()));
+  const born = target.blobbi.source;
+  if (born.kind === 'v3-address') storeOrNull((st) => updateGuestBlobbi(st, born.d, { born: true }));
   noteVisit(target);
   setCameraMode(r.cameraMode);
   if (bounds) viewCamera.update(0, target.cameraTarget(), view.width, view.height, bounds, true);
@@ -1363,9 +1558,7 @@ function titleFrame(now: number, real: number): void {
   if (title.page === 'creating' && title.pendingCreate && titleCreateFrames++ >= 1) {
     const req = title.takeCreate()!;
     titleCreateFrames = 0;
-    const error = createWorld(req.kind, req.name, req.companion);
-    if (error) title.createFailed(error);
-    else beginPlay();
+    void createAdventure(req);
     return;
   }
   if (title.page !== 'creating') titleCreateFrames = 0;
@@ -1655,7 +1848,7 @@ view.addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Escape'].includes(e.code)) e.preventDefault();
   // The intro cinematic: any key skips it.
   if (intro) {
-    if (!e.repeat) intro.skip();
+    if (!e.repeat) intro.requestSkip();
     return;
   }
   // The title screen owns the keyboard (unless its settings panel is open).
@@ -1705,7 +1898,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -2497,7 +2690,7 @@ view.addEventListener('pointerdown', (e) => {
     const sy = ((e.clientY - rect.top) * view.height) / Math.max(1, rect.height);
     // The intro cinematic: a click or a tap skips it.
     if (intro) {
-      intro.skip();
+      intro.requestSkip();
       e.preventDefault();
       return;
     }

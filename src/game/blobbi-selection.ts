@@ -35,6 +35,7 @@ import type { BlobbiStage } from '../blobbi/canonical';
 import { resolveBlobbi, worldFormSource, type BlobbiSource } from '../blobbi/source';
 import type { WorldFormTraits } from '../blobbi/world-form';
 import { isLocalBlobbiSeed } from './local-blobbis';
+import { guestBlobbi } from './guest-blobbis';
 
 /** Sources that belong to an owner's address: a V3 address, or (M11D.2) a V1/V2 Blobbi's world form. */
 function ownedKind(s: BlobbiSource): s is Extract<BlobbiSource, { kind: 'v3-address' | 'world-form' }> {
@@ -63,6 +64,8 @@ export interface SelectionRecord {
   account: string | null;
   /** M11D.1: the stage to draw ('adult' unless an account's Baby was chosen; always set by `loadSelectionRecord`). */
   stage?: BlobbiStage;
+  /** M11D.4: a Blobbi met in this game with a reserved owner (it walks with or without a connected account). */
+  guest?: boolean;
 }
 
 export function loadSelection(store: KeyValueStore): BlobbiSource | null {
@@ -89,7 +92,7 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
   }
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown };
+    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown; guest?: unknown };
     if (parsed.version !== SELECTION_VERSION || !parsed.source || typeof parsed.source !== 'object') return null;
     const s = parsed.source;
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
@@ -106,6 +109,13 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
     // An unknown stage value reads as the adult (the same Blobbi), never as a refusal of the whole record.
     // M11D.3: a local Blobbi (met in this game, born from an egg) is a Baby without any account.
     const stage: BlobbiStage = (account || isLocalBlobbiSeed(resolved.source.seed)) && parsed.stage === 'baby' ? 'baby' : 'adult';
+    // M11D.4: a reserved Blobbi met here, only while its public record still names this very owner and d.
+    if (parsed.guest === true) {
+      const src = resolved.source;
+      const known = src.kind === 'v3-address' ? guestBlobbi(store, src.d) : null;
+      if (!known || src.kind !== 'v3-address' || known.owner !== src.pubkey || account) return null;
+      return { source: src, name: known.name, account: null, stage: parsed.stage === 'baby' ? 'baby' : 'adult', guest: true };
+    }
     return { source: resolved.source, name: account ? cleanSelectionName(parsed.name) : null, account, stage };
   } catch {
     return null;
@@ -128,8 +138,17 @@ export function storeSelection(store: KeyValueStore, source: BlobbiSource, from?
  */
 export function effectiveSelection(record: SelectionRecord | null, connectedPubkey: string | null): SelectionRecord | null {
   if (!record) return null;
+  if (record.guest) return record; // a Blobbi met here walks with or without an account (M11D.4)
   if (record.account && record.account !== connectedPubkey) return null;
   return record;
+}
+
+/** M11D.4: choose a Blobbi met in this game (its owner reserved here or the player's account), at its stage. */
+export function storeGuestSelection(store: KeyValueStore, source: BlobbiSource, stage: BlobbiStage): void {
+  if (source.kind !== 'v3-address' || !guestBlobbi(store, source.d)) return;
+  const record: BlobbiSelection & { guest: true } = { version: SELECTION_VERSION, source, guest: true };
+  if (stage === 'baby') record.stage = 'baby';
+  store.set(SELECTION_KEY, JSON.stringify(record));
 }
 
 /** M11D.3: choose a local Blobbi (met in this game) at its stage; no account, no name, no address. */

@@ -21,7 +21,7 @@ import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
 import type { AccountInvite } from './account-invite';
 import { REST_POSE } from '../blobbi/sprite';
 
-export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis';
+export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis' | 'identity';
 
 export interface Screen {
   readonly id: ScreenId;

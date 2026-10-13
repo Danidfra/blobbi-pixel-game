@@ -33,3 +33,12 @@ export function browserExtensionSigner(): PublicKeySigner {
     },
   };
 }
+
+/**
+ * M11D.4: the browser extension asked to SIGN one event (NIP-07 `signEvent`), only for registering a Blobbi that
+ * belongs to the player's existing account, after their explicit consent. The extension shows its own prompt.
+ */
+export async function browserExtensionSignEvent(template: { kind: number; created_at: number; tags: string[][]; content: string }): Promise<import('nostr-tools/pure').NostrEvent> {
+  const { NBrowserSigner } = await import('@nostrify/nostrify');
+  return (await new NBrowserSigner({ timeout: 1500 }).signEvent(template)) as never;
+}
