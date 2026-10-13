@@ -6,6 +6,9 @@
  * Click the map (or pick a place and press Enter) and the Blobbi walks there. Every marker has its own shape, with
  * a legend, so the map never relies on colour alone.
  */
+import { t, upper, type MessageKey } from '../../i18n';
+import { placeText, shortPlaceName } from '../../content/text';
+import { fitText } from './crafting';
 import { PixelBuffer } from '../../core/pixel';
 import { hex, type Color } from '../../core/color';
 import { T, type WorldDescription } from '../../world/types';
@@ -90,16 +93,16 @@ export interface Marker {
 export function mapMarkers(ui: GameUI): Marker[] {
   const live = ui.live!;
   const out: Marker[] = [];
-  for (const b of live.buildings) out.push({ kind: b.kind === 'shelter' ? 'home' : 'building', x: b.x, y: b.y, label: b.kind === 'shelter' ? 'HOME' : undefined });
+  for (const b of live.buildings) out.push({ kind: b.kind === 'shelter' ? 'home' : 'building', x: b.x, y: b.y, label: b.kind === 'shelter' ? upper(t('map.home')) : undefined });
   for (const p of live.plots) {
     const c = cellCentre(p, live.origin);
     out.push({ kind: 'farm', x: c.x, y: c.y });
   }
-  for (const p of live.places) if (live.visited.has(p.id)) out.push({ kind: 'place', x: p.x, y: p.y, label: p.name.replace(/^The /, '').toUpperCase() });
+  for (const p of live.places) if (live.visited.has(p.id)) out.push({ kind: 'place', x: p.x, y: p.y, label: upper(shortPlaceName(placeText(p).name)) });
   for (const d of live.discoveries) if (live.found.has(d.id)) out.push({ kind: 'find', x: d.x, y: d.y });
   // The story goal, when it is about a known place (listening to the Carrier); never a secret.
   const goal = currentObjective(live.objectives);
-  if (goal && 'tally' in goal.goal && goal.goal.tally === 'talked' && live.listenSpot) out.push({ kind: 'goal', x: live.listenSpot.x, y: live.listenSpot.y, label: 'GOAL' });
+  if (goal && 'tally' in goal.goal && goal.goal.tally === 'talked' && live.listenSpot) out.push({ kind: 'goal', x: live.listenSpot.x, y: live.listenSpot.y, label: upper(t('map.goal')) });
   // The Blobbi last, on top (indoors: at its home's door).
   const home = live.interior ? live.buildings.find((b) => b.id === live.interior!.state.shelterId) : null;
   out.push({ kind: 'you', x: home ? home.x : live.blobbi.x, y: home ? home.y + 6 : live.blobbi.y });
@@ -151,14 +154,14 @@ export function drawMarker(b: PixelBuffer, kind: MarkerKind, x: number, y: numbe
   }
 }
 
-const LEGEND: [MarkerKind, string][] = [
-  ['you', 'BLOBBI'],
-  ['home', 'HOME'],
-  ['building', 'BUILT'],
-  ['farm', 'FARM'],
-  ['place', 'PLACE'],
-  ['find', 'FIND'],
-  ['goal', 'GOAL'],
+const LEGEND: [MarkerKind, MessageKey][] = [
+  ['you', 'map.you'],
+  ['home', 'map.home'],
+  ['building', 'map.built'],
+  ['farm', 'map.farm'],
+  ['place', 'map.place'],
+  ['find', 'map.find'],
+  ['goal', 'map.goal'],
 ];
 
 export class MapScreen implements Screen {
@@ -168,7 +171,7 @@ export class MapScreen implements Screen {
 
   title(ui: GameUI): string {
     const live = ui.live!;
-    return `Map  ${live.visited.size}/${live.places.length} places  ${live.found.size} finds`;
+    return t('map.title', { places: `${live.visited.size}/${live.places.length}`, finds: live.found.size });
   }
 
   opened(): void {
@@ -190,10 +193,10 @@ export class MapScreen implements Screen {
   private go(ui: GameUI, x: number, y: number): void {
     const live = ui.live!;
     if (live.interior) {
-      ui.say('step outside first: the map is of the island', false);
+      ui.say(t('map.stepOutside'), false);
       return;
     }
-    live.walkTo(x, y) ? ui.close() : ui.say('cannot walk there', false);
+    live.walkTo(x, y) ? ui.close() : ui.say(t('map.cannotWalk'), false);
   }
 
   key(code: string, _shift: boolean, ui: GameUI): boolean {
@@ -228,7 +231,7 @@ export class MapScreen implements Screen {
     const labelled = mapMarkers(ui).filter((mk) => mk.label && mk.kind !== 'home').sort((a, b) => (a.kind === 'goal' ? -1 : 0) - (b.kind === 'goal' ? -1 : 0));
     for (const mk of labelled) {
       const p = m.toMap(mk.x, mk.y);
-      const lw = mk.label!.length * 4 + 1;
+      const lw = g.measure(mk.label!) + 1;
       const ly = y + 1 + p.y - 2;
       const free = (lx: number) => lx >= x && lx + lw <= x + mw && !taken.some((t) => Math.abs(t.y - ly) < 7 && lx < t.x + t.w && t.x < lx + lw);
       const lx = [x + p.x + 4, x + p.x - 4 - lw].find(free);
@@ -245,29 +248,29 @@ export class MapScreen implements Screen {
     // Right: the legend and the visited places.
     const rx = x + mw + 6;
     let cy = y + 2;
-    g.text('LEGEND', rx, cy, UI.accent);
+    g.text(upper(t('map.legend')), rx, cy, UI.accent);
     cy += 8;
     const legend = new PixelBuffer(9, 9);
     for (const [kind, label] of LEGEND) {
       legend.fill(UI.panel);
       drawMarker(legend, kind, 4, 4);
       g.buf.blit(legend, rx, cy - 2);
-      g.text(label, rx + 11, cy, UI.ink);
+      g.text(upper(t(label)), rx + 11, cy, UI.ink);
       cy += 9;
     }
     cy += 3;
-    g.text('PLACES', rx, cy, UI.accent);
+    g.text(upper(t('map.places')), rx, cy, UI.accent);
     cy += 8;
     const list = this.visitedPlaces(ui);
     this.index = Math.max(0, Math.min(this.index, list.length - 1));
-    if (!list.length) g.para('None yet. Walk around the island.', rx, cy, x + w - rx, UI.muted, 3);
+    if (!list.length) g.para(t('map.none'), rx, cy, x + w - rx, UI.muted, 3);
     list.forEach((p, i) => {
-      const label = p.name.replace(/^The /, '').toUpperCase().slice(0, 18);
+      const label = fitText(g, upper(shortPlaceName(placeText(p).name)), x + w - rx - 2);
       g.box(rx - 1, cy - 1, x + w - rx + 1, 8, i === this.index ? UI.slotHi : UI.panel, i === this.index ? UI.accent : null);
       g.text(label, rx + 1, cy, UI.ink);
-      g.hit(rx - 1, cy - 1, x + w - rx + 1, 8, () => (this.index === i ? this.go(ui, p.x, p.y) : (this.index = i)), 'walk there');
+      g.hit(rx - 1, cy - 1, x + w - rx + 1, 8, () => (this.index === i ? this.go(ui, p.x, p.y) : (this.index = i)), t('map.walkThere'));
       cy += 9;
     });
-    g.para('Click the map or a place: Blobbi walks there.', rx, y + h - 13, x + w - rx, UI.muted, 2);
+    g.para(t('map.howTo'), rx, y + h - 13, x + w - rx, UI.muted, 2);
   }
 }

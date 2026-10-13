@@ -16,6 +16,8 @@ import { SimClock } from './clock';
 import { SOLID_KINDS, CollisionMap } from './collision';
 import { ParticleSystem } from './particles';
 import { stream, type Rng } from '../core/rng';
+import { getLocale, t as lang, sentence, tOr, type MessageKey } from '../i18n';
+import { buildingNoun, cropNoun, itemNoun, placeText } from '../content/text';
 import type { Sprite } from '../core/pixel';
 import { hex } from '../core/color';
 import { OBJECT_GENERATORS } from '../objects';
@@ -28,7 +30,7 @@ import { sourceFromSeed, type BlobbiSource } from '../blobbi/source';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
 import { Brain, NavGrid } from './brain';
-import { BASIC_KINDS, generateResources, isShore, REACH, RESOURCE_ITEM, RESOURCE_LABEL, type ResourceKind, type ResourceNode } from '../game/resources';
+import { BASIC_KINDS, generateResources, isShore, REACH, RESOURCE_ITEM, type ResourceKind, type ResourceNode } from '../game/resources';
 import { Inventory } from '../game/inventory';
 import { loadSave, storeSave, clearSave, worldIdentity, newGrowthSave, newTutorialSave, saveStatus, backupRecord, INTRO_SEEN, SAVE_VERSION, WORLD_OWNER, type GrowthSave, type SaveStatus, type WorldSave, type IntroSave, type IntroState, type KeyValueStore, type TreeSaveState, type TutorialSave } from '../game/persistence';
 import { ITEMS, isTool, itemLabel, toolSupports, stackLimit as registryStack } from '../game/items';
@@ -53,7 +55,7 @@ import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
 import { JOY, addHappiness, eat, isHungry, isRested, isTired, mood, newCare, pet as petCare, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
-import { nextDawn, clockLabel, lightAt, rainAt, type LightSource } from '../game/daylight';
+import { nextDawn, clockLabel, clockHour, lightAt, rainAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
@@ -202,57 +204,29 @@ export const BITE_SECONDS = 1.2;
 /** A cast (M10), in seconds from E: the rod wound back until `back`, swung until `release`, the float down at `land`. */
 export const CAST = { back: 0.22, release: 0.4, land: 0.78 };
 
-/** Prompt names for ground resources. */
-const RESOURCE_SINGULAR: Record<string, string> = { fibre: 'wild fibre', berry: 'wild berries', herb: 'wild herb', shell: 'shell' };
-
-/** The prompt for E on something placed, by its use. */
-const USE_VERB: Record<string, (label: string, r: Building) => string> = {
-  storage: (l, r) => (r.kind === 'crate' ? `look at the ${l}` : `open the ${l}`),
-  cook: () => 'cook',
-  craft: () => 'craft at the workbench',
-  sit: (l) => `sit on the ${l}`,
-  sleep: (l, r) => (r.kind === 'shelter' ? 'go inside' : `sleep in the ${l}`),
-  nap: () => 'nap on the cushion',
-  read: (_l, r) => (r.kind === 'signpost' ? 'read the sign' : 'pick a book'),
-  light: (l) => `look at the ${l}`,
-  admire: (l) => `look at the ${l}`,
-  play: () => 'play with the ball',
-  music: (_l, r) => (r.kind === 'wind-chime' ? 'ring the chimes' : 'open the music box'),
-  sprinkle: (l) => `look at the ${l}`,
-  birds: (l) => `look at the ${l}`,
-  time: () => 'check the time',
-  herbs: () => 'pick herbs',
+/** The prompt for E on something placed, by its use (in the current language, M11B). */
+const USE_VERB: Record<string, (r: Building) => string> = {
+  storage: (r) => lang(r.kind === 'crate' ? 'use.look' : 'use.open', buildingNoun(r.kind)),
+  cook: () => lang('use.cook'),
+  craft: () => lang('use.craft'),
+  sit: (r) => lang('use.sit', buildingNoun(r.kind)),
+  sleep: (r) => (r.kind === 'shelter' ? lang('use.goInside') : lang('use.sleep', buildingNoun(r.kind))),
+  nap: () => lang('use.nap'),
+  read: (r) => lang(r.kind === 'signpost' ? 'use.readSign' : 'use.pickBook'),
+  light: (r) => lang('use.look', buildingNoun(r.kind)),
+  admire: (r) => lang('use.look', buildingNoun(r.kind)),
+  play: () => lang('use.playBall'),
+  music: (r) => lang(r.kind === 'wind-chime' ? 'use.ringChimes' : 'use.musicBox'),
+  sprinkle: (r) => lang('use.look', buildingNoun(r.kind)),
+  birds: (r) => lang('use.look', buildingNoun(r.kind)),
+  time: () => lang('use.time'),
+  herbs: () => lang('use.herbs'),
 };
 
-/** What the Blobbi says when looking at something the player made. */
-const ADMIRE: Record<string, string> = {
-  'clearing-flag': 'nothing wild grows back in this circle. pick the flag up to let it',
-  'flower-bed': 'pretty flowers',
-  table: 'tidy',
-  'dining-table': 'room for everyone',
-  'potted-plant': 'a happy plant',
-  vase: 'they smell lovely',
-  painting: 'a turtle carrying an island...',
-  rug: 'so soft',
-  'wall-shelf': 'little jars',
-  scarecrow: 'hello, scarecrow!',
-  cairn: 'who stacked these?',
-  'flower-arch': 'so pretty',
-  'blobbi-statue': 'it looks like me!',
-  'picket-fence': 'neat',
-  'stone-wall': 'sturdy',
-  crate: 'more room',
-};
-const BOOK_LINES = [
-  'a book about knots',
-  'a book of sea songs',
-  'a picture book of shells',
-  'notes on turtle naps',
-  'a cookbook with soup stains',
-  'a map with no land on it',
-  'a story about a sleepy island',
-];
-const SIGN_LINES = ['welcome home', 'this way to the garden', 'mind the turtle', 'cozy corner', 'slow down, enjoy the view'];
+/** What the Blobbi says when looking at something the player made (keys of `admire.<kind>`). */
+const ADMIRE = new Set(['clearing-flag', 'flower-bed', 'table', 'dining-table', 'potted-plant', 'vase', 'painting', 'rug', 'wall-shelf', 'scarecrow', 'cairn', 'flower-arch', 'blobbi-statue', 'picket-fence', 'stone-wall', 'crate']);
+const BOOK_LINES: readonly MessageKey[] = ['book.0', 'book.1', 'book.2', 'book.3', 'book.4', 'book.5', 'book.6'];
+const SIGN_LINES: readonly MessageKey[] = ['sign.0', 'sign.1', 'sign.2', 'sign.3', 'sign.4'];
 
 /**
  * The companion state: how the Blobbi living on this island is doing and how close it is to the player. Saved in
@@ -656,7 +630,7 @@ export class LiveWorld {
     if (this.landingUpgraded && this.world.growth?.landing) this.announceSeaPath();
     // A save that could not be read is kept safe, and this world does not save over it (M10 phase C).
     if (this.saveProblem === 'newer' || this.saveProblem === 'unreadable')
-      this.notices.push({ heading: 'Not saving', title: this.saveProblem === 'newer' ? 'saved by a newer version of the game' : 'this island\'s save could not be read', text: 'it is kept safe, untouched; nothing here is saved over it', until: this.clock.time + 8 });
+      this.notices.push({ heading: lang('notice.notSaving'), title: lang(this.saveProblem === 'newer' ? 'notice.notSaving.newer' : 'notice.notSaving.unreadable'), text: lang('notice.notSaving.text'), until: this.clock.time + 8 });
   }
 
   // ─── Scenes: the island, or a house interior ───────────────────────────
@@ -766,7 +740,7 @@ export class LiveWorld {
       this.places.push(...regionPlaces(this.world, canStand));
       // The landing (M10 phase C): the island's way to the sea is a place on the map.
       const spot = this.landingStand();
-      if (spot) this.places.push({ id: 'landing', name: 'The landing', note: 'Where the island reaches the water. The canoe launches from here, and the fish come close.', x: spot.x, y: spot.y, radius: 18 });
+      if (spot) this.places.push({ id: 'landing', name: lang('place.landing.name'), note: lang('place.landing.note'), x: spot.x, y: spot.y, radius: 18 });
       this.discoveries.push(...placeGrowthDiscoveries(this.world, (x, y) => this.islandCollision.canStand(x, y, 3, 2) && grownReach(x, y), [...this.allResources, ...this.discoveries]));
     }
   }
@@ -896,7 +870,7 @@ export class LiveWorld {
     const b = this.blobbi;
     const item = RESOURCE_ITEM[node.kind];
     if (this.inventory.add(item, 1) === 0) {
-      this.bubble = { text: `${RESOURCE_LABEL[node.kind]} full`, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('bubble.stackFull', itemNoun(item)), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.8, 0);
       return null;
     }
@@ -906,7 +880,7 @@ export class LiveWorld {
     this.pickups.push({ node, start: time });
     this.particles.sparkle(node.x, node.y - 2, hex('#ffffff'));
     this.particles.sparkle(node.x + 2, node.y - 1, hex('#fff2b0'));
-    this.bubble = { text: `+1 ${node.kind}  ${this.inventory.count(item)}/${this.inventory.limit(item)}`, until: time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('bubble.gotOne', { ...itemNoun(item), have: this.inventory.count(item), limit: this.inventory.limit(item) }), until: time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.7, 2);
     this.stats.collected++;
     this.tally.collected++;
@@ -1123,7 +1097,7 @@ export class LiveWorld {
       const stage = c.phase === 'regrowing' ? treeStage(c.growth) : 'grown';
       const wood = stage === 'seedling' || stage === 'young' ? EARLY_WOOD[stage] : 0;
       if (wood) yields.push({ item: ITEMS.wood.id, quantity: wood });
-      what = c.phase === 'stump' ? 'stump dug out' : stage === 'seedling' ? 'seedling pulled up' : 'young tree cleared';
+      what = lang(c.phase === 'stump' ? 'clear.stumpDone' : stage === 'seedling' ? 'clear.seedlingDone' : 'clear.youngTreeDone');
       st.hits = 0;
       st.harvestedAt = c.phase === 'stump' ? Math.min(st.harvestedAt ?? this.worldTime, this.worldTime - STUMP_SECONDS) : this.worldTime - STUMP_SECONDS;
       st.regrowAt = null;
@@ -1134,7 +1108,7 @@ export class LiveWorld {
       const st = this.rocks.get(index)!;
       const stones = c.phase === 'forming' && c.stage && c.stage !== 'whole' ? EARLY_STONES[c.stage] : 0;
       if (stones) yields.push({ item: ITEMS.stone.id, quantity: stones });
-      what = c.phase === 'rubble' ? 'rubble cleared' : c.stage === 'deposit' ? 'small deposit cleared' : 'young rock cleared';
+      what = lang(c.phase === 'rubble' ? 'clear.rubbleDone' : c.stage === 'deposit' ? 'clear.depositDone' : 'clear.youngRockDone');
       st.hits = 0;
       st.minedAt = c.phase === 'rubble' ? Math.min(st.minedAt ?? this.worldTime, this.worldTime - RUBBLE_CLEAR_SECONDS) : this.worldTime - RUBBLE_CLEAR_SECONDS;
       st.reformAt = null;
@@ -1145,7 +1119,7 @@ export class LiveWorld {
     const gave: string[] = [];
     for (const y of yields) {
       const got = this.inventory.add(y.item, y.quantity);
-      if (got) gave.push(`+${got} ${itemLabel(y.item)}`);
+      if (got) gave.push(`+${got} ${got === 1 ? itemLabel(y.item) : itemPlural(y.item)}`);
     }
     const stone = kind === 'small-rock' || kind === 'rock';
     for (let i = 0; i < 6; i++) this.particles.dust(o.x + this.particles.rng.range(-sprite.footRx, sprite.footRx), o.y - this.particles.rng.range(0, 4), stone ? (i % 2 ? palette.stone.light : palette.stone.mid) : i % 2 ? palette.wood.light : palette.foliage[0].mid);
@@ -1170,7 +1144,7 @@ export class LiveWorld {
     this.stats.planted = this.planted.length;
     for (let i = 0; i < 5; i++) this.particles.dust(t.placement.x + this.particles.rng.range(-3, 3), t.placement.y - this.particles.rng.range(0, 3), hex('#8a5a33'));
     this.sound('chop');
-    this.bubble = { text: this.growthOf(t) < 1 ? 'young tree dug up' : 'tree dug up', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang(this.growthOf(t) < 1 ? 'clear.plantedYoungDone' : 'clear.plantedDone'), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.8, 2);
     this.rebuildIsland();
     this.save();
@@ -1332,14 +1306,14 @@ export class LiveWorld {
     this.brain.manual(time);
     if (!this.recipeKnown(recipe)) return false;
     if (!this.nearStation(recipe.station)) {
-      this.bubble = { text: recipe.station === 'cooking' ? 'needs a cooking station nearby' : 'needs a workbench nearby', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang(recipe.station === 'cooking' ? 'craft.needsStove' : 'craft.needsBench'), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.6, 0);
       this.sound('fail');
       return false;
     }
     const check = canCraft(this.inventory, recipe);
     if (!check.ok) {
-      const why = check.outputFull ? `already have a ${itemLabel(recipe.output.item)}` : check.missing.map((m) => `need ${m.need - m.have} ${itemLabel(m.item)}`).join(', ');
+      const why = check.outputFull ? lang('craft.alreadyHave', itemNoun(recipe.output.item)) : check.missing.map((m) => lang('craft.need', { count: m.need - m.have, what: m.need - m.have === 1 ? itemLabel(m.item) : itemPlural(m.item) })).join(', ');
       this.bubble = { text: why, until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.7, 0);
       this.sound('fail');
@@ -1351,14 +1325,14 @@ export class LiveWorld {
     if (recipe.output.item === ITEMS.axe.id) this.tally.axesCrafted++;
     for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-6, 6), b.y - b.size * 0.6 + this.particles.rng.range(-5, 5), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
     this.particles.note(b.x + 4, b.y - b.size - 2);
-    this.bubble = { text: recipe.output.quantity > 1 ? `crafted ${recipe.output.quantity} ${itemPlural(recipe.output.item)}!` : `crafted a ${itemLabel(recipe.output.item)}!`, until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: recipe.output.quantity > 1 ? lang('craft.craftedN', { count: recipe.output.quantity, what: itemPlural(recipe.output.item) }) : lang('craft.craftedOne', itemNoun(recipe.output.item)), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
     this.sound(recipe.group === 'meals' ? 'cook' : 'craft');
     if (recipe.group === 'meals') {
       // Cooking: steam from the stove, and a Blobbi who can smell it.
       this.tally.cooked++;
       const stove = this.placedHere.filter((r) => BUILDINGS[r.kind].use === 'cook').sort((p, q) => Math.hypot(p.x - b.x, p.y - b.y) - Math.hypot(q.x - b.x, q.y - b.y))[0];
       if (stove) for (let i = 0; i < 4; i++) this.particles.smoke(stove.x + this.particles.rng.range(-3, 3), stove.y - 10 - i);
-      this.bubble = { text: `${itemLabel(recipe.output.item)}! smells good`, until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('craft.smellsGood', itemNoun(recipe.output.item)), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
     }
     b.animator.react('excited', time, 1.1, 3);
     this.save();
@@ -1442,7 +1416,7 @@ export class LiveWorld {
     this.particles.sparkle(impact.x, impact.y - 1, hex('#fff2b0'));
     const toMine = this.equipped && toolTier(this.equipped) >= 2 ? HITS_TO_MINE - 1 : HITS_TO_MINE;
     if (state.hits < toMine) {
-      this.bubble = { text: `mine ${state.hits}/${toMine}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('hit.mine', { n: state.hits, of: toMine }), until: time + 0.9, x: b.x, y: b.y - b.size - 2, head: b.size };
       this.save();
       return;
     }
@@ -1460,7 +1434,7 @@ export class LiveWorld {
       if (this.inventory.add(COPPER_ORE.id, ore)) this.particles.sparkle(o.x, o.y - 4, hex('#ffb070'));
     }
     for (let i = 0; i < 8; i++) this.particles.dust(o.x + this.particles.rng.range(-sprite.footRx, sprite.footRx), o.y - this.particles.rng.range(0, 6), i % 2 ? palette.stone.light : palette.stone.dark);
-    this.bubble = { text: got === stones ? `+${got} stone  ${this.inventory.count(ITEMS.stone.id)}/${this.inventory.limit(ITEMS.stone.id)}` : got > 0 ? `+${got} stone, bag full` : 'stones full', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: got === stones ? lang('bubble.gotHave', { count: got, what: got === 1 ? itemLabel(ITEMS.stone.id) : itemPlural(ITEMS.stone.id), have: this.inventory.count(ITEMS.stone.id), limit: this.inventory.limit(ITEMS.stone.id) }) : got > 0 ? lang('bubble.gotBagFull', { count: got, what: got === 1 ? itemLabel(ITEMS.stone.id) : itemPlural(ITEMS.stone.id) }) : lang('bubble.stackFull', itemNoun(ITEMS.stone.id)), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 1, 3);
     this.save();
   }
@@ -1489,7 +1463,7 @@ export class LiveWorld {
     for (let i = 0; i < 3; i++) this.particles.leaf(o.x + this.particles.rng.range(-sprite.buffer.width * 0.3, sprite.buffer.width * 0.3), top + this.particles.rng.range(2, Math.max(3, (sprite.swayRow ?? sprite.anchorY) - 1)), i % 2 ? foliage.dark : foliage.mid);
     const toFell = this.equipped && toolTier(this.equipped) >= 2 ? HITS_TO_FELL - 1 : HITS_TO_FELL;
     if (state.hits < toFell) {
-      this.bubble = { text: `chop ${state.hits}/${toFell}`, until: time + 0.9, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('hit.chop', { n: state.hits, of: toFell }), until: time + 0.9, x: b.x, y: b.y - b.size - 2, head: b.size };
       this.save();
       return;
     }
@@ -1505,7 +1479,7 @@ export class LiveWorld {
     for (let i = 0; i < 10; i++) this.particles.leaf(o.x + this.particles.rng.range(-sprite.buffer.width * 0.4, sprite.buffer.width * 0.4), top + this.particles.rng.range(1, Math.max(3, (sprite.swayRow ?? sprite.anchorY) - 1)), i % 2 ? foliage.dark : foliage.mid);
     for (let i = 0; i < 4; i++) this.particles.dust(o.x + this.particles.rng.range(-4, 4), o.y - 1, paletteFor(this.world.options.palette).wood.light);
     this.impulses.delete(index);
-    this.bubble = { text: got === wood ? `+${got} wood  ${this.inventory.count(ITEMS.wood.id)}/${this.inventory.limit(ITEMS.wood.id)}` : got > 0 ? `+${got} wood, bag full` : 'wood full', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: got === wood ? lang('bubble.gotHave', { count: got, what: itemPlural(ITEMS.wood.id), have: this.inventory.count(ITEMS.wood.id), limit: this.inventory.limit(ITEMS.wood.id) }) : got > 0 ? lang('bubble.gotBagFull', { count: got, what: itemPlural(ITEMS.wood.id) }) : lang('bubble.stackFull', itemNoun(ITEMS.wood.id)), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 1, 3);
     this.save();
     return;
@@ -1607,7 +1581,7 @@ export class LiveWorld {
     }
     const b = this.blobbi;
     const n = this.inventory.count(CROPS[this.selectedCrop].seed);
-    this.bubble = { text: have.length ? `planting ${this.selectedCrop}s (${n} seeds)` : 'no seeds in the bag', until: this.clock.time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: have.length ? lang('farm.planting', { ...cropNoun(this.selectedCrop), count: n }) : lang('farm.noSeedsInBag'), until: this.clock.time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
     return this.selectedCrop;
   }
 
@@ -1653,13 +1627,13 @@ export class LiveWorld {
       case 'plant':
         return this.plant(action.plot, action.crop), true;
       case 'no-seeds':
-        say('no seeds. find some by bushes');
+        say(lang('farm.noSeeds'));
         b.animator.react('sad', time, 0.6, 0);
         return true;
       case 'growing': {
         const crop = action.plot.crop!;
         const left = Math.ceil(Math.min(growthRemaining(crop, this.worldTime), (crop.wetUntil ?? 0) - this.worldTime));
-        say(`${crop.kind} ${STAGE_NAMES[cropStage(crop, this.worldTime)]}, watered for ${left} s`);
+        say(lang('farm.growing', { ...cropNoun(crop.kind), stage: lang(`cropStage.${STAGE_NAMES[cropStage(crop, this.worldTime)]}`), s: left }));
         b.animator.react('happy', time, 0.5, 0);
         return true;
       }
@@ -1709,7 +1683,7 @@ export class LiveWorld {
     for (let i = 0; i < 6; i++) this.particles.dust(c.x + this.particles.rng.range(-3, 3), c.y + this.particles.rng.range(-2, 2), i % 2 ? SOIL_COLOURS.dry.light : SOIL_COLOURS.dry.dark);
     if (quiet) return;
     const crop = this.cropToPlant();
-    this.bubble = { text: crop ? `tilled! E plants a ${crop}` : 'tilled! now find seeds', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: crop ? lang('farm.tilled', cropNoun(crop)) : lang('farm.tilledNoSeeds'), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.7, 2);
     this.sound('till');
     this.save();
@@ -1726,7 +1700,7 @@ export class LiveWorld {
     const c = cellCentre(plot, this.origin);
     for (let i = 0; i < 4; i++) this.particles.dust(c.x + this.particles.rng.range(-2, 2), c.y, i % 2 ? SOIL_COLOURS.dry.light : hex('#e3c48a'));
     this.sound('plant');
-    this.bubble = { text: `planted a ${kind}. it needs water`, until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('farm.planted', cropNoun(kind)), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.7, 2);
     this.brain.manual(time);
     this.save();
@@ -1743,7 +1717,7 @@ export class LiveWorld {
       const p = this.plotAt({ gx: plot.gx + dx, gy: plot.gy + dy });
       if (p?.crop && needsWater(p.crop, this.worldTime) && this.water(p)) n++;
     }
-    if (n > 1) this.bubble = { text: `watered ${n} crops`, until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
+    if (n > 1) this.bubble = { text: lang('farm.wateredN', { count: n }), until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
     return n;
   }
 
@@ -1759,7 +1733,7 @@ export class LiveWorld {
     this.sound('water');
     const c = cellCentre(plot, this.origin);
     for (let i = 0; i < 8; i++) this.particles.drop(c.x + this.particles.rng.range(-3, 3), c.y - this.particles.rng.range(2, 6), i % 3 ? hex('#5fb3f0') : hex('#d8f1ff'));
-    this.bubble = { text: `watered. grows for ${CROPS[plot.crop.kind].waterSeconds} s`, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('farm.watered', { s: CROPS[plot.crop.kind].waterSeconds }), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.7, 1);
     this.brain.manual(time);
     this.save();
@@ -1779,7 +1753,7 @@ export class LiveWorld {
     const yieldNow = harvestFor(crop);
     const short = yieldNow.find((h) => this.inventory.count(h.item) + h.quantity > this.inventory.limit(h.item));
     if (short) {
-      this.bubble = { text: `no room for ${itemPlural(short.item)}`, until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('say.noRoomFor', itemNoun(short.item)), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.6, 0);
       return false;
     }
@@ -1796,7 +1770,7 @@ export class LiveWorld {
     for (let i = 0; i < 3; i++) this.particles.sparkle(c.x + this.particles.rng.range(-4, 4), c.y - this.particles.rng.range(3, 9), i % 2 ? hex('#fff2b0') : cropColour(crop.kind));
     addHappiness(this.care, JOY.harvest);
     const food = yieldNow[0];
-    this.bubble = { text: `+${food.quantity} ${food.quantity === 1 ? itemLabel(food.item) : itemPlural(food.item)}  ${this.inventory.count(food.item)}/${this.inventory.limit(food.item)}`, until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('bubble.gotHave', { count: food.quantity, what: food.quantity === 1 ? itemLabel(food.item) : itemPlural(food.item), have: this.inventory.count(food.item), limit: this.inventory.limit(food.item) }), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('excited', time, 1, 3);
     this.brain.manual(time);
     this.save();
@@ -1852,14 +1826,14 @@ export class LiveWorld {
     const b = this.blobbi;
     const say = (text: string) => (this.bubble = { text, until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size });
     if (!item || this.inventory.count(item) === 0 || !foodValue(item)) {
-      say('no food yet. grow some!');
+      say(lang('feed.noFood'));
       b.animator.react('sad', time, 0.6, 0);
       this.sound('fail');
       return false;
     }
     if (this.brain.state === 'rest' || this.brain.state === 'to-shelter') this.brain.wake(time);
     if (!eat(this.care, foodEffect(item) ?? foodValue(item))) {
-      say('not hungry right now');
+      say(lang('feed.notHungry'));
       b.animator.react('neutral', time, 0.6, 0);
       return false;
     }
@@ -1877,7 +1851,7 @@ export class LiveWorld {
     this.addFriendship(favourite ? FRIEND.favourite : meal ? FRIEND.meal : FRIEND.feed);
     for (let i = 0; i < 4; i++) this.particles.dust(b.x + this.particles.rng.range(-3, 3), b.y - b.size * 0.45, i % 2 ? hex('#fff2b0') : hex('#e3c48a'));
     for (let i = 0; i < (favourite ? 4 : 2); i++) this.particles.heart(b.x + this.particles.rng.range(-4, 4), b.y - b.size - 2 - i * 3);
-    say(favourite ? `my favourite! ${itemLabel(item)}!` : meal ? `yum! ${itemLabel(item)}` : `yum! a ${itemLabel(item)}`);
+    say(lang(favourite ? 'feed.favourite' : meal ? 'feed.yumMeal' : 'feed.yum', itemNoun(item)));
     b.animator.react('excited', time, favourite ? 1.8 : 1.3, favourite ? 4 : 3);
     this.sound('eat');
     this.save();
@@ -1913,7 +1887,7 @@ export class LiveWorld {
   /** Rest (R): go to sleep, in the shelter when there is one, until rested; R again wakes. */
   rest(): void {
     if (this.boat?.aboard) {
-      this.bubble = { text: 'not in the canoe. land first', until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
+      this.bubble = { text: lang('canoe.landFirst'), until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
       return;
     }
     const time = this.clock.time;
@@ -1928,17 +1902,17 @@ export class LiveWorld {
     this.sound('sleep');
     // M9: rest means bed. Indoors: to the nearest bed the Blobbi can reach. Outside: home first (through its door,
     // the usual way in), then to bed. Without a home or a bed, a nap right here.
-    let text = 'nap time';
-    if (this.inside) text = this.goToBed(time) ? 'bed time' : 'no bed here: a little nap';
+    let text = lang('rest.napTime');
+    if (this.inside) text = lang(this.goToBed(time) ? 'rest.bedTime' : 'rest.noBed');
     else {
       const home = this.homeForRest();
       if (home) {
         this.restPlan = { phase: 'home', houseId: home.id, bedId: null };
         this.brain.restNow(time, { x: b.x, y: b.y }, doorSpot(home, b.footRy));
-        if ((this.brain.state as string) === 'to-shelter') text = 'going home to bed';
+        if ((this.brain.state as string) === 'to-shelter') text = lang('rest.goingHome');
         else if ((this.brain.state as string) === 'rest' && !this.brain.restAtShelter) {
           this.restPlan = null;
-          text = 'too far from home: a little nap';
+          text = lang('rest.tooFar');
         }
       } else this.brain.restNow(time, { x: b.x, y: b.y }, null);
     }
@@ -2036,7 +2010,7 @@ export class LiveWorld {
           this.restPlan = null;
           return;
         }
-        if (!this.goToBed(time)) this.bubble = { text: 'no bed here: a little nap', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+        if (!this.goToBed(time)) this.bubble = { text: lang('rest.noBed'), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
         return;
       }
       case 'bed': {
@@ -2140,21 +2114,21 @@ export class LiveWorld {
     const b = this.blobbi;
     const say = (text: string, seconds = 1.8) => !this.bubble && (this.bubble = { text, until: time + seconds, x: b.x, y: b.y - b.size - 2, head: b.size });
     if (look?.kind === 'sea') {
-      say(this.creatures.pick(['the sea is so big', 'waves...', 'where are we going?', 'hello, sea!']), 2.2);
+      say(lang(this.creatures.pick(['idle.sea.0', 'idle.sea.1', 'idle.sea.2', 'idle.sea.3'] as const)), 2.2);
       b.animator.react('happy', time, 2.5, 0);
       return;
     }
     if (look?.kind === 'curious') {
       this.particles.exclaim(b.x, b.y - b.size - 4);
-      say("what's that?", 2);
+      say(lang('idle.whatsThat'), 2);
       b.animator.react('surprised', time, 1.2, 2);
       return;
     }
     if (look?.kind === 'crop') {
       const plot = this.plots.find((p) => Math.hypot(cellCentre(p, this.origin).x - look.x, cellCentre(p, this.origin).y - look.y) < 2);
-      if (plot?.crop && isMature(plot.crop, this.worldTime)) say(`the ${plot.crop.kind} looks ripe!`);
-      else if (plot?.crop && needsWater(plot.crop, this.worldTime)) say('this one is thirsty');
-      else say('growing nicely');
+      if (plot?.crop && isMature(plot.crop, this.worldTime)) say(lang('idle.ripe', cropNoun(plot.crop.kind)));
+      else if (plot?.crop && needsWater(plot.crop, this.worldTime)) say(lang('idle.thirsty'));
+      else say(lang('idle.growingNicely'));
       b.animator.react('happy', time, 1, 1);
       return;
     }
@@ -2163,7 +2137,7 @@ export class LiveWorld {
       this.visitBuilding(placed, false);
       if (placed.kind === this.tastes.thing) {
         for (let i = 0; i < 3; i++) this.particles.heart(b.x + this.particles.rng.range(-4, 4), b.y - b.size - 2 - i * 3);
-        this.bubble = { text: `I love the ${BUILDINGS[placed.kind].label}!`, until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+        this.bubble = { text: lang('idle.love', buildingNoun(placed.kind)), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
         addHappiness(this.care, JOY.decoration);
       }
       return;
@@ -2193,11 +2167,11 @@ export class LiveWorld {
     if (this.bubble || this.brain.manualActive) return;
     if (isHungry(this.care) && now >= this.nextHungryNote) {
       this.nextHungryNote = now + 45;
-      this.bubble = { text: this.foodToGive() ? 'hungry... (F to feed)' : 'hungry...', until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang(this.foodToGive() ? 'idle.hungryFeed' : 'idle.hungry'), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 1, 0);
     } else if (isTired(this.care) && now >= this.nextTiredNote) {
       this.nextTiredNote = now + 60;
-      this.bubble = { text: 'so sleepy...', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('idle.sleepy'), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     } else if (this.care.happiness >= 90 && now >= this.nextHappyNote) {
       this.nextHappyNote = now + 30;
       this.particles.heart(b.x, b.y - b.size - 2);
@@ -2216,13 +2190,13 @@ export class LiveWorld {
     // Island requests: one at a time, the next from the following dawn.
     if (!this.objectives.request) {
       const started = startRequest(this.objectives, this.tally, this.worldTime);
-      if (started) this.notices.push({ heading: 'New request', title: started.title, text: 'see the journal (J)', until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
+      if (started) this.notices.push({ heading: lang('notice.newRequest'), title: started.title, text: lang('notice.seeJournal'), until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
     } else {
       const finished = finishRequest(this.objectives, this.tally, nextDawn(this.worldTime));
       if (finished) {
         for (const r of finished.reward.items) this.inventory.add(r.item, r.quantity);
         this.addFriendship(FRIEND.quest);
-        this.notices.push({ heading: 'Request done', title: finished.title, text: `reward: ${finished.reward.text}`, until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
+        this.notices.push({ heading: lang('notice.requestDone'), title: finished.title, text: lang('notice.reward', { reward: finished.reward.text }), until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
         this.sound('quest');
         this.save();
       }
@@ -2292,7 +2266,7 @@ export class LiveWorld {
     if (this.recipeKnown(recipe) || !recipe.unlock) return null;
     const q = objectiveById(recipe.unlock);
     if (!q || q.type === 'discovery' || !activeQuests(this.objectives).some((a) => a.id === q.id)) return null;
-    return `Complete "${q.title}" to unlock.`;
+    return lang('quest.completeToUnlock', { title: q.title });
   }
 
   private grantReward(o: Objective): void {
@@ -2308,8 +2282,8 @@ export class LiveWorld {
     // A quest that teaches recipes: the discovery chime too.
     if (RECIPES.some((r) => r.unlock === o.id)) this.sound('recipe');
     const at = this.notices.length ? this.notices[this.notices.length - 1].until : this.clock.time;
-    const heading = o.type === 'side' ? 'Side quest done' : o.type === 'discovery' ? 'Discovery quest done' : 'Quest complete';
-    this.notices.push({ heading, title: o.title, text: `reward: ${o.reward.text}${got.length ? ` (${got.join(', ')})` : ''}`, until: at + 3.2 });
+    const heading = lang(o.type === 'side' ? 'notice.sideDone' : o.type === 'discovery' ? 'notice.discoveryDone' : 'notice.questDone');
+    this.notices.push({ heading, title: o.title, text: lang('notice.reward', { reward: `${o.reward.text}${got.length ? ` (${got.join(', ')})` : ''}` }), until: at + 3.2 });
   }
 
   // ─── Lore, discoveries, the Carrier ─────────────────────────────────────
@@ -2354,9 +2328,9 @@ export class LiveWorld {
     this.tally.discoveries++;
     this.learn(d.content.lore);
     for (let i = 0; i < 8; i++) this.particles.sparkle(d.x + this.particles.rng.range(-6, 6), d.y - this.particles.rng.range(0, 10), i % 2 ? hex('#fff2b0') : hex('#d8f1ff'));
-    this.bubble = { text: `found: ${d.content.item.label}!`, until: time + 2.2, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('discovery.found', { name: d.content.item.label }), until: time + 2.2, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('surprised', time, 0.5, 2);
-    this.notices.push({ heading: 'Discovery', title: d.content.item.label, text: 'a new note in the journal (J)', until: (this.notices.at(-1)?.until ?? time) + 3 });
+    this.notices.push({ heading: lang('notice.discovery'), title: d.content.item.label, text: lang('notice.newNote'), until: (this.notices.at(-1)?.until ?? time) + 3 });
     this.addFriendship(1);
     this.sound('discover');
     this.save();
@@ -2438,12 +2412,12 @@ export class LiveWorld {
     const b = this.blobbi;
     const time = this.clock.time;
     const reachable = this.seaReachable();
-    const text = reachable ? (this.world.growth?.landing ? `too far to ${what} here. the landing reaches the sea` : `too far to ${what} here. try another shore`) : 'the ocean is still out of reach';
+    const text = reachable ? lang(this.world.growth?.landing ? 'sea.tooFarLanding' : 'sea.tooFarShore', { what: lang(`sea.verb.${what}`) }) : lang('sea.outOfReach');
     this.bubble = { text, until: time + 2.2, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('neutral', time, 0.6, 0);
     if (!reachable && time - this.seaHintAt > 60) {
       this.seaHintAt = time;
-      this.notices.push({ heading: 'The sea', title: 'still out of reach', text: 'help your island grow to open a path to the shore! (L)', until: (this.notices.at(-1)?.until ?? time) + 4 });
+      this.notices.push({ heading: lang('notice.sea'), title: lang('notice.sea.title'), text: lang('notice.sea.text'), until: (this.notices.at(-1)?.until ?? time) + 4 });
     }
   }
 
@@ -2462,7 +2436,7 @@ export class LiveWorld {
     this.boat = { x: spot.x, y: spot.y, heading: spot.heading, vx: 0, vy: 0, aboard: false };
     const time = this.clock.time;
     for (let i = 0; i < 6; i++) this.islandParticles.ripple(spot.x + this.particles.rng.range(-6, 6), spot.y + this.particles.rng.range(-2, 2), hex('#eaf8ff'));
-    this.bubble = { text: 'the canoe is in the water!', until: time + 2, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
+    this.bubble = { text: lang('canoe.launched'), until: time + 2, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
     this.blobbi.animator.react('excited', time, 1, 3);
     this.sound('cast');
     this.events.add('canoe-launched');
@@ -2481,11 +2455,11 @@ export class LiveWorld {
     const b = this.blobbi;
     if (!boat || boat.aboard || this.boarding || this.visitor) return false;
     if (this.inventory.add(CANOE_ITEM.id, 1) !== 1) {
-      this.bubble = { text: 'no room for the canoe in the bag', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('canoe.noRoom'), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       return false;
     }
     this.boat = null;
-    this.bubble = { text: 'the canoe is back in the bag', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('canoe.backInBag'), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     this.sound('pickup');
     this.save();
     return true;
@@ -2590,7 +2564,7 @@ export class LiveWorld {
         if (h.into) {
           b.animator.state.direction = boat!.heading;
           this.events.add('canoe-boarded');
-          if (!this.bubble) this.bubble = { text: 'arrows to paddle. E by the shore to land', until: time + 2.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+          if (!this.bubble) this.bubble = { text: lang('canoe.howTo'), until: time + 2.6, x: b.x, y: b.y - b.size - 2, head: b.size };
         }
         this.save();
       }
@@ -2610,7 +2584,7 @@ export class LiveWorld {
     // The rough water at the edge of the sea round the Carrier: the current turns the canoe back, and says so once.
     if (r.edge > 0.25 && !this.edgeWarned) {
       this.edgeWarned = true;
-      this.bubble = { text: 'the current pulls back toward the Carrier', until: time + 2.4, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang('canoe.current'), until: time + 2.4, x: b.x, y: b.y - b.size - 2, head: b.size };
     } else if (r.edge === 0) this.edgeWarned = false;
     if (this.movedLastStep) {
       this.stride += Math.hypot(boat.x - before.x, boat.y - before.y);
@@ -2701,23 +2675,23 @@ export class LiveWorld {
     const say = (text: string) => (this.bubble = { text, until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size });
     this.brain.manual(time);
     if (f.kind === 'bottle') {
-      say('a bottle! there is a letter inside');
+      say(lang('sea.bottle'));
       b.animator.react('surprised', time, 0.8, 2);
       if (!this.visitor) this.meetAtSea('sea:bottle-adrift', f);
     } else if (f.kind === 'kelp') {
       if (!this.kelpReady()) {
-        say('the kelp needs a day to grow back');
+        say(lang('sea.kelpGrowing'));
         return true;
       }
       if (!this.visitor) {
         const got = this.inventory.add(SEAWEED_ITEM.id, 3);
         this.collected.add('sea:kelp');
         this.collectedAt.set('sea:kelp', this.worldTime);
-        say(got ? `+${got} seaweed` : 'no room for seaweed');
+        say(got ? `+${got} ${got === 1 ? itemLabel('blobbi-pixel:food:seaweed') : itemPlural('blobbi-pixel:food:seaweed')}` : lang('say.noRoomFor', itemNoun('blobbi-pixel:food:seaweed')));
         this.meetAtSea('sea:kelp-garden', f);
-      } else say('the kelp sways under the water');
+      } else say(lang('sea.kelpSways'));
     } else {
-      say('the shoal turns all at once!');
+      say(lang('sea.shoal'));
       b.animator.react('happy', time, 1, 3);
       for (let i = 0; i < 8; i++) this.islandParticles.sparkle(f.x + this.particles.rng.range(-10, 10), f.y + this.particles.rng.range(-5, 5), hex('#f4f8ff'));
       if (!this.visitor) this.meetAtSea('sea:silver-shoal', f);
@@ -2774,7 +2748,7 @@ export class LiveWorld {
     if (s.kind === 'seal') {
       if (this.sealHappy?.id === s.id && time < this.sealHappy.until) return true; // still rolling
       this.sealHappy = { id: s.id, until: time + 1.6 };
-      say(['hello, seal!', 'hi there!', 'look, it waves back!', 'splash!'][this.tally.waved % 4]);
+      say(lang((['seal.0', 'seal.1', 'seal.2', 'seal.3'] as const)[this.tally.waved % 4]));
       b.animator.react('happy', time, 1.2, 3);
       this.islandParticles.ripple(s.x, s.y, hex('#eaf8ff'));
       this.particles.heart(s.x, s.y - 6);
@@ -2787,7 +2761,7 @@ export class LiveWorld {
       }
       return true;
     }
-    say(['it glows...', 'so pretty', 'a night-lamp!', 'shhh, look'][Math.floor(time) % 4]);
+    say(lang((['ray.0', 'ray.1', 'ray.2', 'ray.3'] as const)[Math.floor(time) % 4]));
     b.animator.react('surprised', time, 0.8, 2);
     for (let i = 0; i < 6; i++) this.islandParticles.sparkle(s.x + this.particles.rng.range(-8, 8), s.y + this.particles.rng.range(-4, 4), i % 2 ? hex('#7ae8f0') : hex('#e8ffff'));
     if (!this.visitor) {
@@ -2808,7 +2782,7 @@ export class LiveWorld {
     this.tally.discoveries++;
     this.learn(d.lore);
     for (let i = 0; i < 8; i++) this.particles.sparkle(s.x + this.particles.rng.range(-6, 6), s.y - this.particles.rng.range(0, 8), i % 2 ? hex('#fff2b0') : hex('#d8f1ff'));
-    this.notices.push({ heading: 'Discovery', title: d.item.label, text: 'a new note in the journal (J)', until: (this.notices.at(-1)?.until ?? time) + 3 });
+    this.notices.push({ heading: lang('notice.discovery'), title: d.item.label, text: lang('notice.newNote'), until: (this.notices.at(-1)?.until ?? time) + 3 });
     this.addFriendship(1);
     this.sound('discover');
   }
@@ -2892,7 +2866,7 @@ export class LiveWorld {
     }
     this.carrierTurns(true);
     this.blobbi.animator.react('excited', time, 1.2, 4);
-    this.say(first ? 'hello, big friend!' : 'hello again!');
+    this.say(lang(first ? 'carrier.hello' : 'carrier.helloAgain'));
     this.sound('happy');
     this.save();
     return first;
@@ -2907,7 +2881,7 @@ export class LiveWorld {
     this.carrier.counts.observe++;
     this.blobbi.animator.react(o ? 'surprised' : 'neutral', time, 1, o ? 2 : 0);
     if (!o) {
-      this.say(night ? 'the Carrier sleeps. come back by day' : 'the Carrier, as always: calm');
+      this.say(lang(night ? 'carrier.sleeps' : 'carrier.calm'));
       return null;
     }
     this.carrier.observations.push(o.id);
@@ -2925,7 +2899,7 @@ export class LiveWorld {
     if (!this.nearCarrier() || this.inventory.count(item) < 1) return false;
     const def = ALL_ITEMS.find((d) => d.id === item);
     if (!def || !(def.food || item.includes('flower'))) {
-      this.say('the Carrier only takes food and flowers');
+      this.say(lang('carrier.onlyFood'));
       this.sound('fail');
       return false;
     }
@@ -2942,7 +2916,7 @@ export class LiveWorld {
     this.carrierTurns(true);
     for (let i = 0; i < 4; i++) this.islandParticles.ripple(this.listenSpot!.x + this.particles.rng.range(-8, 8), this.listenSpot!.y + 6 + i * 2, paletteFor(this.world.options.palette).foam);
     this.blobbi.animator.react('happy', time, 1.4, 2);
-    this.say(favourite ? `the Carrier loves ${itemLabel(item)}!` : `the Carrier takes the ${itemLabel(item)}`);
+    this.say(lang(favourite ? 'carrier.loves' : 'carrier.takes', itemNoun(item)));
     this.sound(favourite ? 'hum' : 'pickup');
     this.save();
     return true;
@@ -2959,7 +2933,7 @@ export class LiveWorld {
       this.carrier.bond += BOND.rest;
     }
     this.brain.restNow(time, { x: this.blobbi.x, y: this.blobbi.y }, this.listenSpot);
-    this.say('a nap by the Carrier. its hum is a lullaby');
+    this.say(lang('carrier.nap'));
     this.sound('sleep');
     this.save();
     return true;
@@ -2972,7 +2946,7 @@ export class LiveWorld {
     for (const p of this.places) {
       if (this.visited.has(p.id) || Math.hypot(b.x - p.x, b.y - p.y) > p.radius) continue;
       this.visited.add(p.id);
-      this.notices.push({ heading: 'New place', title: p.name, text: 'added to the journal and the map', until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
+      this.notices.push({ heading: lang('notice.newPlace'), title: placeText(p).name, text: lang('notice.newPlace.text'), until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
       this.sound('curious');
       this.save();
     }
@@ -2990,7 +2964,7 @@ export class LiveWorld {
     this.carrier.breathDay = day;
     this.carrier.bond += BOND.breathe;
     if (!this.carrier.observations.includes('breath')) this.carrier.observations.push('breath');
-    this.say('the island rises... and falls. it breathes', 3);
+    this.say(lang('carrier.breathes'), 3);
     this.blobbi.animator.react('happy', this.clock.time, 1.5, 0);
     this.sound('carrier-breath');
     this.save();
@@ -3094,17 +3068,17 @@ export class LiveWorld {
       const rng = stream(this.world.seed, 'fishing', this.casts++);
       this.fishing = { start: time, biteAt: time + rng.range(1.5, 5), ...target };
       this.brain.manual(time);
-      say('cast...');
+      say(lang('fish.cast'));
       this.sound('cast');
       return true;
     }
     this.fishing = null;
     if (time < f.biteAt) {
-      say('too soon. it swam off');
+      say(lang('fish.tooSoon'));
       return true;
     }
     if (time > f.biteAt + BITE_SECONDS) {
-      say('it got away');
+      say(lang('fish.gotAway'));
       return true;
     }
     // A catch: which fish, from this water's weights (a deterministic draw per cast). M10 phase B: the sea's fish
@@ -3116,14 +3090,14 @@ export class LiveWorld {
     let roll = stream(this.world.seed, 'catch', this.casts).range(0, total);
     const caught = pool.find((c) => (roll -= c.weight) < 0) ?? pool[0];
     if (this.inventory.add(caught.item.id, 1) !== 1) {
-      say(`no room for ${caught.item.plural}`);
+      say(lang('say.noRoomFor', itemNoun(caught.item.id)));
       return true;
     }
     this.tally.fished++;
     // The fish log (M10 phase B): a species caught for the first time is recorded, and says so.
     const firstOfKind = !this.caught.has(caught.item.id);
     this.caught.add(caught.item.id);
-    if (firstOfKind) this.notices.push({ heading: 'Fish log', title: `new: ${caught.item.label}`, text: `${this.caught.size} of ${FISH_CONTENT.length} kinds caught (J)`, until: (this.notices.at(-1)?.until ?? time) + 3 });
+    if (firstOfKind) this.notices.push({ heading: lang('notice.fishLog'), title: lang('notice.fishLog.new', { name: caught.item.label }), text: lang('notice.fishLog.text', { n: this.caught.size, of: FISH_CONTENT.length }), until: (this.notices.at(-1)?.until ?? time) + 3 });
     for (let i = 0; i < 6; i++) this.particles.drop(f.x + this.particles.rng.range(-3, 3), f.y - 2, i % 2 ? hex('#d8f1ff') : hex('#5fb3f0'));
     say(`+1 ${caught.item.label}!`);
     b.animator.react('excited', time, 1.3, 3);
@@ -3151,7 +3125,7 @@ export class LiveWorld {
     }
     if (time > f.biteAt + BITE_SECONDS) {
       this.fishing = null;
-      this.bubble = { text: 'it got away', until: time + 1.4, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
+      this.bubble = { text: lang('fish.gotAway'), until: time + 1.4, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
     }
   }
 
@@ -3194,7 +3168,7 @@ export class LiveWorld {
       for (let i = 0; i < Math.round(rain * 3); i++) if (rng.chance(dt * 30)) p.rain(b.x + rng.range(-150, 150), b.y + rng.range(-110, 60));
       if (!this.wasRaining && rain > 0.3) {
         this.wasRaining = true;
-        if (!this.bubble) this.bubble = { text: 'rain! the garden will love it', until: this.clock.time + 2.2, x: b.x, y: b.y - b.size - 2, head: b.size };
+        if (!this.bubble) this.bubble = { text: lang('idle.rain'), until: this.clock.time + 2.2, x: b.x, y: b.y - b.size - 2, head: b.size };
         b.animator.react('surprised', this.clock.time, 0.6, 1);
       }
       return;
@@ -3236,7 +3210,7 @@ export class LiveWorld {
     if (after > before) {
       const b = this.blobbi;
       for (let i = 0; i < 5; i++) this.particles.heart(b.x + this.particles.rng.range(-8, 8), b.y - b.size - 2 - i * 2);
-      this.notices.push({ heading: 'Friendship', title: `${FRIEND_TITLES[after - 1]}!`, text: `level ${after}`, until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
+      this.notices.push({ heading: lang('notice.friendship'), title: `${sentence(FRIEND_TITLES[after - 1])}!`, text: lang('notice.level', { n: after }), until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
       this.sound('friend');
     }
   }
@@ -3264,66 +3238,66 @@ export class LiveWorld {
   prompt(): string | null {
     if (this.buildMode || this.placing || this.moving || this.manage) return null;
     // In bed (M9): how to get up, not how to go to bed.
-    if (this.restPlan && (this.restPlan.phase === 'in-bed' || this.restPlan.phase === 'climb-in')) return 'R  wake up';
-    if (this.nearestDiscovery()) return 'E  pick up something glinting';
+    if (this.restPlan && (this.restPlan.phase === 'in-bed' || this.restPlan.phase === 'climb-in')) return `R  ${lang('prompt.wakeUp')}`;
+    if (this.nearestDiscovery()) return `E  ${lang('prompt.glinting')}`;
     const node = this.nearestResource();
-    if (node) return `E  pick up the ${RESOURCE_SINGULAR[node.kind] ?? node.kind}`;
+    if (node) return `E  ${lang('prompt.pickUp', itemNoun(RESOURCE_ITEM[node.kind]))}`;
     const sea = this.fishing ? null : this.nearbyMarine();
-    if (sea) return sea.kind === 'seal' ? 'E  wave to the seal' : 'E  watch the glowing ray';
+    if (sea) return sea.kind === 'seal' ? `E  ${lang('prompt.waveSeal')}` : `E  ${lang('prompt.watchRay')}`;
     // The canoe (M10 phase B).
     if (this.boarding) return null;
     if (this.boat?.aboard) {
-      if (this.fishing) return this.clock.time >= this.fishing.biteAt ? 'E  reel it in!' : 'wait for a bite...';
+      if (this.fishing) return this.clock.time >= this.fishing.biteAt ? `E  ${lang('prompt.reel')}` : lang('prompt.waitBite');
       const feature = this.nearbyFeature();
-      if (feature) return feature.kind === 'bottle' ? 'E  fish out the bottle' : feature.kind === 'kelp' ? (this.kelpReady() ? 'E  gather seaweed' : 'the kelp is growing back') : 'E  watch the shoal';
-      if (this.landingSpot()) return 'E  go ashore';
-      if (this.equipped && toolSupports(this.equipped, 'fish') && this.fishTarget()) return 'E  cast the line';
+      if (feature) return feature.kind === 'bottle' ? `E  ${lang('prompt.bottle')}` : feature.kind === 'kelp' ? (this.kelpReady() ? `E  ${lang('prompt.seaweed')}` : lang('prompt.kelpGrowing')) : `E  ${lang('prompt.shoal')}`;
+      if (this.landingSpot()) return `E  ${lang('prompt.goAshore')}`;
+      if (this.equipped && toolSupports(this.equipped, 'fish') && this.fishTarget()) return `E  ${lang('prompt.cast')}`;
       return null;
     }
-    if (this.nearBoat()) return 'E  get in the canoe';
-    if (this.launchSpot()) return 'E  launch the canoe';
+    if (this.nearBoat()) return `E  ${lang('prompt.boardCanoe')}`;
+    if (this.launchSpot()) return `E  ${lang('prompt.launchCanoe')}`;
     const farm = this.farmAction();
     if (farm) {
       const t = this.worldTime;
       switch (farm.kind) {
         case 'harvest':
-          return `E  harvest the ${farm.plot.crop!.kind}`;
+          return `E  ${lang('prompt.harvest', cropNoun(farm.plot.crop!.kind))}`;
         case 'water':
-          return `E  water the ${farm.plot.crop!.kind}`;
+          return `E  ${lang('prompt.water', cropNoun(farm.plot.crop!.kind))}`;
         case 'growing':
-          return `${farm.plot.crop!.kind} ${Math.floor(cropProgress(farm.plot.crop!, t) * 100)}%, watered`;
+          return lang('prompt.growingWatered', { ...cropNoun(farm.plot.crop!.kind), pct: Math.floor(cropProgress(farm.plot.crop!, t) * 100) });
         case 'plant':
-          return `E  plant a ${farm.crop} (${this.inventory.count(CROPS[farm.crop].seed)})  T  seed`;
+          return `E  ${lang('prompt.plant', { ...cropNoun(farm.crop), count: this.inventory.count(CROPS[farm.crop].seed) })}`;
         case 'no-seeds':
-          return 'no seeds to plant';
+          return lang('prompt.noSeeds');
         case 'till':
-          return 'E  till the soil';
+          return `E  ${lang('prompt.till')}`;
         case 'cannot-till':
-          if (!this.facingObject() && !this.facingBuilding()) return `cannot till: ${PROBLEM_TEXT[farm.check.problem!]}`;
+          if (!this.facingObject() && !this.facingBuilding()) return lang('prompt.cannotTill', { why: PROBLEM_TEXT[farm.check.problem!] });
       }
     }
     const f = this.facingObject();
     if (f && f.index < this.world.objects.length) {
       if (f.placement.kind === 'tree' && this.equipped && toolSupports(this.equipped, 'chop')) {
         const c = this.treeAt(f.index);
-        if (c.phase === 'grown' || c.phase === 'chopping') return 'E  chop';
-        if (c.phase === 'stump') return 'E  dig out the stump';
-        if (c.phase === 'regrowing') return treeStage(c.growth) === 'seedling' ? 'E  pull up the seedling' : 'E  clear the young tree';
+        if (c.phase === 'grown' || c.phase === 'chopping') return `E  ${lang('prompt.chop')}`;
+        if (c.phase === 'stump') return `E  ${lang('prompt.digStump')}`;
+        if (c.phase === 'regrowing') return `E  ${lang(treeStage(c.growth) === 'seedling' ? 'prompt.pullSeedling' : 'prompt.clearYoungTree')}`;
       }
       if (f.placement.kind === 'rock' && this.equipped && toolSupports(this.equipped, 'mine') && isLargeRock(f.placement.size)) {
         const c = this.rockAt(f.index);
-        if (c.phase === 'rubble') return 'E  clear the rubble';
-        if (c.phase === 'forming') return c.stage === 'deposit' ? 'E  clear the small deposit' : 'E  clear the young rock';
-        return 'E  mine';
+        if (c.phase === 'rubble') return `E  ${lang('prompt.clearRubble')}`;
+        if (c.phase === 'forming') return `E  ${lang(c.stage === 'deposit' ? 'prompt.clearDeposit' : 'prompt.clearYoungRock')}`;
+        return `E  ${lang('prompt.mine')}`;
       }
     }
-    if (f && f.index >= this.world.objects.length && this.equipped && toolSupports(this.equipped, 'chop')) return 'E  dig up the tree you planted';
+    if (f && f.index >= this.world.objects.length && this.equipped && toolSupports(this.equipped, 'chop')) return `E  ${lang('prompt.digPlanted')}`;
     const building = this.facingBuilding();
-    if (building && this.buildingAt(building) >= 1) return `E  ${USE_VERB[BUILDINGS[building.kind].use ?? 'admire'](BUILDINGS[building.kind].label, building)}`;
-    if (this.fishing) return this.clock.time >= this.fishing.biteAt ? 'E  reel it in!' : 'wait for a bite...';
-    if (this.equipped && toolSupports(this.equipped, 'fish') && this.fishTarget()) return 'E  cast the line';
-    if (!this.facingObject() && this.nearCarrier()) return 'carrier' in this.objectives.completed ? 'E  the Carrier' : 'E  listen to the Carrier';
-    if (isHungry(this.care) && this.foodToGive()) return 'F  feed Blobbi';
+    if (building && this.buildingAt(building) >= 1) return `E  ${USE_VERB[BUILDINGS[building.kind].use ?? 'admire'](building)}`;
+    if (this.fishing) return this.clock.time >= this.fishing.biteAt ? `E  ${lang('prompt.reel')}` : lang('prompt.waitBite');
+    if (this.equipped && toolSupports(this.equipped, 'fish') && this.fishTarget()) return `E  ${lang('prompt.cast')}`;
+    if (!this.facingObject() && this.nearCarrier()) return 'carrier' in this.objectives.completed ? `E  ${lang('prompt.carrier')}` : `E  ${lang('prompt.listen')}`;
+    if (isHungry(this.care) && this.foodToGive()) return `F  ${lang('prompt.feed')}`;
     return null;
   }
 
@@ -3359,7 +3333,7 @@ export class LiveWorld {
     this.moving = null;
     this.manage = false;
     this.brain.manual(this.clock.time);
-    this.bubble = { text: 'home!', until: this.clock.time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('say.homeExclaim'), until: this.clock.time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', this.clock.time, 0.8, 2);
     this.tally.entered = (this.tally.entered ?? 0) + 1;
     this.sound('door');
@@ -3444,7 +3418,7 @@ export class LiveWorld {
     this.rebuildRoom();
     this.tally.furnished = (this.tally.furnished ?? 0) + 1;
     for (let i = 0; i < 5; i++) this.particles.sparkle(spot.x + this.particles.rng.range(-4, 4), spot.y - this.particles.rng.range(0, 8), hex('#fff2b0'));
-    this.bubble = { text: `placed a ${BUILDINGS[kind].label}`, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('build.placed', buildingNoun(kind)), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('excited', time, 0.9, 2);
     this.sound('place');
     this.save();
@@ -3506,9 +3480,9 @@ export class LiveWorld {
   /** Why the selected object cannot be picked up into the bag, or null when it can. */
   removalProblem(r: Building): string | null {
     const def = BUILDINGS[r.kind];
-    if (!def.item) return 'a home stays. move it instead';
-    if (def.capacity && !this.containerEmpty(this.containerKey(r))) return 'empty it first';
-    if (this.inventory.count(def.item) + 1 > this.inventory.limit(def.item)) return 'no room in the bag';
+    if (!def.item) return lang('build.homeStays');
+    if (def.capacity && !this.containerEmpty(this.containerKey(r))) return lang('build.emptyFirst');
+    if (this.inventory.count(def.item) + 1 > this.inventory.limit(def.item)) return lang('build.noRoomInBag');
     return null;
   }
 
@@ -3525,11 +3499,11 @@ export class LiveWorld {
       if (plot && !plot.crop) {
         this.plots.splice(this.plots.indexOf(plot), 1);
         this.plotByCell.delete(cellKey(plot));
-        say('plot filled in');
+        say(lang('farm.plotFilled'));
         this.save();
         return true;
       }
-      if (plot) say('harvest it first');
+      if (plot) say(lang('farm.harvestFirst'));
       return false;
     }
     const problem = this.removalProblem(r);
@@ -3545,7 +3519,7 @@ export class LiveWorld {
     this.containers.delete(this.containerKey(r));
     this.producers.delete(this.containerKey(r));
     this.afterStructureChange();
-    say(`${def.label} back in the bag`);
+    say(lang('build.backInBag', buildingNoun(r.kind)));
     this.sound('pickup');
     this.save();
     return true;
@@ -3583,7 +3557,7 @@ export class LiveWorld {
     this.placedHere.push(m.record);
     this.moving = null;
     this.afterStructureChange();
-    this.bubble = { text: `moved the ${BUILDINGS[m.record.kind].label}`, until: time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('build.moved', buildingNoun(m.record.kind)), until: time + 1.4, x: b.x, y: b.y - b.size - 2, head: b.size };
     this.sound('place');
     this.save();
     return true;
@@ -3842,21 +3816,21 @@ export class LiveWorld {
     if (!house || !next) return out;
     const req = (label: string, met: boolean, have?: number, need?: number) => out.requirements.push({ label, met, ...(need !== undefined ? { have, need } : {}) });
     const quest = next.quest ? objectiveById(next.quest) : undefined;
-    for (const id of quest?.requires ?? []) req(`${objectiveById(id)?.title ?? id} (quest)`, id in this.objectives.completed);
-    if (next.harmony) req('Island harmony', this.harmony().value >= next.harmony, Math.round(this.harmony().value), next.harmony);
-    if (next.finds) req('Discoveries found', this.found.size >= next.finds, this.found.size, next.finds);
+    for (const id of quest?.requires ?? []) req(lang('req.quest', { title: objectiveById(id)?.title ?? id }), id in this.objectives.completed);
+    if (next.harmony) req(lang('req.harmony'), this.harmony().value >= next.harmony, Math.round(this.harmony().value), next.harmony);
+    if (next.finds) req(lang('req.finds'), this.found.size >= next.finds, this.found.size, next.finds);
     for (const c of next.cost) req(itemPlural(c.item), this.inventory.count(c.item) >= c.quantity, this.inventory.count(c.item), c.quantity);
     const met = out.requirements.every((r) => r.met);
-    if (this.buildingAt(house) < 1) out.blocked = 'the house is still being built';
-    else if (this.inside) out.blocked = 'step outside first: the builders need the house empty';
-    else if (this.visitor) out.blocked = 'only the island\'s own player can rebuild its house';
+    if (this.buildingAt(house) < 1) out.blocked = lang('home.stillBuilding');
+    else if (this.inside) out.blocked = lang('home.stepOutside');
+    else if (this.visitor) out.blocked = lang('home.ownPlayerOnly');
     else {
       const fit = this.upgradeFit(house, next.level);
       if (!fit.ok) out.blocked = fit.reason;
       else {
         const plan = this.upgradeRooms(house, next.level);
         out.displaced = plan?.displaced.length ?? 0;
-        if (plan && !plan.bagOk) out.blocked = 'the bag has no room for furniture the new rooms cannot hold';
+        if (plan && !plan.bagOk) out.blocked = lang('home.bagNoRoom');
       }
     }
     out.ready = met && !out.blocked;
@@ -3874,7 +3848,7 @@ export class LiveWorld {
     if (fit.fixed) {
       // The land itself (or a building, a plot) is in the way: clearing will not help, a move will.
       const dir = this.roomierDirection(house, level);
-      return { ok: false, reason: `the bigger house does not fit here: ${fit.fixed}. Move the house (M)${dir ? `: there is room ${dir}` : ' to a roomier spot'}.` };
+      return { ok: false, reason: lang('fit.noFit', { why: fit.fixed, where: dir ? lang('fit.roomAt', { dir }) : lang('fit.roomier') }) };
     }
     this.upgradeObstacles = fit.blockers;
     // The world marks them while the HOME panel says so, and a few seconds after.
@@ -3898,14 +3872,14 @@ export class LiveWorld {
       if (BUILDINGS[b.kind].layer === 'floor') continue;
       const d = footOf(b);
       const gap = Math.max(BUILDINGS.shelter.gap, BUILDINGS[b.kind].gap);
-      if (Math.abs(b.x - x) < foot.footRx + d.footRx + gap && Math.abs(b.y - y) < foot.footRy + d.footRy + gap) return out(`too close to the ${BUILDINGS[b.kind].label}`);
+      if (Math.abs(b.x - x) < foot.footRx + d.footRx + gap && Math.abs(b.y - y) < foot.footRy + d.footRy + gap) return out(lang('fit.tooClose', buildingNoun(b.kind)));
     }
     const rect = footprintRect(next);
     for (const p of this.plots) {
       const o = this.origin;
       const x0 = p.gx * PLOT_GRID + o.x;
       const y0 = p.gy * PLOT_GRID + o.y;
-      if (x0 <= rect.x1 + 2 && x0 + PLOT_GRID - 1 >= rect.x0 - 2 && y0 <= rect.y1 + 2 && y0 + PLOT_GRID - 1 >= rect.y0 - 2) return out('a farm plot is there');
+      if (x0 <= rect.x1 + 2 && x0 + PLOT_GRID - 1 >= rect.x0 - 2 && y0 <= rect.y1 + 2 && y0 + PLOT_GRID - 1 >= rect.y0 - 2) return out(PROBLEM_TEXT.plot);
     }
     const { width, height, cls, elevation } = this.world.terrain;
     const cx = Math.round(x);
@@ -3926,12 +3900,12 @@ export class LiveWorld {
           if (px < 0 || py < 0 || px >= width || py >= height) return out(PROBLEM_TEXT.edge);
           const i = py * width + px;
           if (!WALKABLE.has(cls[i]) || cls[i] === T.RIM || cls[i] === T.SKIN) return out(PROBLEM_TEXT.ground);
-          if (elevation[i] !== level0) return out('the ground is not level');
+          if (elevation[i] !== level0) return out(lang('fit.notLevel'));
           if (!map.blocked[i]) continue;
           const at = this.world.objects.findIndex((o, k) => SOLID_KINDS.has(o.kind) && !this.absentObject(k) && Math.abs(o.x - px) <= this.spriteOf(o).footRx + 1 && Math.abs(o.y - py) <= this.spriteOf(o).footRy + 1);
           if (at >= 0) blockers.add(at);
           // Nothing standing there: the edge of the high ground (it can only be crossed where a path climbs it).
-          else return out(level0 ? 'it would reach the edge of the high ground' : 'the ground there is not clear (water or a slope)');
+          else return out(lang(level0 ? 'fit.highEdge' : 'fit.notClear'));
         }
     // Planted trees that have taken root are in the way too.
     const planted = this.planted.filter((t) => t.solid && areas.some((r) => t.placement.x >= r.x0 - 2 && t.placement.x <= r.x1 + 2 && t.placement.y >= r.y0 - 2 && t.placement.y <= r.y1 + 2)).length;
@@ -3944,7 +3918,7 @@ export class LiveWorld {
    * Only advice: nothing moves until the player moves the house.
    */
   private roomierDirection(house: Building, level: number): string | null {
-    const key = `${this.structureVersion}|${this.absentVersion}|${house.x},${house.y}|${level}`;
+    const key = `${this.structureVersion}|${this.absentVersion}|${house.x},${house.y}|${level}|${getLocale()}`;
     if (this.roomierCache?.key === key) return this.roomierCache.text;
     let text: string | null = null;
     search: for (let r = 8; r <= 200; r += 6)
@@ -3957,8 +3931,8 @@ export class LiveWorld {
         const ns = y < house.y - r * 0.3 ? 'north' : y > house.y + r * 0.3 ? 'south' : '';
         const ew = x > house.x + r * 0.3 ? 'east' : x < house.x - r * 0.3 ? 'west' : '';
         const d = Math.hypot(x - house.x, y - house.y);
-        const way = ns && ew ? `${ns}-${ew}` : ns || ew;
-        text = d <= 24 ? `a little to the ${way}` : `to the ${way}, about ${Math.round(d / 4)} steps away`;
+        const way = lang(`dir.${ns && ew ? `${ns}-${ew}` : ns || ew}` as MessageKey);
+        text = d <= 24 ? lang('dir.aLittle', { way }) : lang('dir.steps', { way, n: Math.round(d / 4) });
         break search;
       }
     this.roomierCache = { key, text };
@@ -3977,8 +3951,9 @@ export class LiveWorld {
    * the other way out: moving the house.
    */
   private clearAdvice(house: Building, indices: number[], planted: number): string {
+    // English counts in words ("the two trees"); other languages in numerals ("2 árvores").
     const words = ['no', 'the', 'the two', 'the three', 'the four', 'the five', 'the six'];
-    const count = (n: number, one: string, many: string) => `${n < words.length ? words[n] : n} ${n === 1 ? one : many}`;
+    const count = (n: number, one: string, many: string) => lang('advice.count', { count: n, en_n: n < words.length ? words[n] : String(n), one, many });
     const groups = new Map<string, { n: number; one: string; many: string; tool: string | null }>();
     const add = (key: string, one: string, many: string, tool: string | null) => {
       const g = groups.get(key) ?? { n: 0, one, many, tool };
@@ -3992,29 +3967,30 @@ export class LiveWorld {
       sx += o.x - house.x;
       sy += o.y - house.y;
       const kind = clearableKind(o);
-      if (kind === 'tree') add('tree', 'tree', 'trees', 'axe');
-      else if (kind === 'rock') add('rock', 'big rock', 'big rocks', 'pickaxe');
-      else if (kind === 'small-rock') add('small-rock', 'small rock', 'small rocks', 'pickaxe');
-      else if (kind === 'bush') add('bush', 'bush', 'bushes', 'axe');
-      else if (kind === 'stump' || kind === 'mushroom') add(kind, kind, `${kind}s`, 'axe');
+      const thing = (k: string) => [tOr(`thing.${k}`, k), tOr(`thing.${k}.many`, `${k}s`)] as const;
+      if (kind === 'tree') add('tree', ...thing('tree'), lang('tool.axe'));
+      else if (kind === 'rock') add('rock', ...thing('big-rock'), lang('tool.pickaxe'));
+      else if (kind === 'small-rock') add('small-rock', ...thing('small-rock'), lang('tool.pickaxe'));
+      else if (kind === 'bush') add('bush', ...thing('bush'), lang('tool.axe'));
+      else if (kind === 'stump' || kind === 'mushroom') add(kind, ...thing(kind), lang('tool.axe'));
       else {
         const k = o.kind === 'decor' ? ((o.variation as { kind?: string } | undefined)?.kind ?? 'decoration') : o.kind;
-        add(`fixed:${k}`, k, `${k}s`, null);
+        add(`fixed:${k}`, ...thing(k), null);
       }
     }
-    if (planted) for (let k = 0; k < planted; k++) add('planted', 'young tree you planted', 'young trees you planted', 'axe');
+    if (planted) for (let k = 0; k < planted; k++) add('planted', lang('thing.planted'), lang('thing.planted.many'), lang('tool.axe'));
     const n = indices.length + planted;
-    const where = n === 0 ? '' : Math.abs(sy) >= Math.abs(sx) ? (sy < 0 ? ' behind your house' : ' in front of your house') : sx < 0 ? ' to the left of your house' : ' to the right of your house';
+    const where = n === 0 ? '' : lang(Math.abs(sy) >= Math.abs(sx) ? (sy < 0 ? 'advice.behind' : 'advice.front') : sx < 0 ? 'advice.left' : 'advice.right');
     const clearable = [...groups.entries()].filter(([k]) => !k.startsWith('fixed:'));
     const fixed = [...groups.entries()].filter(([k]) => k.startsWith('fixed:'));
     const list = (gs: typeof clearable) => {
       const parts = gs.map(([, g]) => count(g.n, g.one, g.many));
-      return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+      return parts.length > 1 ? lang('advice.and', { list: parts.slice(0, -1).join(', '), last: parts.at(-1)! }) : parts[0];
     };
     const tools = [...new Set(clearable.map(([, g]) => g.tool).filter(Boolean))].join(', ');
-    if (!fixed.length) return `Clear ${list(clearable)}${where} to make room (${tools}).`;
-    const fixedText = `${list(fixed)}${where} cannot be cleared: move the house (M) to a roomier spot`;
-    return clearable.length ? `Clear ${list(clearable)} (${tools}); ${fixedText}.` : `${fixedText[0].toUpperCase()}${fixedText.slice(1)}.`;
+    if (!fixed.length) return lang('advice.clear', { things: list(clearable), where, tools });
+    const fixedText = lang('advice.fixed', { things: list(fixed), where });
+    return clearable.length ? lang('advice.clearAndFixed', { things: list(clearable), tools, fixed: fixedText }) : `${sentence(fixedText)}.`;
   }
   private baseCollisionForUpgrade: CollisionMap | null = null;
 
@@ -4038,14 +4014,14 @@ export class LiveWorld {
    * rooms' gift, and save. Returns why not when it cannot happen; nothing changes then.
    */
   upgradeHouse(): { ok: boolean; reason: string | null } {
-    if (this.denied('build')) return { ok: false, reason: 'not on this island' };
+    if (this.denied('build')) return { ok: false, reason: lang('home.notThisIsland') };
     const check = this.houseUpgrade();
-    if (!check.house || !check.next) return { ok: false, reason: check.house ? 'the house is as grand as it gets' : 'build a shelter first' };
-    if (!check.ready) return { ok: false, reason: check.blocked ?? `still needed: ${check.requirements.filter((r) => !r.met).map((r) => r.label.toLowerCase()).join(', ')}` };
+    if (!check.house || !check.next) return { ok: false, reason: lang(check.house ? 'home.grandest' : 'home.buildShelterFirst') };
+    if (!check.ready) return { ok: false, reason: check.blocked ?? lang('home.stillNeeded', { list: check.requirements.filter((r) => !r.met).map((r) => r.label.toLocaleLowerCase(getLocale())).join(', ') }) };
     const house = check.house;
     const next = check.next;
     const plan = this.upgradeRooms(house, next.level);
-    if (!consumeIngredients(this.inventory, next.cost)) return { ok: false, reason: 'the bag is short' };
+    if (!consumeIngredients(this.inventory, next.cost)) return { ok: false, reason: lang('home.bagShort') };
     house.level = next.level;
     house.upgradedAt = this.worldTime;
     this.completed.delete(house.id);
@@ -4059,8 +4035,8 @@ export class LiveWorld {
     if (next.gift && BUILDINGS[next.gift]) {
       const giftItem = BUILDINGS[next.gift].item!;
       const placed = st ? this.placeGift(st, next.gift) : false;
-      if (placed) gift = `, and a ${BUILDINGS[next.gift].label} in the new rooms`;
-      else if (this.inventory.add(giftItem, 1) === 1) gift = `, and a ${BUILDINGS[next.gift].label} (in the bag)`;
+      if (placed) gift = lang('home.giftPlaced', buildingNoun(next.gift));
+      else if (this.inventory.add(giftItem, 1) === 1) gift = lang('home.giftBag', buildingNoun(next.gift));
     }
     this.baseCollisionForUpgrade = null;
     this.afterStructureChange();
@@ -4074,7 +4050,7 @@ export class LiveWorld {
     this.tally.built++;
     this.stats.built++;
     this.sound('place');
-    this.notices.push({ heading: 'Home', title: `Building the ${next.name}`, text: `the builders are at work${gift}`, until: Math.max(this.clock.time, this.notices.at(-1)?.until ?? 0) + 3.5 });
+    this.notices.push({ heading: lang('notice.home'), title: lang('notice.home.building', { name: next.name }), text: lang('notice.home.text', { gift }), until: Math.max(this.clock.time, this.notices.at(-1)?.until ?? 0) + 3.5 });
     b.animator.react('excited', this.clock.time, 1.2, 3);
     this.save();
     return { ok: true, reason: null };
@@ -4090,9 +4066,9 @@ export class LiveWorld {
 
   /** Apply a look to the home (every part must be unlocked); false (and nothing changes) otherwise. */
   setHouseLook(look: HouseLook): { ok: boolean; reason: string | null } {
-    if (this.denied('build')) return { ok: false, reason: 'not on this island' };
+    if (this.denied('build')) return { ok: false, reason: lang('home.notThisIsland') };
     const house = this.home();
-    if (!house) return { ok: false, reason: 'build a shelter first' };
+    if (!house) return { ok: false, reason: lang('home.buildShelterFirst') };
     const ctx = this.styleContext();
     const next: HouseLook = {};
     const now = resolveLook(houseLevel(house), house.look);
@@ -4100,7 +4076,7 @@ export class LiveWorld {
       const v = look[part];
       if (v === undefined) continue;
       // What the house already has stays allowed (a style chosen before M9's unlocks is kept); a change must be earned.
-      if (v !== now[part] && !optionUnlocked(part, v, ctx)) return { ok: false, reason: `that ${PART_NAMES[part]} is not unlocked yet` };
+      if (v !== now[part] && !optionUnlocked(part, v, ctx)) return { ok: false, reason: lang('home.partLocked', { part: PART_NAMES[part] }) };
       next[part] = v;
     }
     house.look = next;
@@ -4112,14 +4088,14 @@ export class LiveWorld {
 
   /** Apply a room style to the home's interior (floor, wall colour, finish; each must be unlocked). */
   setRoomStyle(style: { floor: number; wall: number; finish?: number }): { ok: boolean; reason: string | null } {
-    if (this.denied('build')) return { ok: false, reason: 'not on this island' };
+    if (this.denied('build')) return { ok: false, reason: lang('home.notThisIsland') };
     const house = this.home();
-    if (!house) return { ok: false, reason: 'build a shelter first' };
+    if (!house) return { ok: false, reason: lang('home.buildShelterFirst') };
     const ctx = this.styleContext();
     const st = this.interiorOf(house);
     // Kept styles stay allowed; a change must be unlocked.
     const changed = (part: 'floor' | 'wallColour' | 'finish', v: number, was: number) => v !== was && !optionUnlocked(part, v, ctx);
-    if (changed('floor', style.floor, st.style.floor) || changed('wallColour', style.wall, st.style.wall) || changed('finish', style.finish ?? 0, st.style.finish ?? 0)) return { ok: false, reason: 'that style is not unlocked yet' };
+    if (changed('floor', style.floor, st.style.floor) || changed('wallColour', style.wall, st.style.wall) || changed('finish', style.finish ?? 0, st.style.finish ?? 0)) return { ok: false, reason: lang('home.styleLocked') };
     st.style = { floor: style.floor, wall: style.wall, ...(style.finish ? { finish: style.finish } : {}) };
     this.structureVersion++;
     this.sound('place');
@@ -4233,7 +4209,7 @@ export class LiveWorld {
     const def = BUILDINGS[kind];
     const here = this.inside ? 'indoor' : 'outdoor';
     if (def.where !== 'both' && def.where !== here) {
-      this.bubble = { text: def.where === 'indoor' ? 'that goes inside the house' : 'that goes outside', until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+      this.bubble = { text: lang(def.where === 'indoor' ? 'build.goesInside' : 'build.goesOutside'), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
       return false;
     }
     this.placing = item;
@@ -4311,7 +4287,7 @@ export class LiveWorld {
   private denied(what: keyof VisitorPermissions): boolean {
     if (this.permissions[what]) return false;
     const b = this.blobbi;
-    this.bubble = { text: 'visiting: look, but don\'t touch', until: this.clock.time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+    this.bubble = { text: lang('visit.dontTouch'), until: this.clock.time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
     this.sound('fail');
     return true;
   }
@@ -4330,7 +4306,7 @@ export class LiveWorld {
   /** "A path to the sea has opened!": the moment the island first reaches the water (once per island). */
   announceSeaPath(): void {
     if (this.visitor) return;
-    this.notices.push({ heading: 'The shore', title: 'a path to the sea has opened!', text: 'a little landing reaches the water: see the map (N)', until: (this.notices.at(-1)?.until ?? this.clock.time) + 5 });
+    this.notices.push({ heading: lang('notice.shore'), title: lang('notice.shore.title'), text: lang('notice.shore.text'), until: (this.notices.at(-1)?.until ?? this.clock.time) + 5 });
     this.events.add('sea-path');
   }
 
@@ -4389,7 +4365,7 @@ export class LiveWorld {
         const fresh = r.requirements.filter((q) => q.have >= q.need && !this.metGrowth!.has(`${r.next}:${q.id}`));
         if (fresh.length) {
           const left = r.requirements.filter((q) => q.have < q.need).length;
-          this.notices.push({ heading: 'Island growth', title: `${fresh[0].label}: done`, text: `${left} more for stage ${r.next} (L)`, until: Math.max(time, this.notices.at(-1)?.until ?? 0) + 3 });
+          this.notices.push({ heading: lang('notice.growth'), title: lang('notice.growth.done', { what: fresh[0].label }), text: lang('notice.growth.left', { count: left, stage: r.next }), until: Math.max(time, this.notices.at(-1)?.until ?? 0) + 3 });
         }
       }
       this.metGrowth = met;
@@ -4397,7 +4373,7 @@ export class LiveWorld {
     if (this.announcedStage === this.growth.stage) return;
     if (!r.ready) return;
     this.announcedStage = this.growth.stage;
-    this.notices.push({ heading: 'The Carrier stirs', title: 'The island is ready to grow', text: 'open growth (L) or visit the Carrier', until: (this.notices.at(-1)?.until ?? time) + 5 });
+    this.notices.push({ heading: lang('notice.stirs'), title: lang('notice.stirs.title'), text: lang('notice.stirs.text'), until: (this.notices.at(-1)?.until ?? time) + 5 });
     this.turtleAnim.blinkUntil = time + 0.3;
     this.sound('curious');
   }
@@ -4508,7 +4484,7 @@ export class LiveWorld {
       // The new land stays lit for a moment after it has spread, so it is seen even where it is a thin band.
       this.revealGlow = { start: this.clock.time, duration: REVEAL_GLOW_SECONDS, pixels: r.pixels };
       this.blobbi.animator.react('happy', this.clock.time, 1.4, 3);
-      this.notices.push({ heading: 'The island grew', title: this.world.growth ? `Stage ${this.world.growth.stage}` : 'New land', text: 'new land to explore: see the map (N)', until: (this.notices.at(-1)?.until ?? this.clock.time) + 4 });
+      this.notices.push({ heading: lang('notice.grew'), title: this.world.growth ? lang('notice.grew.stage', { n: this.world.growth.stage }) : lang('notice.grew.newLand'), text: lang('notice.grew.text'), until: (this.notices.at(-1)?.until ?? this.clock.time) + 4 });
       if (this.world.growth?.landing && r.fromStage < OCEAN_ACCESS_STAGE) this.announceSeaPath();
     }
   }
@@ -4599,7 +4575,7 @@ export class LiveWorld {
           const top = building.y - buildingSprite(building, palette, 1, this.world.options.scale).anchorY;
           this.particles.heart(building.x, top - 2);
           const name = building.kind === 'shelter' && building.upgradedAt !== undefined ? `your ${houseLevelInfo(houseLevel(building)).name}` : def.label;
-          this.bubble = { text: `${name} finished!`, until: this.clock.time + 2.2, x: building.x, y: top - 4 };
+          this.bubble = { text: lang('build.finished', { name }), until: this.clock.time + 2.2, x: building.x, y: top - 4 };
           if (building.kind === 'shelter' && building.upgradedAt !== undefined && building.upgradedAt > 0) {
             // A grander home: a burst of sparkles over the whole house, and a chime.
             for (let i = 0; i < 18; i++) this.particles.sparkle(building.x + this.particles.rng.range(-footOf(building).footRx - 4, footOf(building).footRx + 4), building.y - this.particles.rng.range(2, 40), hex(i % 3 ? '#fff2b0' : '#ffd0f0'));
@@ -4692,7 +4668,7 @@ export class LiveWorld {
       // Storage full or blocked: keep playing, say so once; the next save tries again.
       if (this.saveProblem !== 'write-failed') {
         this.saveProblem = 'write-failed';
-        this.notices.push({ heading: 'Not saved', title: 'the browser would not keep this island', text: 'free some space or allow storage; it tries again', until: (this.notices.at(-1)?.until ?? this.clock.time) + 5 });
+        this.notices.push({ heading: lang('notice.notSaved'), title: lang('notice.notSaved.title'), text: lang('notice.notSaved.text'), until: (this.notices.at(-1)?.until ?? this.clock.time) + 5 });
       }
     }
     this.lastAutosave = this.clock.time;
@@ -4737,7 +4713,7 @@ export class LiveWorld {
       if (fresh.length) {
         const [part, i] = fresh[0].split(':') as [StylePart, string];
         const more = fresh.length > 1 ? ` (+${fresh.length - 1} more)` : '';
-        this.notices.push({ heading: 'New home style', title: `${STYLE_OPTIONS[part][Number(i)].name} ${PART_NAMES[part]}${more}`, text: 'choose it in HOME (1)', until: Math.max(this.clock.time, this.notices.at(-1)?.until ?? 0) + 3 });
+        this.notices.push({ heading: lang('notice.style'), title: `${lang('notice.style.title', { style: STYLE_OPTIONS[part][Number(i)].name, part: PART_NAMES[part] })}${more}`, text: lang('notice.style.text'), until: Math.max(this.clock.time, this.notices.at(-1)?.until ?? 0) + 3 });
       }
     }
     this.knownStyles = open;
@@ -5000,7 +4976,7 @@ export class LiveWorld {
         // (mid-hop: nothing)
       } else if (this.boat?.aboard) {
         // Afloat: fish, greet the sea's creatures, or land; otherwise a word on how to land.
-        if (!(this.fishing && this.fish()) && !this.greetMarine() && !this.visitFeature() && !this.goAshore() && !this.fish()) this.bubble = { text: 'paddle to the shore to land', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+        if (!(this.fishing && this.fish()) && !this.greetMarine() && !this.visitFeature() && !this.goAshore() && !this.fish()) this.bubble = { text: lang('canoe.paddleToLand'), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
       } else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.greetMarine() && !this.boardCanoe() && !this.launchCanoe() && !this.canoeTooFar() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
     }
     // Walking into the door gap leaves the house.
@@ -5154,7 +5130,7 @@ export class LiveWorld {
       if (p >= 1) {
         this.visitBuilding(building, fromPlayer);
       } else {
-        this.bubble = { text: `under construction, ${Math.ceil((1 - p) * BUILDINGS[building.kind].buildSeconds)} s`, until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
+        this.bubble = { text: lang('build.underConstruction', { s: Math.ceil((1 - p) * BUILDINGS[building.kind].buildSeconds) }), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
         b.animator.react('neutral', time, 0.5, 0);
       }
       return;
@@ -5245,14 +5221,14 @@ export class LiveWorld {
     const joy = (amount = def.joy ?? 0) => amount > 0 && cheer(amount);
     // On its own, the Blobbi only looks: it never opens a chest, cooks, crafts, picks herbs or goes indoors.
     if (!fromPlayer && (def.use === 'storage' || def.use === 'cook' || def.use === 'craft' || def.use === 'herbs' || def.use === 'sleep' || def.use === 'read' || def.use === 'time')) {
-      say(def.use === 'cook' ? 'something smells good here' : def.use === 'sleep' && building.kind === 'shelter' ? 'home' : `a ${def.label}`);
+      say(def.use === 'cook' ? lang('say.smellsGood') : def.use === 'sleep' && building.kind === 'shelter' ? lang('say.home') : lang('say.aThing', buildingNoun(building.kind)));
       b.animator.react('happy', time, 0.8, 1);
       return;
     }
     if (!fromPlayer && def.use === 'sit') {
       // A long, contented sit.
       this.brain.until = time + 6;
-      say(building.kind === 'bench' || building.kind === 'log-seat' ? 'what a nice view' : 'comfy');
+      say(lang(building.kind === 'bench' || building.kind === 'log-seat' ? 'say.niceView' : 'say.comfy'));
       b.animator.react('happy', time, 5, 0);
       joy();
       return;
@@ -5263,20 +5239,20 @@ export class LiveWorld {
       case 'sleep':
         if (building.kind === 'shelter') {
           // The door: in we go.
-          if (!this.enterInterior(building)) say('home sweet home');
+          if (!this.enterInterior(building)) say(lang('say.homeSweetHome'));
           return;
         }
         this.rest();
         return;
       case 'nap':
         this.brain.restNow(time, { x: b.x, y: b.y }, { x: building.x, y: building.y });
-        say('a little nap');
+        say(lang('say.littleNap'));
         joy();
         return;
       case 'storage': {
         if (fromPlayer && this.denied('inventory')) return;
         if (def.capacity) this.uiRequest = { screen: 'storage', target: building };
-        else say(`storage: +${CRATE_BONUS} per stack`); // the M4 crate: more room in the bag
+        else say(lang('say.crateBonus', { n: CRATE_BONUS })); // the M4 crate: more room in the bag
         return;
       }
       case 'cook':
@@ -5290,7 +5266,7 @@ export class LiveWorld {
       case 'sit':
         this.tally.sat++;
         this.particles.note(building.x + 3, top - 2);
-        say(building.kind === 'bench' || building.kind === 'log-seat' ? 'what a nice view' : 'a good seat');
+        say(lang(building.kind === 'bench' || building.kind === 'log-seat' ? 'say.niceView' : 'say.goodSeat'));
         b.animator.react('happy', time, 1.2, 1);
         joy();
         return;
@@ -5303,29 +5279,29 @@ export class LiveWorld {
       }
       case 'light':
         for (let i = 0; i < 4; i++) this.particles.sparkle(building.x + this.particles.rng.range(-3, 3), top + this.particles.rng.range(0, 4), hex('#ffe07a'));
-        say('so cozy');
+        say(lang('say.soCozy'));
         b.animator.react('happy', time, 0.9, 1);
         joy(2);
         return;
       case 'play':
         this.tally.played++;
         for (let i = 0; i < 2; i++) this.particles.heart(b.x + this.particles.rng.range(-4, 4), b.y - b.size - 2 - i * 3);
-        say('boing!');
+        say(lang('say.boing'));
         b.animator.react('excited', time, 1.4, 4);
         joy();
         return;
       case 'music':
         for (let i = 0; i < 3; i++) this.particles.note(building.x + this.particles.rng.range(-4, 4), top - 2 - i * 3);
-        say(building.kind === 'wind-chime' ? 'ting... ting...' : 'a little tune');
+        say(lang(building.kind === 'wind-chime' ? 'say.ting' : 'say.littleTune'));
         b.animator.react('happy', time, 1.4, 1);
         this.sound('music');
         joy();
         return;
       case 'sprinkle':
-        say('it waters the crops nearby');
+        say(lang('say.sprinkler'));
         return;
       case 'birds':
-        say('the birds love it');
+        say(lang('say.birds'));
         b.animator.react('happy', time, 0.8, 1);
         joy();
         return;
@@ -5335,16 +5311,16 @@ export class LiveWorld {
       case 'herbs': {
         const n = this.herbsReady(building);
         if (!n) {
-          say('the herbs are still growing');
+          say(lang('say.herbsGrowing'));
           return;
         }
         const got = this.inventory.add('blobbi-pixel:resource:herb', n);
         if (!got) {
-          say('no room for herbs');
+          say(lang('say.noRoomFor', itemNoun('blobbi-pixel:resource:herb')));
           return;
         }
         this.producers.set(this.containerKey(building), this.worldTime - Math.max(0, (this.worldTime - (this.producers.get(this.containerKey(building)) ?? building.placedAt)) - got * HERB_SECONDS));
-        say(`+${got} wild herb${got === 1 ? '' : 's'}`);
+        say(lang('bubble.gotN', { ...itemNoun('blobbi-pixel:resource:herb'), count: got, what: got === 1 ? itemLabel('blobbi-pixel:resource:herb') : itemPlural('blobbi-pixel:resource:herb') }));
         b.animator.react('happy', time, 0.8, 2);
         this.save();
         return;
@@ -5352,7 +5328,7 @@ export class LiveWorld {
       case 'admire':
         if (building.kind === 'flower-bed') for (let i = 0; i < 4; i++) this.particles.petal(building.x + this.particles.rng.range(-5, 5), top + 2, paletteFor(this.world.options.palette).flowers[i % 5]);
         else if (building.kind === 'fence') this.particles.dust(building.x, building.y, paletteFor(this.world.options.palette).wood.light);
-        say(ADMIRE[building.kind] ?? `a ${def.label}`);
+        say(ADMIRE.has(building.kind) ? lang(`admire.${building.kind}` as MessageKey) : lang('say.aThing', buildingNoun(building.kind)));
         b.animator.react(def.joy ? 'happy' : 'neutral', time, 0.9, def.joy ? 2 : 0);
         joy();
         return;
@@ -5379,17 +5355,17 @@ export class LiveWorld {
   /** A line to read from a bookshelf or a signpost (stable per object). */
   private readLine(building: Building): string {
     const lines = building.kind === 'signpost' ? SIGN_LINES : BOOK_LINES;
-    return stream(building.seed, 'read', this.tally.looked).pick(lines);
+    return lang(stream(building.seed, 'read', this.tally.looked).pick(lines));
   }
 
   /** The time of day, for clocks. */
   timeLabel(): string {
-    return `it is ${clockLabel(this.worldTime)}`;
+    return lang('say.itIs', { time: clockLabel(this.worldTime), count: clockHour(this.worldTime) });
   }
 
   private signText(o: Placement): string {
-    const texts = ['Welcome to the island', 'Mind the water', 'Trees grow here', 'Bridge ahead', 'Home sweet home', 'Keep off the flowers'];
-    return stream(this.world.seed, 'sign', o.x, o.y).pick(texts);
+    const texts: readonly MessageKey[] = ['worldSign.0', 'worldSign.1', 'worldSign.2', 'worldSign.3', 'worldSign.4', 'worldSign.5'];
+    return lang(stream(this.world.seed, 'sign', o.x, o.y).pick(texts));
   }
 
   /** Plant a seedling just ahead of the Blobbi on free grass. It will grow with the clock. */

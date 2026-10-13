@@ -38,7 +38,8 @@ import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { GameUI, hudScale, readSettings } from '../ui/game-ui';
 import { textPreference } from '../ui/surface';
-import { getLocale, initialLocale, LOCALE_KEY, onLocaleChange, setLocale } from '../i18n';
+import { getLocale, initialLocale, loadLocale, LOCALE_KEY, onLocaleChange, setLocale, t } from '../i18n';
+import '../content/text'; // content text follows the language (items, quests, notes...)
 import { InventoryScreen } from '../ui/screens/inventory';
 import { StorageScreen } from '../ui/screens/storage';
 import { CraftingScreen } from '../ui/screens/crafting';
@@ -526,10 +527,26 @@ gameUI.register(settingsScreen);
   } catch {
     /* private mode: detect each time */
   }
-  setLocale(initialLocale(stored, typeof navigator === 'undefined' ? [] : navigator.languages));
+  const initial = initialLocale(stored, typeof navigator === 'undefined' ? [] : navigator.languages);
+  // A language other than English is its own small chunk: wait for it (once, before anything is drawn), so the
+  // first frame is already in the player's language. If it cannot load, the game simply stays in English.
+  try {
+    await loadLocale(initial);
+  } catch {
+    /* offline or blocked: English */
+  }
+  setLocale(initial);
   document.documentElement.lang = getLocale();
+  // The page's own few words (the rest of the game is drawn on the canvas).
+  const pageText = () => {
+    const hint = document.getElementById('rotate-hint');
+    if (hint) hint.textContent = t('rotate.hint');
+    document.getElementById('island-name-input')?.setAttribute('aria-label', t('create.nameLabel'));
+  };
+  queueMicrotask(pageText);
   onLocaleChange((l) => {
     document.documentElement.lang = l;
+    pageText();
     try {
       localStorage.setItem(LOCALE_KEY, l);
     } catch {
@@ -746,11 +763,11 @@ function createWorld(kind: CarrierKind, name: string): string | null {
     world = makeWorld(seed);
     const store = localStore();
     const made = new LiveWorld(world, state.blobbi, state.blobbiSize, { store });
-    if (hasSave(made.identity, storeGet)) throw new Error('that island already exists');
+    if (hasSave(made.identity, storeGet)) throw new Error(t('create.exists'));
     made.islandName = name || null;
     made.intro = { state: 'pending', at: 0 };
     made.save();
-    if (store && !hasSave(made.identity, storeGet)) throw new Error('this browser would not keep the island (storage is full or disabled)');
+    if (store && !hasSave(made.identity, storeGet)) throw new Error(t('create.storage'));
     live = made;
     liveRenderer = new LiveRenderer(live);
     viewRenderer = new ViewRenderer(live, liveRenderer);
@@ -772,9 +789,10 @@ function createWorld(kind: CarrierKind, name: string): string | null {
 // Touch: a hidden text field brings up the device keyboard for the island name; what is typed mirrors into the title.
 const nameInput = document.createElement('input');
 nameInput.type = 'text';
+nameInput.id = 'island-name-input';
 nameInput.maxLength = 32;
 nameInput.autocomplete = 'off';
-nameInput.setAttribute('aria-label', 'Island name');
+nameInput.setAttribute('aria-label', t('create.nameLabel'));
 nameInput.style.cssText = 'position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0';
 document.body.appendChild(nameInput);
 function openNameInput(current: string): void {

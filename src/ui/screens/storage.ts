@@ -3,7 +3,8 @@
  * or pressing the slot again), one (Space), or half (H). "Store matching" puts every stack the chest already
  * holds into it (quick stacking). Every move is one `LiveWorld.moveItems` call, so nothing can be duplicated.
  */
-import { ALL_ITEMS, itemLabel, menuCategory, MENU_CATEGORIES } from '../../game/items';
+import { sentence, t, upper } from '../../i18n';
+import { ALL_ITEMS, itemLabel, itemPlural, menuCategory, MENU_CATEGORIES } from '../../game/items';
 import { BUILDINGS, type Building } from '../../game/buildings';
 import { itemIcon } from '../icons';
 import { Gfx, UI } from '../gfx';
@@ -23,7 +24,7 @@ export class StorageScreen implements Screen {
 
   title(ui: GameUI): string {
     const c = this.target ? ui.live!.containerFor(this.target) : null;
-    return `${this.target ? BUILDINGS[this.target.kind].label : 'Storage'}  ${c ? `${c.inventory.entries().length}/${c.capacity} stacks` : ''}`;
+    return `${this.target ? sentence(BUILDINGS[this.target.kind].label) : t('storage.title')}  ${c ? t('storage.stacks', { n: c.inventory.entries().length, of: c.capacity }) : ''}`;
   }
 
   opened(): void {
@@ -46,8 +47,8 @@ export class StorageScreen implements Screen {
     if (!e) return;
     const n = how === 'all' ? e.quantity : how === 'one' ? 1 : Math.max(1, Math.floor(e.quantity / 2));
     const moved = live.moveItems(this.target, e.item, n, this.side === 'bag');
-    if (moved) ui.say(`${moved} ${itemLabel(e.item)} ${this.side === 'bag' ? 'stored' : 'taken'}`);
-    else ui.say(this.side === 'bag' ? 'the chest is full' : 'no room in the bag', false);
+    if (moved) ui.say(t(this.side === 'bag' ? 'storage.stored' : 'storage.taken', { count: moved, what: moved === 1 ? itemLabel(e.item) : itemPlural(e.item) }));
+    else ui.say(t(this.side === 'bag' ? 'storage.full' : 'build.noRoomInBag'), false);
     const after = this.lists(ui)[this.side];
     this.index = Math.min(this.index, Math.max(0, after.length - 1));
   }
@@ -59,7 +60,7 @@ export class StorageScreen implements Screen {
     const c = live.containerFor(this.target)!;
     let total = 0;
     for (const e of live.inventory.entries()) if (c.inventory.count(e.item) > 0) total += live.moveItems(this.target, e.item, e.quantity, true);
-    ui.say(total ? `${total} items stored` : 'nothing matching to store', total > 0);
+    ui.say(total ? t('storage.storedItems', { count: total }) : t('storage.nothingMatching'), total > 0);
   }
 
   key(code: string, shift: boolean, ui: GameUI): boolean {
@@ -100,8 +101,8 @@ export class StorageScreen implements Screen {
     const lists = this.lists(ui);
     const paneW = COLS * (SLOT + 2) + 4;
     const panes: ['bag' | 'chest', number, string][] = [
-      ['bag', x, `BAG ${lists.bag.length}`],
-      ['chest', x + w - paneW, `CHEST ${lists.chest.length}/${this.target ? live.containerFor(this.target)!.capacity : 0}`],
+      ['bag', x, upper(`${t('menu.bag')} ${lists.bag.length}`)],
+      ['chest', x + w - paneW, upper(`${t('storage.chest')} ${lists.chest.length}/${this.target ? live.containerFor(this.target)!.capacity : 0}`)],
     ];
     for (const [side, px, label] of panes) {
       const list = lists[side];
@@ -123,9 +124,9 @@ export class StorageScreen implements Screen {
             this.side = side;
             this.index = i;
           }
-        }, `${itemLabel(e.item)} x${e.quantity}`);
+        }, `${itemLabel(e.item)} ×${e.quantity}`);
       }
-      if (!list.length) g.para(side === 'bag' ? 'The bag is empty.' : 'Empty. Pick a stack in the bag and press Enter.', px + 4, y + 14, paneW - 8, UI.muted);
+      if (!list.length) g.para(t(side === 'bag' ? 'storage.bagEmpty' : 'storage.chestEmpty'), px + 4, y + 14, paneW - 8, UI.muted);
     }
     // Middle: the selected stack and the transfer buttons.
     const mx = x + paneW + 4;
@@ -133,16 +134,16 @@ export class StorageScreen implements Screen {
     const e = lists[this.side][this.index];
     if (e) {
       g.buf.blit(itemIcon(e.item, palette).scaled(2), mx + Math.floor(mw / 2) - 14, y + 4);
-      g.para(itemLabel(e.item), mx, y + 36, mw, UI.accent, 2);
-      g.text(`x${e.quantity}`, mx, y + 52, UI.ink);
+      g.para(sentence(itemLabel(e.item)), mx, y + 36, mw, UI.accent, 2);
+      g.text(`×${e.quantity}`, mx, y + 52, UI.ink);
     }
-    const arrow = this.side === 'bag' ? 'STORE' : 'TAKE';
+    const store = this.side === 'bag';
     let by = y + 62;
-    for (const [label, how] of [[`${arrow} ALL`, 'all'], [`${arrow} HALF`, 'half'], [`${arrow} ONE`, 'one']] as const) {
+    for (const [label, how] of [[t(store ? 'storage.storeAll' : 'storage.takeAll'), 'all'], [t(store ? 'storage.storeHalf' : 'storage.takeHalf'), 'half'], [t(store ? 'storage.storeOne' : 'storage.takeOne'), 'one']] as const) {
       g.button(label, mx, by, () => this.move(ui, how), { enabled: !!e, primary: how === 'all', w: mw });
       by += 13;
     }
-    g.button('STORE MATCHING', mx, by + 4, () => this.storeMatching(ui), { w: mw });
-    g.text('ENTER ALL  SPACE ONE  H HALF  TAB SIDE  M MATCH', x, y + h - 10, UI.muted);
+    g.button(t('storage.storeMatching'), mx, by + 4, () => this.storeMatching(ui), { w: mw });
+    g.text(upper(t('storage.keys')), x, y + h - 10, UI.muted);
   }
 }

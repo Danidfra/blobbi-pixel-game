@@ -7,30 +7,25 @@
  * Keyboard: UP/DOWN choose a part, LEFT/RIGHT the option, ENTER applies, BACKSPACE reverts. Mouse and touch: the
  * arrows beside each part and the buttons.
  */
-import { Gfx, UI, textWidth } from '../gfx';
+import { Gfx, UI } from '../gfx';
+import { t, upper } from '../../i18n';
+import { fitText } from './crafting';
 import type { GameUI } from '../game-ui';
 import type { HomeScreen } from './home';
 import { houseSprite } from '../../game/buildings';
 import { resolveLook, type HouseLook } from '../../game/house-art';
 import { layoutFor, roomSprite } from '../../game/interior';
-import { STYLE_OPTIONS, isUnlocked, unlockHint, type StylePart } from '../../content/home-styles';
+import { PART_NAMES, STYLE_OPTIONS, isUnlocked, unlockHint, type StylePart } from '../../content/home-styles';
 import { PixelBuffer } from '../../core/pixel';
 import { card, DESIGN } from '../hud';
 import { hex } from '../../core/color';
 
 type Draft = Record<StylePart, number>;
 
-const LOOK_PARTS: readonly [StylePart, string][] = [
-  ['roof', 'ROOF'],
-  ['wall', 'WALLS'],
-  ['door', 'DOOR'],
-  ['window', 'WINDOWS'],
-];
-const ROOM_PARTS: readonly [StylePart, string][] = [
-  ['floor', 'FLOOR'],
-  ['wallColour', 'WALL COLOUR'],
-  ['finish', 'WALL FINISH'],
-];
+// Each part with its name (`PART_NAMES`, content text: in the player's language when read).
+const part = (p: StylePart): [StylePart, string] => [p, ''];
+const LOOK_PARTS: readonly [StylePart, string][] = [part('roof'), part('wall'), part('door'), part('window')];
+const ROOM_PARTS: readonly [StylePart, string][] = [part('floor'), part('wallColour'), part('finish')];
 
 /** The draft from what the home has now. */
 function current(ui: GameUI): Draft {
@@ -74,26 +69,26 @@ class StyleTab {
   private locked(ui: GameUI): string[] {
     const ctx = ui.live!.styleContext();
     const now = current(ui);
-    return this.parts.filter(([p]) => this.draft![p] !== now[p] && !isUnlocked(STYLE_OPTIONS[p][this.draft![p]].unlock, ctx)).map(([, label]) => label.toLowerCase());
+    return this.parts.filter(([p]) => this.draft![p] !== now[p] && !isUnlocked(STYLE_OPTIONS[p][this.draft![p]].unlock, ctx)).map(([p]) => PART_NAMES[p]);
   }
 
   apply(ui: GameUI): void {
     const live = ui.live!;
     const d = this.ensure(ui);
-    if (!d) return ui.say('build a shelter first (B)', false);
+    if (!d) return ui.say(t('home.buildShelterB'), false);
     const locked = this.locked(ui);
-    if (locked.length) return ui.say(`still locked: ${locked.join(', ')}`, false);
+    if (locked.length) return ui.say(t('style.stillLocked', { list: locked.join(', ') }), false);
     const house = live.home()!;
     const r =
       this.kind === 'look'
         ? live.setHouseLook(lookFromDraft(d, house.level ?? 1))
         : live.setRoomStyle({ floor: d.floor, wall: d.wallColour, ...(d.finish ? { finish: d.finish } : {}) });
-    ui.say(r.ok ? (this.kind === 'look' ? 'your house has a new look' : 'the rooms are restyled') : (r.reason ?? 'not now'), r.ok);
+    ui.say(r.ok ? t(this.kind === 'look' ? 'style.newLook' : 'style.restyled') : (r.reason ?? t('bag.notNow')), r.ok);
   }
 
   revert(ui: GameUI): void {
     this.draft = current(ui);
-    ui.say('back as it was');
+    ui.say(t('style.reverted'));
   }
 
   key(code: string, ui: GameUI): boolean {
@@ -113,7 +108,7 @@ class StyleTab {
   /** ARRANGE FURNITURE: the move mode, inside the house. */
   arrange(ui: GameUI): void {
     const live = ui.live!;
-    if (!live.inside) return ui.say('step inside your house to arrange its furniture', false);
+    if (!live.inside) return ui.say(t('style.stepInside'), false);
     ui.close();
     if (!live.manage) live.toggleManage();
   }
@@ -122,7 +117,7 @@ class StyleTab {
     const live = ui.live!;
     const d = this.ensure(ui);
     if (!d) {
-      g.para('Build your first home to make it yours: B (or CRAFT, then BUILD).', x, y + 4, w, UI.ink);
+      g.para(t('style.noHome'), x, y + 4, w, UI.ink);
       return;
     }
     const ctx = live.styleContext();
@@ -157,11 +152,12 @@ class StyleTab {
       padlock(pv, Math.floor(pw / 2) - 9, Math.floor(ph / 2) - 12, 2);
     }
     g.buf.blit(pv, x + 2, y + 2);
-    g.text(lockedNow.length ? `LOCKED: ${lockedNow.join(', ').toUpperCase()}`.slice(0, 30) : 'PREVIEW', x + 2, y + ph + 7, lockedNow.length ? UI.bad : UI.muted);
+    g.text(fitText(g, upper(lockedNow.length ? t('style.lockedList', { list: lockedNow.join(', ') }) : t('style.preview')), pw), x + 2, y + ph + 7, lockedNow.length ? UI.bad : UI.muted);
     // The parts, each with its option and arrows.
     const cx = x + pw + 10;
     let cy = y + 2;
-    this.parts.forEach(([part, label], i) => {
+    this.parts.forEach(([part], i) => {
+      const label = upper(PART_NAMES[part]);
       const opt = STYLE_OPTIONS[part][d[part]];
       const open = isUnlocked(opt.unlock, ctx) || d[part] === current(ui)[part];
       const total = STYLE_OPTIONS[part].length;
@@ -172,21 +168,20 @@ class StyleTab {
       g.text(label, cx + 4, cy + 3, selected ? UI.accent : UI.muted);
       g.button('<', cx + rw - 98, cy + 2, () => ((this.row = i), this.cycle(part, -1)), { w: 10 });
       g.button('>', cx + rw - 12, cy + 2, () => ((this.row = i), this.cycle(part, 1)), { w: 10 });
-      const name = opt.name.toUpperCase();
-      g.text(name.slice(0, 18), cx + rw - 86, cy + 5, open ? UI.ink : UI.line);
-      g.text(open ? `${openCount} OF ${total} OPEN` : `LOCKED: ${unlockHint(opt.unlock)}`.toUpperCase().slice(0, 52), cx + 4, cy + 13, open ? UI.muted : UI.bad);
+      const name = upper(opt.name);
+      g.text(fitText(g, name, 72), cx + rw - 86, cy + 5, open ? UI.ink : UI.line);
+      g.text(fitText(g, upper(open ? t('style.open', { n: openCount, of: total }) : t('style.lockedHint', { hint: unlockHint(opt.unlock) })), rw - 8), cx + 4, cy + 13, open ? UI.muted : UI.bad);
       if (!open) padlock(g.buf, cx + rw - 110, cy + 1);
       g.hit(cx, cy, rw - 100, 22, () => (this.row = i));
       cy += 25;
     });
     const by = y + h - 13;
     const anyLocked = this.locked(ui).length > 0;
-    g.button('APPLY', cx, by, () => this.apply(ui), { w: 60, primary: !anyLocked, enabled: !anyLocked, whyNot: () => this.apply(ui) });
-    g.button('REVERT', cx + 64, by, () => this.revert(ui), { w: 48 });
-    if (this.kind === 'rooms') g.button('ARRANGE', cx + 116, by, () => this.arrange(ui), { w: 50, enabled: live.inside, whyNot: () => this.arrange(ui) });
-    const tip = this.kind === 'look' ? 'LEFT/RIGHT CHANGE. ENTER APPLIES.' : 'INSIDE: ARRANGE MOVES FURNITURE.';
-    g.text(tip, x, by + 3, UI.muted);
-    void textWidth;
+    g.button(t('style.apply'), cx, by, () => this.apply(ui), { w: 60, primary: !anyLocked, enabled: !anyLocked, whyNot: () => this.apply(ui) });
+    g.button(t('style.revert'), cx + 64, by, () => this.revert(ui), { w: 48 });
+    if (this.kind === 'rooms') g.button(t('style.arrange'), cx + 116, by, () => this.arrange(ui), { w: 50, enabled: live.inside, whyNot: () => this.arrange(ui) });
+    const tip = upper(t(this.kind === 'look' ? 'style.tipLook' : 'style.tipRooms'));
+    g.text(fitText(g, tip, cx - x - 4), x, by + 3, UI.muted);
   }
 }
 

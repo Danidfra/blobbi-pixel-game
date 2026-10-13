@@ -6,6 +6,8 @@
  * Unlocks are DERIVED from the save (completed quests, finds, the tally, the growth stage, the house level), so
  * nothing extra is stored and an older save shows every option it has already earned.
  */
+import { t } from '../i18n';
+import { HOUSE_LEVELS } from './houses';
 import { ROOF_COLOURS, WALL_MATERIALS, DOOR_STYLES, WINDOW_STYLES } from '../game/house-art';
 import { FLOOR_NAMES, WALL_NAMES, FINISH_NAMES } from '../game/interior';
 
@@ -57,11 +59,11 @@ export function isUnlocked(u: Unlock, ctx: UnlockContext): boolean {
 /** How to unlock an option, in a few words ("quest: A bigger home"). */
 export function unlockHint(u: Unlock): string {
   if ('always' in u) return '';
-  if ('quest' in u) return `quest: ${u.label}`;
-  if ('finds' in u) return `find ${u.finds} discoveries`;
+  if ('quest' in u) return t('unlock.quest', { title: u.label });
+  if ('finds' in u) return t('unlock.finds', { count: u.finds });
   if ('tally' in u) return u.label;
-  if ('houseLevel' in u) return u.houseLevel === 3 ? 'upgrade to a Dream Home' : 'upgrade to a Cottage';
-  return `grow the island to stage ${u.growth}`;
+  if ('houseLevel' in u) return t('unlock.house', { name: HOUSE_LEVELS[u.houseLevel - 1].name });
+  return t('unlock.growth', { n: u.growth });
 }
 
 export const optionUnlocked = (part: StylePart, index: number, ctx: UnlockContext): boolean => {

@@ -14,8 +14,9 @@ import { PixelBuffer } from '../core/pixel';
 import type { WorldPalette } from '../core/palette';
 import type { LiveWorld } from '../sim/live-world';
 import type { Building } from '../game/buildings';
-import { Gfx, UI, textWidth, type Hit } from './gfx';
+import { Gfx, UI, type Hit } from './gfx';
 import { card } from './hud';
+import { t, upper, type MessageKey } from '../i18n';
 
 export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide';
 
@@ -256,7 +257,15 @@ export class GameUI {
     g.hits.push({ x: 0, y: 0, w: PANEL_W, h: PANEL_H, action: () => {}, inert: true });
     g.box(1, 1, PANEL_W - 2, 11, UI.title, null);
     g.buf.fillRect(1, 12, PANEL_W - 2, 1, UI.line);
-    g.heading(this.screen.title(this), 5, 4, UI.accent);
+    // The title in the 3×5 capitals; a long one (counts, other languages) in the narrower body capitals, cut to fit.
+    const title = upper(this.screen.title(this));
+    const room = PANEL_W - 22;
+    if (g.measure(title, 'title') <= room) g.heading(title, 5, 4, UI.accent);
+    else {
+      let fit = title;
+      while (fit.length > 1 && g.measure(fit) > room) fit = fit.slice(0, -2) + '…';
+      g.text(fit, 5, 4, UI.accent);
+    }
     g.button('X', PANEL_W - 13, 1, () => this.close(), { w: 12 });
     this.screen.draw(g, this, 4, 15, PANEL_W - 8, PANEL_H - 27);
     // Footer: the last answer, or the keys.
@@ -295,17 +304,22 @@ export class GameUI {
     const tip = live.tutorialTip();
     const justDone = !tip && live.tipJustDone && !live.tutorial.skipped;
     if (!tip && !justDone) return;
-    const text = tip ? (this.touchMode ? tip.touch : tip.keys) : 'Nice!';
+    const text = tip ? (this.touchMode ? tip.touch : tip.keys) : t('tip.nice');
     const maxW = Math.min(220, Math.floor(screen.width / scale) - 16);
     const measure = new Gfx(1, 1, scale);
-    const lines = tip ? measure.lines(text, maxW - 62) : [text];
+    // "TIP" in the 3×5 capitals, the words after it, SKIP TIPS on the right; each as wide as its language needs.
+    const head = upper(t('tip.tip'));
+    const textX = tip ? 4 + measure.measure(head, 'title') + 5 : 6;
+    const skip = upper(t('tip.skip'));
+    const sw = Math.max(34, measure.measure(skip) + 6);
+    const lines = tip ? measure.lines(text, maxW - textX - sw - 6) : [text];
     const w = tip ? maxW : Math.max(30, measure.measure(text) + 12);
     const h = 6 + lines.length * 7 + 1;
     const g = new Gfx(w, h, scale);
     g.buf.blit(card(w, h, tip ? UI.accent : UI.good), 0, 0);
-    if (tip) g.heading('TIP', 4, 3, UI.accent);
-    lines.forEach((l, i) => g.text(l, tip ? 20 : 6, 3 + i * 7, tip ? UI.ink : UI.good));
-    if (tip) g.button('SKIP TIPS', w - 36, Math.floor((h - 11) / 2), () => live.setTips(false), { w: 34 });
+    if (tip) g.heading(head, 4, 3, UI.accent);
+    lines.forEach((l, i) => g.text(l, textX, 3 + i * 7, tip ? UI.ink : UI.good));
+    if (tip) g.button(skip, w - sw - 2, Math.floor((h - 11) / 2), () => live.setTips(false), { w: sw });
     const big = g.out;
     const ox = Math.round(screen.width / 2 - big.width / 2);
     // Above the action prompt and clear of the menu bar (which may be two rows on a phone).
@@ -324,34 +338,38 @@ export class GameUI {
    */
   private drawMenuBar(screen: PixelBuffer, scale: number): void {
     if (!this.live) return;
+    const key = (name: MessageKey, k: string) => `${upper(t(name))} ${k}`;
     const items: [string, ScreenId][] = [
-      ['BAG I', 'inventory'],
-      ['CRAFT K', 'crafting'],
-      ['JOURNAL J', 'journal'],
-      ['BLOBBI U', 'care'],
-      ['MAP N', 'map'],
-      ['HOME 1', 'home'],
-      ['GUIDE ?', 'guide'],
+      [key('menu.bag', 'I'), 'inventory'],
+      [key('menu.craft', 'K'), 'crafting'],
+      [key('menu.journal', 'J'), 'journal'],
+      [key('menu.blobbi', 'U'), 'care'],
+      [key('menu.map', 'N'), 'map'],
+      [key('menu.home', '1'), 'home'],
+      [key('menu.guide', '?'), 'guide'],
       ['...', 'settings'],
     ];
     // A finger needs no key names: shorter labels, bigger buttons.
     const label = (l: string) => (this.touchMode ? l.replace(/ (?:[A-Z1?]|E)$/, '') : l);
-    const use = label('USE E');
-    const widthOf = (l: string) => textWidth(label(l)) + 6;
-    const rowW = (list: [string, ScreenId][]) => list.reduce((n, [l]) => n + widthOf(l) + 1, 0);
+    const use = label(key('menu.use', 'E'));
+    // Widths as the labels are drawn at a scale (M11B: the body font is narrower than the 3×5 capitals).
+    const probes = new Map<number, Gfx>();
+    const measureAt = (k: number, l: string) => (probes.get(k) ?? probes.set(k, new Gfx(1, 1, k)).get(k)!).measure(l);
     let s = this.touchMode ? 3 : scale;
+    const widthOf = (l: string, k = s) => measureAt(k, label(l)) + 6;
+    const rowW = (list: [string, ScreenId][], k = s) => list.reduce((n, [l]) => n + widthOf(l, k) + 1, 0);
     let rows: [string, ScreenId][][] = [items];
-    const fits = (k: number, r: [string, ScreenId][][]) => Math.max(...r.map((row, i) => rowW(row) + (i === r.length - 1 ? textWidth(use) + 9 : 0))) * k + 4 * k <= screen.width;
+    const fits = (k: number, r: [string, ScreenId][][]) => Math.max(...r.map((row, i) => rowW(row, k) + (i === r.length - 1 ? measureAt(k, use) + 9 : 0))) * k + 4 * k <= screen.width;
     if (!fits(s, rows)) rows = [items.slice(0, 4), items.slice(4)];
     while (s > 1 && !fits(s, rows)) s--;
     const rowH = 11;
-    const w = Math.max(...rows.map((row, i) => rowW(row) + (i === rows.length - 1 ? textWidth(use) + 9 : 0)));
+    const w = Math.max(...rows.map((row, i) => rowW(row) + (i === rows.length - 1 ? measureAt(s, use) + 9 : 0)));
     const g = new Gfx(w, rows.length * (rowH + 1), s);
     rows.forEach((row, r) => {
       const y = r * (rowH + 1);
-      let x = w - rowW(row) - (r === rows.length - 1 ? textWidth(use) + 9 : 0);
+      let x = w - rowW(row) - (r === rows.length - 1 ? measureAt(s, use) + 9 : 0);
       // USE presses E for a mouse or a touch screen (the same action as the key).
-      if (r === rows.length - 1) x += g.button(use, x, y, () => this.onUse?.(), { w: textWidth(use) + 6, primary: true }) + 3;
+      if (r === rows.length - 1) x += g.button(use, x, y, () => this.onUse?.(), { w: measureAt(s, use) + 6, primary: true }) + 3;
       for (const [l, id] of row) x += g.button(label(l), x, y, () => this.open(id), { w: widthOf(l) }) + 1;
     });
     const big = g.out;
@@ -370,19 +388,21 @@ export class GameUI {
   private drawModeBar(screen: PixelBuffer, s: number, menuTop: number): void {
     const live = this.live;
     if (!live) return;
-    const buttons: [string, () => void][] = [];
-    if (live.moving) buttons.push(['CANCEL MOVE', () => live.cancelMove()]);
-    else if (live.placing) buttons.push(['STYLE', () => live.cycleVariant()], ['DONE', () => live.stopPlacing()]);
-    else if (live.manage) buttons.push(['STYLE', () => live.restyleSelected()], ['TO BAG', () => live.removeSelected()], ['DONE', () => live.toggleManage()]);
-    else if (live.buildMode) buttons.push(['NEXT', () => live.cycleBuildMode()], ['CANCEL', () => live.setBuildMode(null)]);
+    const buttons: [string, () => void, boolean?][] = [];
+    const done = upper(t('mode.done'));
+    if (live.moving) buttons.push([upper(t('mode.cancelMove')), () => live.cancelMove()]);
+    else if (live.placing) buttons.push([upper(t('mode.style')), () => live.cycleVariant()], [done, () => live.stopPlacing(), true]);
+    else if (live.manage) buttons.push([upper(t('mode.style')), () => live.restyleSelected()], [upper(t('mode.toBag')), () => live.removeSelected()], [done, () => live.toggleManage(), true]);
+    else if (live.buildMode) buttons.push([upper(t('mode.next')), () => live.cycleBuildMode()], [upper(t('mode.cancel')), () => live.setBuildMode(null)]);
     if (!buttons.length) return;
-    const head = live.moving ? 'USE PUTS IT DOWN' : live.placing ? 'USE PLACES' : live.manage ? 'USE PICKS UP' : 'USE BUILDS';
-    const bw = buttons.reduce((n, [l]) => n + textWidth(l) + 7, 0);
-    const w = Math.max(bw, textWidth(head) + 4);
+    const head = upper(t(live.moving ? 'mode.head.move' : live.placing ? 'mode.head.place' : live.manage ? 'mode.head.manage' : 'mode.head.build'));
+    const probe = new Gfx(1, 1, s);
+    const bw = buttons.reduce((n, [l]) => n + probe.measure(l) + 7, 0);
+    const w = Math.max(bw, probe.measure(head) + 4);
     const g = new Gfx(w, 19, s);
     g.text(head, 1, 0, UI.accent);
     let x = 0;
-    for (const [l, run] of buttons) x += g.button(l, x, 7, run, { w: textWidth(l) + 6, primary: l === 'DONE' }) + 1;
+    for (const [l, run, primary] of buttons) x += g.button(l, x, 7, run, { w: probe.measure(l) + 6, primary: !!primary }) + 1;
     const big = g.out;
     const ox = 2 * s;
     const oy = Math.max(0, menuTop - big.height - 2 * s);

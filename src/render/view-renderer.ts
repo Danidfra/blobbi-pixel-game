@@ -21,7 +21,7 @@ import { attachTool, EquipmentRig, EQUIPMENT, type Attachment } from '../game/eq
 import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { ITEMS, FOODS, itemLabel, itemPlural } from '../game/items';
 import { currentObjective, OBJECTIVES } from '../game/objectives';
-import { BASIC_KINDS } from '../game/resources';
+import { BASIC_KINDS, RESOURCE_ITEM } from '../game/resources';
 import type { LiveWorld } from '../sim/live-world';
 import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { InteriorRenderer } from './interior-render';
@@ -29,7 +29,7 @@ import { drawTeleportParticles, drawTeleportShadow, teleportSprite } from './tel
 import { applyLight, dayAt, hourAt } from '../game/daylight';
 import { goalCard, pinnedCard, statusCard, timeChip, toastCard, toolChip, ToastFeed, type StatusInfo } from '../ui/hud';
 import { UiSurface, textPreference } from '../ui/surface';
-import { getLocale, sentence } from '../i18n';
+import { getLocale, sentence, t as lang, upper } from '../i18n';
 import { itemIcon } from '../ui/icons';
 import { FRIEND_TITLES, friendLevel } from '../game/friendship';
 import { REST_POSE } from '../blobbi/pose';
@@ -402,14 +402,15 @@ export class ViewRenderer {
     const steps = (v: number) => Math.round(v / 10) * 10;
     const counts = live.counts();
     const food = FOODS.reduce((n, f) => n + live.inventory.count(f), 0);
-    const carried = ([['WOOD', live.inventory.count(ITEMS.wood.id)], ...BASIC_KINDS.map((k) => [k.toUpperCase(), counts[k]]), ['FOOD', food]] as [string, number][])
+    // What is carried, by its name in the player's language (plural names: "wood 6  sticks 4").
+    const carried = ([[itemPlural(ITEMS.wood.id), live.inventory.count(ITEMS.wood.id)], ...BASIC_KINDS.map((k) => [itemPlural(RESOURCE_ITEM[k]), counts[k]]), [lang('hud.food'), food]] as [string, number][])
       .filter(([, n]) => n > 0)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([k, n]) => `${k} ${n}`);
     const away = live.getPresenceState() !== 'present';
     const level = friendLevel(live.companion.friendship);
-    const info: StatusInfo = { name: live.blobbi.seed.length > 14 ? 'BLOBBI' : live.blobbi.seed, title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
+    const info: StatusInfo = { name: live.blobbi.seed.length > 14 ? 'Blobbi' : live.blobbi.seed, title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
     const status = this.cachedText(`status|${JSON.stringify(info)}`, (k) => statusCard({ ...info, face: this.portrait() }, k), ui);
     screen.blit(status, 2 * ui, 2 * ui);
     let bottom = 2 * ui + status.height;
@@ -468,7 +469,7 @@ export class ViewRenderer {
     }
     // A visitor sees where it is and how to go home, not the host's story.
     if (live.visitor) {
-      const text = `VISITING ${live.visitLabel || 'AN ISLAND'}  LOOK, DON'T TOUCH  Y: GO HOME`.toUpperCase();
+      const text = upper(lang('hud.visiting', { name: live.visitLabel || lang('hud.anIsland') }));
       const chipV = this.cachedText(`visit|${text}`, (k) => toastCard(null, text, k), ui);
       if (narrow(chipV.width)) screen.blit(chipV, 2 * ui, (hud?.bottom ?? 0) + ui);
       else screen.blit(chipV, screen.width - chipV.width - 2 * ui, y);
@@ -541,7 +542,7 @@ export class ViewRenderer {
   private drawIndicator(screen: PixelBuffer, view: ViewRect, ui: number): void {
     const mode = CAMERA_MODES[view.mode];
     const scaleText = Number.isInteger(view.scale) ? `${view.scale}X` : '';
-    const text = `Z CAMERA  ${mode.label} ${scaleText}`.trimEnd();
+    const text = `${upper(lang('hud.camera'))}  ${mode.label} ${scaleText}`.trimEnd();
     const buf = this.cachedText(`cam|${text}`, (scale) => {
       const pips = CAMERA_CYCLE.length * 4 + 2;
       const w = new UiSurface(1, 1, scale).measure(text) + 3 + pips;

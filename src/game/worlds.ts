@@ -7,6 +7,7 @@
  * A small separate index (`blobbi-pixel-lab:worlds`) remembers when each world was last played, so CONTINUE picks
  * the most recent one. Losing the index loses only that ordering.
  */
+import { t } from '../i18n';
 import { saveKey } from './persistence';
 import { dayAt } from './daylight';
 import { sanitizeIslandName, worldName } from './island-name';
@@ -155,7 +156,7 @@ export function newWorldSeeds(random: () => string, identityOf: (seed: string, t
     const turtleSeed = `turtle-${random()}`;
     if (!taken(identityOf(seed, turtleSeed))) return { seed, turtleSeed };
   }
-  throw new Error('could not find a free world seed');
+  throw new Error(t('create.noSeed'));
 }
 
 /**

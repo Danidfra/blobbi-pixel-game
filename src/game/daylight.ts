@@ -3,6 +3,7 @@
  * runs); world time 0 is a fresh morning. Light is presentation only: nothing grows, decays or happens differently
  * at night (crops are pure functions of world time), and the night tint stays light enough to play in.
  */
+import { t as tr } from '../i18n';
 export const DAY_SECONDS = 1200;
 /** The hour world time 0 begins at. */
 export const START_HOUR = 7;
@@ -25,10 +26,14 @@ export function clockLabel(t: number): string {
   const h = hourAt(t);
   const hh = Math.floor(h);
   const mm = Math.floor((h - hh) * 6) * 10;
-  const part = hh < 5 ? 'at night' : hh < 12 ? 'in the morning' : hh < 17 ? 'in the afternoon' : hh < 21 ? 'in the evening' : 'at night';
+  const part = hh < 5 ? 'night' : hh < 12 ? 'morning' : hh < 17 ? 'afternoon' : hh < 21 ? 'evening' : 'night';
   const h12 = ((hh + 11) % 12) + 1;
-  return `${h12}:${String(mm).padStart(2, '0')} ${part}`;
+  // In the player's language (M11B): "7:30 in the morning", "7h30 da manhã", "7:30 de la mañana".
+  return tr(`clock.${part}`, { h: h12, mm: String(mm).padStart(2, '0') });
 }
+
+/** The hour on a 12-hour clock (for "it is one o'clock" agreement). */
+export const clockHour = (t: number): number => ((Math.floor(hourAt(t)) + 11) % 12) + 1;
 
 /**
  * Light at a world time: `dark` 0 (full day) .. 0.45 (deep night; never darker, so the island stays readable), and

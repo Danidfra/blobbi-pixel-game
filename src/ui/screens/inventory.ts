@@ -4,14 +4,18 @@
  * holds a copy of it.
  */
 import { ALL_ITEMS, MENU_CATEGORIES, MENU_LABEL, foodEffect, itemById, itemDescription, itemLabel, menuCategory, toolTier, type MenuCategory } from '../../game/items';
-import { cropForSeed, CROPS } from '../../game/farming';
+import { cropForSeed } from '../../game/farming';
+import { sentence } from '../../i18n';
 import { itemIcon } from '../icons';
 import { Gfx, UI } from '../gfx';
 import { isConfirm, moveSelection, type GameUI, type Screen } from '../game-ui';
+import { itemNoun, cropNoun } from '../../content/text';
+import { t, upper } from '../../i18n';
 
 type Tab = 'all' | MenuCategory;
 const TABS: readonly Tab[] = ['all', ...MENU_CATEGORIES];
-const TAB_LABEL: Record<Tab, string> = { all: 'All', ...MENU_LABEL };
+/** Tab names in the current language (the menu labels are content text, translated in place). */
+const tabLabel = (tab: Tab): string => (tab === 'all' ? t('bag.all') : MENU_LABEL[tab]);
 const ORDER = new Map(ALL_ITEMS.map((d, i) => [d.id, i]));
 
 export const COLS = 8;
@@ -34,14 +38,14 @@ export function primaryAction(ui: GameUI, item: string): { label: string; run: (
   const def = itemById(item);
   if (!def) return null;
   if (def.tool) {
-    if (live.equipped === item) return { label: 'Unequip', run: () => (live.unequip(), ui.say(`${itemLabel(item)} back in the bag`)) };
-    return { label: 'Equip', run: () => (live.equip(item) ? ui.say(`${itemLabel(item)} in hand`) : ui.say('cannot equip that', false)) };
+    if (live.equipped === item) return { label: t('bag.unequip'), run: () => (live.unequip(), ui.say(t('bag.backInBag', itemNoun(item)))) };
+    return { label: t('bag.equip'), run: () => (live.equip(item) ? ui.say(t('bag.inHand', itemNoun(item))) : ui.say(t('bag.cannotEquip'), false)) };
   }
-  if (def.food) return { label: 'Feed Blobbi', run: () => (live.feed(item) ? ui.say(`Blobbi ate the ${itemLabel(item)}`) : ui.say(live.bubble?.text ?? 'not now', false)) };
+  if (def.food) return { label: t('bag.feed'), run: () => (live.feed(item) ? ui.say(t('bag.ate', itemNoun(item))) : ui.say(live.bubble?.text ?? t('bag.notNow'), false)) };
   const crop = cropForSeed(item);
-  if (crop) return { label: 'Plant these', run: () => ((live.selectedCrop = crop), ui.say(`E plants ${CROPS[crop].label} next`), ui.close()) };
-  if (def.place) return { label: 'Place', run: () => (live.startPlacing(item) ? ui.close() : ui.say(live.bubble?.text ?? 'cannot place that here', false)) };
-  if (def.category === 'special' && live.readable(item)) return { label: 'Read', run: () => ui.openNote(item) };
+  if (crop) return { label: t('bag.plant'), run: () => ((live.selectedCrop = crop), ui.say(t('bag.plantsNext', cropNoun(crop))), ui.close()) };
+  if (def.place) return { label: t('bag.place'), run: () => (live.startPlacing(item) ? ui.close() : ui.say(live.bubble?.text ?? t('bag.cannotPlace'), false)) };
+  if (def.category === 'special' && live.readable(item)) return { label: t('bag.read'), run: () => ui.openNote(item) };
   return null;
 }
 
@@ -53,7 +57,7 @@ export class InventoryScreen implements Screen {
 
   title(ui: GameUI): string {
     const live = ui.live!;
-    return `Bag  ${live.inventory.entries().length} kinds, ${live.inventory.total()} items`;
+    return t('bag.title', { kinds: live.inventory.entries().length, items: live.inventory.total() });
   }
 
   opened(): void {
@@ -101,8 +105,8 @@ export class InventoryScreen implements Screen {
     let tx = x;
     TABS.forEach((tab, i) => {
       const n = bagEntries(ui, tab).length;
-      const label = `${TAB_LABEL[tab]} ${n}`;
-      tx += g.button(label.toUpperCase(), tx, y, () => ((this.tab = tab), (this.index = 0)), { primary: this.tab === tab, w: label.length * 4 + 5 }) + 1;
+      const label = upper(`${tabLabel(tab)} ${n}`);
+      tx += g.button(label, tx, y, () => ((this.tab = tab), (this.index = 0)), { primary: this.tab === tab, w: g.measure(label) + 5 }) + 1;
       void i;
     });
     // Grid.
@@ -122,15 +126,16 @@ export class InventoryScreen implements Screen {
       g.hit(sx, sy, SLOT, SLOT, () => {
         if (this.index === i) primaryAction(ui, e.item)?.run();
         this.index = i;
-      }, `${itemLabel(e.item)} x${e.quantity}`);
+      }, `${itemLabel(e.item)} ×${e.quantity}`);
     }
-    if (!list.length) g.para(this.tab === 'all' ? 'The bag is empty. Pick things up with E.' : `No ${TAB_LABEL[this.tab].toLowerCase()} yet.`, x + 2, gy + 4, COLS * (SLOT + 2) - 4, UI.muted);
+    if (!list.length) g.para(this.tab === 'all' ? t('bag.empty') : t('bag.emptyTab', { tab: tabLabel(this.tab).toLocaleLowerCase() }), x + 2, gy + 4, COLS * (SLOT + 2) - 4, UI.muted);
     if (list.length > rows * COLS) g.text(`${this.scroll + 1}-${Math.min(Math.ceil(list.length / COLS), this.scroll + rows)}/${Math.ceil(list.length / COLS)}`, x, y + h - 6, UI.muted);
     // The canoe, moored somewhere (M10 phase C): it can always be called back into the bag.
     if (live.boat && !live.boat.aboard) {
       const by = y + h - 16;
-      g.text('YOUR CANOE IS MOORED', x, by + 3, UI.muted);
-      g.button('CALL IT BACK', x + 84, by, () => (live.recallCanoe() ? ui.say('the canoe is back in the bag') : ui.say(live.bubble?.text ?? 'not now', false)));
+      const moored = upper(t('bag.canoeMoored'));
+      g.text(moored, x, by + 3, UI.muted);
+      g.button(t('bag.callBack'), x + g.measure(moored) + 6, by, () => (live.recallCanoe() ? ui.say(t('canoe.backInBag')) : ui.say(live.bubble?.text ?? t('bag.notNow'), false)));
     }
     // Details.
     const dx = x + COLS * (SLOT + 2) + 4;
@@ -145,9 +150,9 @@ export class InventoryScreen implements Screen {
     g.buf.blit(icon, dx + 4, gy + 4);
     let ly = gy + 4;
     const lx = dx + 4 + Math.max(icon.width, 28) + 4;
-    g.para(def.label, lx, ly, dx + dw - lx - 3, UI.accent, 2);
+    g.para(sentence(def.label), lx, ly, dx + dw - lx - 3, UI.accent, 2);
     ly += 15;
-    g.text(MENU_LABEL[menuCategory(item)].toUpperCase(), lx, ly, UI.muted);
+    g.text(upper(MENU_LABEL[menuCategory(item)]), lx, ly, UI.muted);
     ly += 8;
     g.text(`${qty} / ${limit}`, lx, ly, qty >= limit ? UI.accent : UI.ink);
     g.bar(lx, ly + 7, Math.min(48, dx + dw - lx - 4), qty / limit, qty >= limit ? UI.accent : UI.good);
@@ -155,16 +160,16 @@ export class InventoryScreen implements Screen {
     ly += g.para(itemDescription(item), dx + 4, ly, dw - 8, UI.ink, 7) + 3;
     const food = foodEffect(item);
     if (food) {
-      const parts = [`FED +${food.restores}`, food.energy ? `ENERGY +${food.energy}` : '', food.joy ? `JOY +${food.joy}` : ''].filter(Boolean);
-      g.text(parts.join('  '), dx + 4, ly, UI.good);
+      const parts = [`${t('care.fed')} +${food.restores}`, food.energy ? `${t('care.energy')} +${food.energy}` : '', food.joy ? `${t('care.joy')} +${food.joy}` : ''].filter(Boolean);
+      g.text(upper(parts.join('  ')), dx + 4, ly, UI.good);
       ly += 8;
     }
     if (def.tool) {
-      g.text(`${live.equipped === item ? 'IN HAND' : 'IN THE BAG'}${toolTier(item) > 1 ? `  TIER ${toolTier(item)}` : ''}`, dx + 4, ly, live.equipped === item ? UI.accent : UI.muted);
+      g.text(upper(`${t(live.equipped === item ? 'bag.inHandShort' : 'bag.inBagShort')}${toolTier(item) > 1 ? `  ${t('bag.tier', { n: toolTier(item) })}` : ''}`), dx + 4, ly, live.equipped === item ? UI.accent : UI.muted);
       ly += 8;
     }
-    if (qty >= limit) g.text('STACK FULL', dx + 4, ly, UI.accent);
+    if (qty >= limit) g.text(upper(t('bag.stackFull')), dx + 4, ly, UI.accent);
     const action = primaryAction(ui, item);
-    if (action) g.button(`${action.label} (ENTER)`.toUpperCase(), dx + 4, gy + h - 14 - 15, action.run, { primary: true });
+    if (action) g.button(`${action.label} (ENTER)`, dx + 4, gy + h - 14 - 15, action.run, { primary: true });
   }
 }

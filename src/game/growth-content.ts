@@ -75,7 +75,7 @@ export function regionPlaces(world: WorldDescription, canStand: (x: number, y: n
     for (const i of cells[k]) if ((best < 0 || dist[i] < dist[best]) && canStand(i % width, Math.floor(i / width))) best = i;
     if (best < 0) return;
     const b = BIOMES[r.biome];
-    out.push({ id: `region:${r.id}`, name: r.biome === 'coastal' && r.stage === 3 ? 'The outer shore' : `The ${b.name.toLowerCase()}`, note: `${b.note} (grown at stage ${r.stage})`, x: best % width, y: Math.floor(best / width), radius: 24 });
+    out.push({ id: `region:${r.id}`, name: r.biome === 'coastal' && r.stage === 3 ? 'The outer shore' : `The ${b.name.toLowerCase()}`, note: `${b.note} (grown at stage ${r.stage})`, x: best % width, y: Math.floor(best / width), radius: 24, biome: r.biome, stage: r.stage });
   });
   return out;
 }

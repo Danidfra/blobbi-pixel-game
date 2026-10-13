@@ -14,9 +14,12 @@ export interface Place {
   y: number;
   /** How close counts as visiting (world px). */
   radius: number;
+  /** A grown region's place (M7): its biome and stage, so its name can be told in any language (M11B). */
+  biome?: string;
+  stage?: number;
 }
 
-const NAMES: Record<string, { name: string; note: string }> = {
+export const PLACE_NAMES: Record<string, { name: string; note: string }> = {
   head: { name: 'The Carrier\'s head', note: 'Where the shell meets the sea, right by the great head. The best place to listen.' },
   pond: { name: 'The still pond', note: 'A freshwater pond in the middle of the sea. Fish live in it, somehow.' },
   grove: { name: 'The old grove', note: 'The trees grow close here and the light is green. It smells of moss.' },
@@ -48,7 +51,7 @@ export function findPlaces(world: WorldDescription, snap: (x: number, y: number)
     if (!at) return;
     const p = snap(Math.round(at.x), Math.round(at.y));
     if (!p || out.some((o) => Math.hypot(o.x - p.x, o.y - p.y) < 30)) return;
-    out.push({ id, ...NAMES[id], x: p.x, y: p.y, radius });
+    out.push({ id, ...PLACE_NAMES[id], x: p.x, y: p.y, radius });
   };
   add('head', listen, 26);
   const { width, height, cls } = world.terrain;

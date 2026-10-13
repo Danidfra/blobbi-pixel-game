@@ -13,11 +13,14 @@ import { isConfirm, moveSelection, type GameUI, type Screen } from '../game-ui';
 import { observationsFor, type Observation } from '../../game/carrier';
 import type { Place } from '../../game/places';
 import { FISH_CONTENT } from '../../content/tools';
+import { placeText } from '../../content/text';
+import { sentence, t, upper, type MessageKey } from '../../i18n';
+import { fitText } from './crafting';
 
 type Tab = 'quests' | 'notes' | 'finds' | 'fish' | 'places' | 'carrier';
 const TABS: readonly Tab[] = ['quests', 'notes', 'finds', 'fish', 'places', 'carrier'];
 const ROW = 10;
-const TERRAIN_HINT: Record<string, string> = { beach: 'somewhere on the beach', forest: 'under the trees', meadow: 'in a meadow', grass: 'out on the grass', plateau: 'up on high ground', pond: 'near the pond' };
+const TAB_LABEL: Record<Tab, MessageKey> = { quests: 'journal.tab.quests', notes: 'journal.tab.notes', finds: 'journal.tab.finds', fish: 'journal.tab.fish', places: 'journal.tab.places', carrier: 'journal.tab.carrier' };
 
 interface Row {
   label: string;
@@ -39,7 +42,7 @@ export class JournalScreen implements Screen {
 
   title(ui: GameUI): string {
     const live = ui.live!;
-    return `Journal  ${Object.keys(live.objectives.completed).length}/${QUESTS.length} quests  ${(live.objectives.lore ?? []).length}/${LORE.length} notes  ${live.found.size}/${DISCOVERY_CONTENT.length} finds  ${live.caught.size}/${FISH_CONTENT.length} fish  ${live.visited.size}/${live.places.length} places`;
+    return t('journal.title', { quests: `${Object.keys(live.objectives.completed).length}/${QUESTS.length}`, notes: `${(live.objectives.lore ?? []).length}/${LORE.length}`, finds: `${live.found.size}/${DISCOVERY_CONTENT.length}`, fish: `${live.caught.size}/${FISH_CONTENT.length}`, places: `${live.visited.size}/${live.places.length}` });
   }
 
   opened(ui: GameUI): void {
@@ -60,17 +63,17 @@ export class JournalScreen implements Screen {
     if (this.tab === 'quests') {
       const out: Row[] = [];
       const req = requestProgress(st, live.tally);
-      if (req) out.push({ label: `Request: ${req.request.title} ${req.have}/${req.need}`, colour: UI.good, request: true });
-      for (const q of activeQuests(st)) out.push({ label: `${q.type === 'main' ? `${q.chapter}.` : q.type === 'side' ? (live.pinnedQuest === q.id ? 'Pinned' : 'Side') : 'Find'} ${q.title}`, colour: q.type === 'main' ? UI.accent : live.pinnedQuest === q.id ? UI.good : UI.ink, quest: q });
+      if (req) out.push({ label: t('journal.request', { title: req.request.title, have: req.have, need: req.need }), colour: UI.good, request: true });
+      for (const q of activeQuests(st)) out.push({ label: `${q.type === 'main' ? `${q.chapter}.` : t(q.type === 'side' ? (live.pinnedQuest === q.id ? 'journal.pinned' : 'journal.side') : 'journal.find')} ${q.title}`, colour: q.type === 'main' ? UI.accent : live.pinnedQuest === q.id ? UI.good : UI.ink, quest: q });
       for (const id of Object.keys(st.completed)) {
         const q = objectiveById(id);
-        if (q) out.push({ label: `done: ${q.title}`, colour: UI.muted, quest: q });
+        if (q) out.push({ label: t('journal.done', { title: q.title }), colour: UI.muted, quest: q });
       }
       return out;
     }
     if (this.tab === 'notes') return (st.lore ?? []).map((id) => ({ label: loreById(id)?.title ?? id, colour: UI.ink, note: id }));
     // Places: the visited ones by name; the rest stay unnamed (how many is no secret, where is).
-    if (this.tab === 'places') return live.places.map((p) => (live.visited.has(p.id) ? { label: p.name, colour: UI.ink, place: p } : { label: '???', colour: UI.muted }));
+    if (this.tab === 'places') return live.places.map((p) => (live.visited.has(p.id) ? { label: placeText(p).name, colour: UI.ink, place: p } : { label: '???', colour: UI.muted }));
     // The Carrier: what the Blobbi has noticed about it, in the order noticed.
     if (this.tab === 'carrier') return observationsFor(live.species).map((o) => (live.carrier.observations.includes(o.id) ? { label: o.text, colour: UI.ink, observation: o } : { label: '???', colour: UI.muted }));
     // The fish log (M10 phase B): every species, the caught ones by name.
@@ -110,14 +113,17 @@ export class JournalScreen implements Screen {
     if (!q) return;
     if (live.pinnedQuest === q.id) {
       live.pinQuest(null);
-      ui.say('unpinned');
-    } else if (live.pinQuest(q.id)) ui.say('pinned to the goal box');
+      ui.say(t('journal.unpinned'));
+    } else if (live.pinQuest(q.id)) ui.say(t('journal.pinnedToGoals'));
   }
 
   draw(g: Gfx, ui: GameUI, x: number, y: number, w: number, h: number): void {
     const live = ui.live!;
     let tx = x;
-    for (const tab of TABS) tx += g.button(tab.toUpperCase(), tx, y, () => ((this.tab = tab), (this.index = 0)), { primary: this.tab === tab }) + 1;
+    for (const tab of TABS) {
+      const label = upper(t(TAB_LABEL[tab]));
+      tx += g.button(label, tx, y, () => ((this.tab = tab), (this.index = 0)), { primary: this.tab === tab, w: g.measure(label) + 8 }) + 1;
+    }
     const rows = this.rows(ui);
     this.index = Math.max(0, Math.min(this.index, rows.length - 1));
     const listW = 132;
@@ -128,10 +134,10 @@ export class JournalScreen implements Screen {
       const r = rows[i];
       const ry = ly + (i - scroll) * ROW;
       g.box(x, ry, listW, ROW - 1, i === this.index ? UI.slotHi : UI.panel, i === this.index ? UI.accent : null);
-      g.text(r.label.toUpperCase().slice(0, 32), x + 2, ry + 2, r.colour);
+      g.text(fitText(g, upper(r.label), listW - 4), x + 2, ry + 2, r.colour);
       g.hit(x, ry, listW, ROW - 1, () => (this.index = i));
     }
-    if (!rows.length) g.para(this.tab === 'notes' ? 'No notes yet. Explore, listen, and read what you find.' : 'Nothing yet.', x + 2, ly + 2, listW - 4, UI.muted);
+    if (!rows.length) g.para(t(this.tab === 'notes' ? 'journal.noNotes' : 'journal.nothingYet'), x + 2, ly + 2, listW - 4, UI.muted);
     const hidden = (rows[this.index] && !rows[this.index].place && !rows[this.index].observation && (this.tab === 'places' || this.tab === 'carrier')) as boolean;
     const dx = x + listW + 4;
     const dw = x + w - dx;
@@ -139,29 +145,30 @@ export class JournalScreen implements Screen {
     const r = rows[this.index];
     if (!r) return;
     let cy = ly + 4;
-    const para = (t: string, c: number = UI.ink, lines = 12) => (cy += g.para(t, dx + 4, cy, dw - 8, c, lines) + 4);
+    const para = (text: string, c: number = UI.ink, lines = 12) => (cy += g.para(text, dx + 4, cy, dw - 8, c, lines) + 4);
     if (hidden) {
-      para(this.tab === 'places' ? 'A place not visited yet. Walk around the island: the map fills in as you go.' : 'Something about the Carrier not noticed yet. Visit it by day and by night, and OBSERVE.', UI.muted);
+      para(t(this.tab === 'places' ? 'journal.placeHidden' : 'journal.carrierHidden'), UI.muted);
       return;
     }
     if (r.place) {
-      para(r.place.name, UI.accent, 2);
-      para(r.place.note);
-      para('On the map (N): a diamond. Pick it there and Blobbi walks back.', UI.muted);
+      const pt = placeText(r.place);
+      para(pt.name, UI.accent, 2);
+      para(pt.note);
+      para(t('journal.onTheMap'), UI.muted);
       return;
     }
     if (r.observation) {
-      para('The World Carrier', UI.accent, 2);
+      para(t('carrierPanel.title'), UI.accent, 2);
       para(r.observation.note);
-      if (r.observation.when) para(`Noticed ${r.observation.when === 'night' ? 'at night' : 'by day'}.`, UI.muted);
+      if (r.observation.when) para(t(r.observation.when === 'night' ? 'journal.noticedNight' : 'journal.noticedDay'), UI.muted);
       return;
     }
     if (r.request) {
       const p = requestProgress(live.objectives, live.tally)!;
-      para('Island request', UI.accent);
+      para(t('journal.islandRequest'), UI.accent);
       para(p.request.title);
-      para(`Progress ${p.have}/${p.need}. No hurry: it waits for you.`, UI.muted);
-      para(`Reward: ${p.request.reward.text}`, UI.good);
+      para(t('journal.requestProgress', { have: p.have, need: p.need }), UI.muted);
+      para(t('journal.reward', { reward: p.request.reward.text }), UI.good);
     } else if (r.quest) {
       const q = r.quest;
       const done = q.id in live.objectives.completed;
@@ -170,13 +177,13 @@ export class JournalScreen implements Screen {
       if (!done) {
         para(q.hint, UI.muted);
         const p = goalProgress(q.goal, live.questContext());
-        if (p.need > 1) para(`Progress ${p.have}/${p.need}`, UI.good);
+        if (p.need > 1) para(t('journal.progress', { have: p.have, need: p.need }), UI.good);
       }
-      para(`${done ? 'Got' : 'Reward'}: ${q.reward.text}`, UI.good);
+      para(t(done ? 'journal.got' : 'journal.reward', { reward: q.reward.text }), UI.good);
       // A side quest can be pinned to the goal box (one at a time).
       if (this.pinnable(ui)) {
         const pinned = live.pinnedQuest === q.id;
-        g.button(pinned ? 'UNPIN (P)' : 'PIN TO GOALS (P)', dx + 4, ly + h - 14 - 15, () => this.togglePin(ui), { primary: !pinned });
+        g.button(`${t(pinned ? 'journal.unpin' : 'journal.pin')} (P)`, dx + 4, ly + h - 14 - 15, () => this.togglePin(ui), { primary: !pinned });
       }
     } else if (r.note) {
       const note = loreById(r.note)!;
@@ -187,23 +194,23 @@ export class JournalScreen implements Screen {
       if (found) {
         g.buf.blit(itemIcon(r.find.item.id, ui.palette()).scaled(2), dx + 4, cy);
         cy += 30;
-        para(r.find.item.label, UI.accent);
+        para(sentence(r.find.item.label), UI.accent);
         para(r.find.item.description);
       } else {
-        para('Not found yet', UI.muted);
+        para(t('journal.notFound'), UI.muted);
         // Finds at sea are met, not dug up: no beach to search.
-        para(r.find.id.startsWith('sea:') ? 'Something waits out on the sea round the Carrier, or in it.' : `Something is hidden ${TERRAIN_HINT[r.find.terrain]}.`, UI.muted);
+        para(r.find.id.startsWith('sea:') ? t('journal.seaHint') : t(`journal.hint.${r.find.terrain}`), UI.muted);
       }
     } else if (r.fish) {
       const f = r.fish;
       if (live.caught.has(f.item.id)) {
         g.buf.blit(itemIcon(f.item.id, ui.palette()).scaled(2), dx + 4, cy);
         cy += 30;
-        para(f.item.label, UI.accent);
+        para(sentence(f.item.label), UI.accent);
         para(f.item.description);
-      } else para('Not caught yet', UI.muted);
-      const where = f.hint ?? (f.water === 'pond' ? 'the island pond' : f.water === 'sea' ? 'the sea' : 'the sea or a pond');
-      para(`Where: ${where}.`, UI.muted);
+      } else para(t('journal.notCaught'), UI.muted);
+      const where = f.hint ?? t(f.water === 'pond' ? 'journal.water.pond' : f.water === 'sea' ? 'journal.water.sea' : 'journal.water.both');
+      para(t('journal.where', { where }), UI.muted);
     }
   }
 }

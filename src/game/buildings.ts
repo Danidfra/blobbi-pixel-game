@@ -9,6 +9,7 @@
  * the canvas around the island without moving a single building. In memory the live world keeps canvas
  * coordinates (island frame + `carrier.origin`); the save converts.
  */
+import { t } from '../i18n';
 import { stream } from '../core/rng';
 import { hex, mix } from '../core/color';
 import { ramp, type WorldPalette } from '../core/palette';
@@ -394,21 +395,12 @@ export function checkPlot(rect: { x0: number; y0: number; x1: number; y1: number
   return result(checkGround(rect.x0 + 1, rect.y0 + 1, rect.x1 - 1, rect.y1 - 1, { x: (rect.x0 + rect.x1) / 2, y: (rect.y0 + rect.y1) / 2 }, ctx));
 }
 
-export const PROBLEM_TEXT: Record<PlacementProblem, string> = {
-  water: 'not on water',
-  ground: 'needs flat grass',
-  blocked: 'something is in the way',
-  building: 'too close to a building',
-  resource: 'resources lie there',
-  blobbi: 'you are standing there',
-  edge: 'too close to the edge',
-  plot: 'a farm plot is there',
-  doorway: 'the doorway needs open ground',
-  path: 'that would block the way',
-  outdoor: 'that goes inside the house',
-  door: 'keep the door clear',
-  growing: 'something is growing there (clear it first)',
-};
+const PROBLEMS: readonly PlacementProblem[] = ['water', 'ground', 'blocked', 'building', 'resource', 'blobbi', 'edge', 'plot', 'doorway', 'path', 'outdoor', 'door', 'growing'];
+/** Why something cannot go here, in the player's language (M11B: `problem.<id>`; read when shown, never stored). */
+export const PROBLEM_TEXT: Readonly<Record<PlacementProblem, string>> = Object.defineProperties(
+  {} as Record<PlacementProblem, string>,
+  Object.fromEntries(PROBLEMS.map((p) => [p, { enumerable: true, get: () => t(`problem.${p}`) }])),
+);
 
 // ─── The shelter ─────────────────────────────────────────────────────────────
 

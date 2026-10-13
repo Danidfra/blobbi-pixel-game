@@ -16,6 +16,7 @@
  * nearest-neighbour throughout (no blur), and the final frame is pixel-exact.
  */
 
+import { t } from '../i18n';
 import { T, type WorldDescription } from '../world/types';
 
 export type CameraModeId = 'overview' | 'exploration' | 'closeup' | 'upclose';
@@ -41,12 +42,12 @@ export interface CameraMode {
 export const BLOBBI_DRAWN_SCALE = 0.75;
 
 export const CAMERA_MODES: Record<CameraModeId, CameraMode> = {
-  overview: { id: 'overview', label: 'Overview', scale: 1, follow: false, blobbiScale: BLOBBI_DRAWN_SCALE },
-  exploration: { id: 'exploration', label: 'Exploration', scale: 2, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
-  closeup: { id: 'closeup', label: 'Close-up', scale: 4, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
+  overview: { id: 'overview', get label() { return t('camera.overview'); }, scale: 1, follow: false, blobbiScale: BLOBBI_DRAWN_SCALE },
+  exploration: { id: 'exploration', get label() { return t('camera.exploration'); }, scale: 2, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
+  closeup: { id: 'closeup', get label() { return t('camera.closeup'); }, scale: 4, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
   // M10: 6× rather than 8× — at 8× a phone held sideways (390 px tall) would see 49 world pixels, three Blobbi
   // heights; at 6× it sees 65, room for what is in front of it. Still a whole number: crisp square blocks.
-  upclose: { id: 'upclose', label: 'Up close', scale: 6, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
+  upclose: { id: 'upclose', get label() { return t('camera.upclose'); }, scale: 6, follow: true, blobbiScale: BLOBBI_DRAWN_SCALE },
 };
 
 /** Up close keeps at least this many world pixels on screen vertically (a short screen steps down to 5×, 4×). */

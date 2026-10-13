@@ -3,6 +3,7 @@
  * placed from the bag or moved, its footprint (green when it fits, red with the reason when not), and in
  * management mode a highlight on the selected object with what the keys do.
  */
+import { t, upper } from '../i18n';
 import { hex } from '../core/color';
 import type { WorldPalette } from '../core/palette';
 import type { PixelBuffer } from '../core/pixel';
@@ -43,10 +44,10 @@ export function drawPlacementOverlay(live: LiveWorld, out: PixelBuffer, ox: numb
     const colour = check.ok ? GOOD : BAD;
     out.strokeRect(check.x0 - ox, check.y0 - oy, check.x1 - check.x0 + 1, check.y1 - check.y0 + 1, colour);
     let text: string;
-    if (!check.ok) text = PROBLEM_TEXT[check.problem!].toUpperCase();
-    else if (live.moving) text = 'E PUT DOWN  ESC CANCEL';
-    else if (live.placing) text = `E PLACE (${live.inventory.count(live.placing)})${(BUILDINGS[kind].variants ?? 1) > 1 ? '  T STYLE' : ''}`;
-    else text = live.canAfford(kind) || (BUILDINGS[kind].item && live.inventory.count(BUILDINGS[kind].item!) > 0) ? 'E TO BUILD' : 'NOT ENOUGH MATERIALS';
+    if (!check.ok) text = upper(PROBLEM_TEXT[check.problem!]);
+    else if (live.moving) text = upper(t('overlay.putDown'));
+    else if (live.placing) text = upper(`${t('overlay.place', { n: live.inventory.count(live.placing) })}${(BUILDINGS[kind].variants ?? 1) > 1 ? `  ${t('overlay.style')}` : ''}`);
+    else text = upper(t(live.canAfford(kind) || (BUILDINGS[kind].item && live.inventory.count(BUILDINGS[kind].item!) > 0) ? 'overlay.build' : 'overlay.notEnough'));
     label(out, split, text, spot.x, Math.min(check.y0, gy + oy) - 12, ox, oy, colour);
     return;
   }
@@ -54,7 +55,7 @@ export function drawPlacementOverlay(live: LiveWorld, out: PixelBuffer, ox: numb
   const sel = live.selectedPlaced();
   const b = live.blobbi;
   if (!sel) {
-    label(out, split, 'MOVE MODE: FACE SOMETHING YOU BUILT  M EXIT', b.x, b.y - b.size - 14, ox, oy, hex('#ffe07a'));
+    label(out, split, upper(t('overlay.moveMode')), b.x, b.y - b.size - 14, ox, oy, hex('#ffe07a'));
     return;
   }
   const def = BUILDINGS[sel.kind];
@@ -72,6 +73,6 @@ export function drawPlacementOverlay(live: LiveWorld, out: PixelBuffer, ox: numb
     out.set(cx, cy + 2 * sy, c);
   }
   const problem = live.removalProblem(sel);
-  const keys = ['E MOVE', problem ? '' : 'X TO BAG', (def.variants ?? 1) > 1 ? 'T STYLE' : ''].filter(Boolean).join('  ');
-  label(out, split, `${def.label.toUpperCase()}: ${keys}`, sel.x, y0 + oy - 12, ox, oy, c);
+  const keys = [t('overlay.move'), problem ? '' : t('overlay.toBag'), (def.variants ?? 1) > 1 ? t('overlay.style') : ''].filter(Boolean).join('  ');
+  label(out, split, upper(`${def.label}: ${keys}`), sel.x, y0 + oy - 12, ox, oy, c);
 }

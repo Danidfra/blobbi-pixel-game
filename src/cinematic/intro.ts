@@ -26,6 +26,7 @@
  * so at the handoff the water, the wings and the fins are exactly where the game's own first frame draws them.
  * Given the same world and the same frame times the presentation is identical (tests pin it).
  */
+import { t as lang, upper } from '../i18n';
 import { PixelBuffer } from '../core/pixel';
 import { hex, type Color } from '../core/color';
 import { paletteFor } from '../world/generate';
@@ -46,7 +47,7 @@ import { DESIGN } from '../ui/hud';
 import { turtleUnderlay } from '../render/compose';
 import { composeIntroFrame, FULLY_GROWN, FULLY_SURFACED, movingPartsMask, OpenSea, SOIL_BAND, type ComposeScratch, type SubmergeState } from './sea';
 import { bareCarrierLayer, formation, revealScale, revealSubject, terrainOnlyLayer, type Formation } from './layers';
-import { carrierSounds, fullTiming, INTRO_MESSAGE, reducedTiming, sceneAt, SKIP_HINT, surfacingOrder, travelDirection, type IntroSceneId, type IntroTiming } from './script';
+import { carrierSounds, fullTiming, reducedTiming, sceneAt, surfacingOrder, travelDirection, type IntroSceneId, type IntroTiming } from './script';
 import { IntroAudio } from './audio';
 
 export interface IntroContext {
@@ -523,10 +524,12 @@ export class IntroCinematic {
 
   private drawHint(screen: PixelBuffer): void {
     const u = this.uiScale;
-    const w = textWidth(SKIP_HINT) + 2;
-    const b = new PixelBuffer(w + 1, 7);
-    drawTinyText(b, SKIP_HINT, 2, 2, DESIGN.card);
-    drawTinyText(b, SKIP_HINT, 1, 1, UI.muted);
+    // The hint and the two lines are in the player's language (M11B; English is `SKIP_HINT` and `INTRO_MESSAGE`).
+    const hint = upper(lang('intro.skip'));
+    const w = textWidth(hint) + 2;
+    const b = new PixelBuffer(w + 1, 9);
+    drawTinyText(b, hint, 2, 4, DESIGN.card);
+    drawTinyText(b, hint, 1, 3, UI.muted);
     const big = b.scaled(u);
     screen.blit(big, screen.width - big.width - 5 * u, screen.height - big.height - 5 * u);
   }
@@ -535,7 +538,7 @@ export class IntroCinematic {
   private drawMessage(screen: PixelBuffer, t: number): void {
     const tm = this.timing;
     const W = screen.width;
-    const lines = INTRO_MESSAGE.map((l) => l.toUpperCase());
+    const lines = [upper(lang('intro.line1')), upper(lang('intro.line2'))];
     const widest = Math.max(...lines.map(textWidth));
     let k = this.uiScale + 1;
     while (k > 1 && widest * k > W - 16) k--;
@@ -554,13 +557,13 @@ export class IntroCinematic {
       if (n <= 0) return;
       const text = line.slice(0, n);
       const full = textWidth(line);
-      const b = new PixelBuffer(full + 2, 7);
-      drawTinyText(b, text, 1, 1, i === 0 ? UI.ink : UI.accent);
+      const b = new PixelBuffer(full + 2, 10);
+      drawTinyText(b, text, 1, 3, i === 0 ? UI.ink : UI.accent);
       const big = b.scaled(k);
-      const shadow = new PixelBuffer(full + 2, 7);
-      drawTinyText(shadow, text, 1, 1, DESIGN.card);
+      const shadow = new PixelBuffer(full + 2, 10);
+      drawTinyText(shadow, text, 1, 3, DESIGN.card);
       const x = Math.floor((W - full * k) / 2) - k;
-      const y = y0 + i * lineGap;
+      const y = y0 + i * lineGap - 2 * k;
       screen.blit(shadow.scaled(k), x + k, y + k);
       screen.blit(big, x, y);
     });
