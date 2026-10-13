@@ -310,7 +310,7 @@ describe('the HOME panel', () => {
     const home = new HomeScreen();
     ui.register(home);
     const screen = new PixelBuffer(960, 540);
-    ui.handleKey('Digit1');
+    ui.handleKey('Digit0');
     expect(ui.capturing).toBe(true);
     ui.render(screen, 10);
     ui.handleKey('Enter'); // UPGRADE: asks

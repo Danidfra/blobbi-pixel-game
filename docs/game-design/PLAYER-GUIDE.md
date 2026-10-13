@@ -5,7 +5,7 @@
 
 ## Controls
 
-Walk: WASD or arrows, or click where to go; on a touch screen drag anywhere (a tap walks there). Use: E or SPACE, or the USE button: picks up, farms, chops, mines, opens, talks. Menus: I bag, K craft, J journal, U Blobbi, N map, L growth, 1 home, ? guide, Y islands; or the buttons in the corner. B build, M move furniture, Q switch tool, T seed or style, F feed, H pet, R rest, Z camera, ESC back.
+Walk: WASD or arrows, or click where to go; on a touch screen drag anywhere (a tap walks there). Use: E or SPACE, or the USE button: picks up, farms, chops, mines, opens, talks. Menus: I bag, K craft, J journal, U Blobbi, N map, L growth, 0 home, ? guide, Y islands; or the buttons in the corner. B build, M move furniture, Q or 1-5 switch tool, T seed or style, F feed, H pet, R rest, Z camera, ESC back.
 
 ## Blobbi care
 
@@ -33,7 +33,7 @@ B (or CRAFT, then BUILD) shows what you would build in front of the Blobbi: gree
 
 ## Housing
 
-Your first home is a wooden shelter (6 wood, 3 stones). E at its door goes inside; walk out of the door to leave. HOME (1) shows its level and what the next needs: a Cottage, then a Dream Home, each with more rooms. Upgrading asks first, keeps all your furniture (anything without room goes to the bag) and takes a little building time. Leave room around the house: it grows.
+Your first home is a wooden shelter (6 wood, 3 stones). E at its door goes inside; walk out of the door to leave. HOME (0) shows its level and what the next needs: a Cottage, then a Dream Home, each with more rooms. Upgrading asks first, keeps all your furniture (anything without room goes to the bag) and takes a little building time. Leave room around the house: it grows.
 
 ## Furniture and styles
 

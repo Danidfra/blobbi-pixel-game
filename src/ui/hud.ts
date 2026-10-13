@@ -8,9 +8,11 @@
  *   │ ⚘ ▮▮▮▮▮▯ ⚡ ▮▮▮▯▯ ♥ ▮▮▮▮▯│                   ┌ goal ────────────┐
  *   │ WOOD 3  STONE 2   │                       │ GOAL 2/16  TITLE │
  *   └───────────────────┘                       │ ▮▮▮▮▯▯▯ 2/3       │
- *   +1 WOOD  (toasts)                           └──────────────────┘
+ *   [person GUEST]  (M11C)                      └──────────────────┘
+ *   +1 WOOD  (toasts)
  *                      [ E  PICK UP THE STONE ]
- *   [tool Q] [camera]                       [USE E][BAG I]...
+ *   [hotbar 1 2 3, M11C, drawn by the game UI]
+ *   [camera]                                [USE E][BAG I]...
  *
  * Every builder is a pure function of the values it shows (cached by the caller under a key of those values), so
  * a frame redraws only what changed. Needs are never shown by colour alone: each bar has an icon, and a low need
@@ -64,6 +66,7 @@ const GLYPHS: Record<string, string[]> = {
   rain: ['.###.', '#####', '.....', '#.#.#', '.#.#.'],
   cloud: ['.....', '.##..', '####.', '#####', '.....'],
   dusk: ['.....', '..#..', '.###.', '#####', '-----'],
+  person: ['.###.', '.###.', '..#..', '#####', '#####'],
 };
 
 /** Anything with `set` in UI pixels (a buffer or a UI surface). */
@@ -213,17 +216,18 @@ export function pinnedCard(title: string, progress: string, scale = 1): PixelBuf
   return b.out;
 }
 
-/** The tool in hand: its icon, name and the key that changes it. */
-export function toolChip(icon: PixelBuffer | null, name: string, scale = 1): PixelBuffer {
-  const w0 = textAt(scale);
-  const text = name;
-  const w = (icon ? icon.width + 3 : 0) + w0(text) + 6 + 3 + 2 * DESIGN.pad;
-  const h = Math.max(11, (icon?.height ?? 0) + 4);
-  const b = new UiSurface(w, h, scale);
-  b.blit(card(w, h), 0, 0);
-  if (icon) b.blit(icon, DESIGN.pad, Math.floor((h - icon.height) / 2));
-  b.text(text, DESIGN.pad + (icon ? icon.width + 3 : 0), Math.floor((h - 5) / 2), DESIGN.ink);
-  b.text('Q', w - DESIGN.pad - 3, Math.floor((h - 5) / 2), DESIGN.accent, 'title');
+/**
+ * Who is playing (M11C): "Guest", or "Connected" once an account is remembered on this device. Small and quiet (a
+ * muted guest, a green connected person icon; the word always says it, never the colour alone). A click or a tap
+ * opens SETTINGS on the ACCOUNT page.
+ */
+export function identityChip(connected: boolean, scale = 1): PixelBuffer {
+  const text = t(connected ? 'hud.connected' : 'hud.guest');
+  const w = textAt(scale)(text) + 2 * DESIGN.pad + 7;
+  const b = new UiSurface(w, 11, scale);
+  b.blit(card(w, 11), 0, 0);
+  glyph(b, 'person', DESIGN.pad, 3, connected ? DESIGN.good : DESIGN.muted);
+  b.text(text, DESIGN.pad + 7, 3, connected ? DESIGN.ink : DESIGN.muted);
   return b.out;
 }
 

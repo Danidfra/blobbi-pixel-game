@@ -16,7 +16,8 @@ import type { LiveWorld } from '../sim/live-world';
 import type { Building } from '../game/buildings';
 import { Gfx, UI, type Hit } from './gfx';
 import { card } from './hud';
-import { t, upper, type MessageKey } from '../i18n';
+import { getLocale, t, upper, type MessageKey } from '../i18n';
+import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
 
 export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide';
 
@@ -38,7 +39,7 @@ export const PANEL_W = 304;
 export const PANEL_H = 184;
 
 /** Keys that open a screen from play. */
-export const OPEN_KEYS: Readonly<Record<string, ScreenId>> = { KeyI: 'inventory', KeyK: 'crafting', KeyJ: 'journal', KeyU: 'care', KeyN: 'map', KeyL: 'growth', KeyY: 'worlds', Digit1: 'home', Slash: 'guide', F1: 'guide' };
+export const OPEN_KEYS: Readonly<Record<string, ScreenId>> = { KeyI: 'inventory', KeyK: 'crafting', KeyJ: 'journal', KeyU: 'care', KeyN: 'map', KeyL: 'growth', KeyY: 'worlds', Digit0: 'home', Home: 'home', Slash: 'guide', F1: 'guide' };
 
 export interface UiSettings {
   /** Day and night lighting (presentation only). */
@@ -234,8 +235,10 @@ export class GameUI {
     if (this.message && realTime >= this.message.until) this.message = null;
     this.hits = [];
     const scale = (this.lastScale = this.scaleFor(screen.width, screen.height));
+    this.hotbarBox = null;
     if (!this.screen) {
       this.drawMenuBar(screen, Math.max(1, Math.min(2, scale)));
+      this.drawHotbar(screen, hudScale(this.settings));
       this.drawTip(screen, hudScale(this.settings));
       return;
     }
@@ -323,14 +326,61 @@ export class GameUI {
     const big = g.out;
     const ox = Math.round(screen.width / 2 - big.width / 2);
     // Above the action prompt and clear of the menu bar (which may be two rows on a phone).
-    const oy = Math.max(0, Math.min(screen.height - big.height - 30 * scale, screen.height - this.menuBarHeight - big.height - 18 * scale));
-    screen.blit(big, ox, oy);
-    this.hits.push(...g.screenHits(ox, oy));
+    let ox2 = ox;
+    let oy = Math.max(0, Math.min(screen.height - big.height - 30 * scale, screen.height - this.menuBarHeight - big.height - 18 * scale));
+    // Never over the hotbar (M11C): beside it when there is room, else above it.
+    const hb = this.hotbarBox;
+    if (hb && ox2 < hb.x + hb.w && hb.x < ox2 + big.width && oy < hb.y + hb.h && hb.y < oy + big.height) {
+      if (hb.x + hb.w + 2 * scale + big.width <= screen.width - 2 * scale) ox2 = hb.x + hb.w + 2 * scale;
+      else oy = Math.max(0, hb.y - big.height - 2 * scale);
+    }
+    screen.blit(big, ox2, oy);
+    this.hits.push(...g.screenHits(ox2, oy));
     if (justDone && live.clock.time - live.tipDoneAt > 1.6) live.tipJustDone = null;
   }
 
   /** Screen pixels the menu bar (and mode bar) take at the bottom (the touch USE button sits above them). */
   menuBarHeight = 30;
+  /** Where the menu bar was drawn last (screen pixels). */
+  private menuBox: { x: number; y: number; w: number; h: number } | null = null;
+  /** The screen's safe-area insets (screen pixels), set by the playground. */
+  insets = { top: 0, right: 0, bottom: 0, left: 0 };
+  /** Where the hotbar was drawn this frame (screen pixels), or null when it is not shown. */
+  hotbarBox: { x: number; y: number; w: number; h: number } | null = null;
+  private hotbarCache: { key: string; out: PixelBuffer; slotRects: { x: number; y: number; w: number; h: number }[] } | null = null;
+
+  /**
+   * The tool hotbar (M11C), bottom left above the camera indicator, or above the menu bar when a narrow screen's bar
+   * reaches that far. Hidden for a visitor, while building, placing or moving (the mode's own buttons sit there), and
+   * when the player owns no tool. On a touch screen the slots are larger (22 UI pixels: 44 screen pixels at 2x).
+   */
+  private drawHotbar(screen: PixelBuffer, hud: number): void {
+    const live = this.live;
+    if (!live || live.visitor || live.buildMode || live.placing || live.manage || live.moving) return;
+    const slots = hotbarSlots((id) => live.inventory.count(id), live.equipped);
+    if (!slots.length) return;
+    const s = hud;
+    const key = `${slots.map((x) => x.item).join(',')}|${live.equipped}|${s}|${this.touchMode}|${getLocale()}|${live.world.options.palette}`;
+    if (this.hotbarCache?.key !== key) this.hotbarCache = { key, ...drawHotbar(slots, live.equipped, this.palette(), { scale: s, touch: this.touchMode }) };
+    const { out, slotRects } = this.hotbarCache;
+    const ox = this.insets.left + 2 * hud;
+    let oy = screen.height - this.insets.bottom - 13 * hud - out.height;
+    const m = this.menuBox;
+    if (m && ox < m.x + m.w && m.x < ox + out.width && oy < m.y + m.h && m.y < oy + out.height) oy = m.y - out.height - 2 * s;
+    oy = Math.max(0, oy);
+    screen.blit(out, ox, oy);
+    this.hotbarBox = { x: ox, y: oy, w: out.width, h: out.height };
+    // The card itself takes presses (a near miss between slots must not walk the Blobbi), the slots pick a tool.
+    this.hits.push({ x: ox, y: oy, w: out.width, h: out.height, action: () => {}, inert: true });
+    slotRects.forEach((r, i) => this.hits.push({ x: ox + r.x * s, y: oy + r.y * s, w: r.w * s, h: r.h * s, action: () => this.pickTool(i) }));
+  }
+
+  /** A hotbar slot was clicked or tapped (or its number key pressed): the same as the bag's EQUIP / PUT AWAY. */
+  pickTool(index: number): boolean {
+    const live = this.live;
+    if (!live || live.visitor) return false;
+    return selectHotbarSlot(live, index) !== 'none';
+  }
 
   /**
    * The corner buttons that open screens with a click or a tap. On a touch screen they are drawn larger (3× when
@@ -345,12 +395,12 @@ export class GameUI {
       [key('menu.journal', 'J'), 'journal'],
       [key('menu.blobbi', 'U'), 'care'],
       [key('menu.map', 'N'), 'map'],
-      [key('menu.home', '1'), 'home'],
+      [key('menu.home', '0'), 'home'],
       [key('menu.guide', '?'), 'guide'],
       ['...', 'settings'],
     ];
     // A finger needs no key names: shorter labels, bigger buttons.
-    const label = (l: string) => (this.touchMode ? l.replace(/ (?:[A-Z1?]|E)$/, '') : l);
+    const label = (l: string) => (this.touchMode ? l.replace(/ (?:[A-Z0?]|E)$/, '') : l);
     const use = label(key('menu.use', 'E'));
     // Widths as the labels are drawn at a scale (M11B: the body font is narrower than the 3×5 capitals).
     const probes = new Map<number, Gfx>();
@@ -377,6 +427,7 @@ export class GameUI {
     const oy = screen.height - big.height - 2 * s;
     screen.blit(big, ox, oy);
     this.hits = g.screenHits(ox, oy);
+    this.menuBox = { x: ox, y: oy, w: big.width, h: big.height };
     this.menuBarHeight = big.height + 2 * s;
     this.drawModeBar(screen, s, oy);
   }

@@ -80,7 +80,7 @@ describe('customising the home in play', () => {
     const home = new HomeScreen();
     installCustomisation(home);
     ui.register(home);
-    ui.handleKey('Digit1');
+    ui.handleKey('Digit0');
     ui.handleKey('Tab'); // LOOK
     expect(home.tab).toBe('look');
     const screen = new PixelBuffer(960, 540);
@@ -156,7 +156,7 @@ describe('customising the home in play', () => {
     const home = new HomeScreen();
     installCustomisation(home);
     ui.register(home);
-    ui.handleKey('Digit1');
+    ui.handleKey('Digit0');
     ui.handleKey('Tab');
     ui.handleKey('ArrowDown'); // walls
     ui.handleKey('ArrowRight'); // whitewash: locked

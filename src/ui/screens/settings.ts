@@ -49,6 +49,11 @@ export class SettingsScreen implements Screen {
     if (this.page === 'account') void this.account?.refreshProfile();
   }
 
+  /** Open on a page (the HUD's identity chip opens ACCOUNT). */
+  showPage(page: Page): void {
+    this.setPage(page);
+  }
+
   private setPage(page: Page): void {
     this.page = page;
     this.index = 0;
@@ -187,7 +192,8 @@ export class SettingsScreen implements Screen {
       cy += 8;
       g.text(s.npubShort ?? '', x + lw, cy, UI.muted);
       cy += 10;
-      cy += g.para(t('account.localOnly'), x, cy, w, UI.muted) + 3;
+      cy += g.para(t('account.localOnly'), x, cy, w, UI.ink) + 1;
+      cy += g.para(t('account.nothingPosted'), x, cy, w, UI.muted) + 3;
     } else {
       cy += g.para(t('account.pitch'), x, cy, w, UI.ink) + 2;
       cy += g.para(t('account.optional'), x, cy, w, UI.muted) + 3;
@@ -200,9 +206,15 @@ export class SettingsScreen implements Screen {
     });
     if (s.problem && s.status !== 'connected') cy += g.para(t(`account.problem.${s.problem}`), x, cy + 1, w, UI.bad) + 3;
     if (s.status !== 'connected' && !s.signerAvailable) cy += g.para(t('account.noSignerHint'), x, cy + 1, w, UI.muted) + 3;
+    // Connected from a remembered public key while the extension is gone: say so, never pretend a live signer.
+    if (s.status === 'connected' && !s.signerAvailable) cy += g.para(t('account.signerAway'), x, cy + 1, w, UI.muted) + 3;
     if (this.explain) cy += g.para(t('account.explanation'), x, cy + 1, w, UI.muted, 4) + 3;
     if (this.advanced && s.status === 'connected' && s.pubkey) {
+      // The whole npub (two lines) to compare with the extension's, then the same key in hex.
+      const npub = s.npub ?? '';
       const rows2: [MessageKey, string][] = [
+        ['account.npub', npub.slice(0, 32)],
+        ['account.npub', npub.slice(32)],
         ['account.publicKey', s.pubkey.slice(0, 32)],
         ['account.publicKey', s.pubkey.slice(32)],
         ['account.signer', t('account.signer.nip07')],
@@ -211,10 +223,11 @@ export class SettingsScreen implements Screen {
       ];
       const lw = Math.max(...rows2.map(([k]) => g.measure(t(k)))) + 6;
       rows2.forEach(([k, v], i) => {
-        if (i !== 1) g.text(t(k), x, cy + 1 + i * 8, UI.accent);
+        if (i === 0 || rows2[i - 1][0] !== k) g.text(t(k), x, cy + 1 + i * 8, UI.accent);
         g.text(v, x + lw, cy + 1 + i * 8, UI.ink);
       });
       g.text(t('account.readOnly'), x, cy + 2 + rows2.length * 8, UI.muted);
+      g.text(t('account.verifyHint'), x, cy + 10 + rows2.length * 8, UI.muted);
     }
   }
 }

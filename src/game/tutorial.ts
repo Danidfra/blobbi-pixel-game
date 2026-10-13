@@ -50,7 +50,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   { id: 'grow', keys: 'Your island can grow. Press L (GROWTH) to see what it needs.', touch: 'Your island can grow. Open ... then GROWTH to see what it needs.', when: (c) => 'home' in c.completed || 'harvest' in c.completed, done: (c) => c.events.has('open:growth') },
   { id: 'cook', keys: 'Craft a cooking station, place it, and press E at it to cook a meal.', touch: 'Craft a cooking station, place it, and tap USE at it to cook a meal.', when: quest('cook'), done: (c) => c.tally.cooked > 0 },
   { id: 'carrier', keys: 'Your island rides a living Carrier. At its head, press E to listen.', touch: 'Your island rides a living Carrier. At its head, tap USE to listen.', when: quest('carrier'), done: (c) => c.tally.talked > 0 },
-  { id: 'home', keys: 'Press 1 (HOME) to see your house: upgrades, colours and rooms.', touch: 'Tap HOME to see your house: upgrades, colours and rooms.', when: (c) => 'home' in c.completed, done: (c) => c.events.has('open:home') },
+  { id: 'home', keys: 'Press 0 (HOME) to see your house: upgrades, colours and rooms.', touch: 'Tap HOME to see your house: upgrades, colours and rooms.', when: (c) => 'home' in c.completed, done: (c) => c.events.has('open:home') },
 ];
 
 /** Seconds a finished step waits before the next tip shows. */

@@ -85,7 +85,7 @@ if (!only || only === 'styles') {
   const home = new HomeScreen();
   installCustomisation(home);
   ui.register(home);
-  ui.handleKey('Digit1');
+  ui.handleKey('Digit0');
   ui.handleKey('Tab');
   ui.handleKey('ArrowDown');
   ui.handleKey('ArrowRight');

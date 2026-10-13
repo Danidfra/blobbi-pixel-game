@@ -27,7 +27,7 @@ import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { InteriorRenderer } from './interior-render';
 import { drawTeleportParticles, drawTeleportShadow, teleportSprite } from './teleport-render';
 import { applyLight, dayAt, hourAt } from '../game/daylight';
-import { goalCard, pinnedCard, statusCard, timeChip, toastCard, toolChip, ToastFeed, type StatusInfo } from '../ui/hud';
+import { goalCard, identityChip, pinnedCard, statusCard, timeChip, toastCard, ToastFeed, type StatusInfo } from '../ui/hud';
 import { UiSurface, textPreference } from '../ui/surface';
 import { getLocale, sentence, t as lang, upper } from '../i18n';
 import { itemIcon } from '../ui/icons';
@@ -119,6 +119,12 @@ export interface ViewUiOptions {
   indicator: boolean;
   /** Screen pixels per UI font pixel. */
   uiScale: number;
+  /** M11C: who is playing, shown small under the status card (a guest or a connected account); none when unset. */
+  identity?: 'guest' | 'connected' | null;
+  /** M11C: a rectangle (screen pixels) the action prompt must not cover (the hotbar); it moves right of it. */
+  promptAvoid?: { x: number; y: number; w: number; h: number } | null;
+  /** M11C: the Blobbi's name for the status card (a canonical Blobbi's own name); else the seed, when short. */
+  blobbiName?: string | null;
 }
 
 export const DEFAULT_VIEW_UI: ViewUiOptions = { hud: true, indicator: true, uiScale: 2, goals: true, prompt: true, lighting: true };
@@ -341,10 +347,11 @@ export class ViewRenderer {
     }
     this.hudBox = null;
     // The same HUD at every camera scale (M10 phase B: the zoom never changes its design).
-    if (ui.hud) this.drawHud(screen, ui.uiScale);
+    this.identityBox = null;
+    if (ui.hud) this.drawHud(screen, ui.uiScale, ui);
     // The goal box, the prompt and goal notices are part of the HUD unless set on their own.
     if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale);
-    if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale, ui.bottom ?? 0);
+    if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale, ui.bottom ?? 0, ui.promptAvoid ?? null);
     if (ui.hud) this.drawNotice(screen, ui.uiScale);
     this.indicatorBox = null;
     if (ui.indicator) this.drawIndicator(screen, view, ui.uiScale);
@@ -394,7 +401,7 @@ export class ViewRenderer {
     screen.blit(buf, x, y);
   }
 
-  private drawHud(screen: PixelBuffer, ui: number): void {
+  private drawHud(screen: PixelBuffer, ui: number, opts: Pick<ViewUiOptions, 'identity' | 'blobbiName'> = {}): void {
     const live = this.live;
     const palette = paletteFor(live.world.options.palette);
     // The status card: portrait, name, friendship, the three needs and what is carried.
@@ -410,10 +417,17 @@ export class ViewRenderer {
       .map(([k, n]) => `${k} ${n}`);
     const away = live.getPresenceState() !== 'present';
     const level = friendLevel(live.companion.friendship);
-    const info: StatusInfo = { name: live.blobbi.seed.length > 14 ? 'Blobbi' : live.blobbi.seed, title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
+    const info: StatusInfo = { name: opts.blobbiName || (live.blobbi.seed.length > 14 ? 'Blobbi' : live.blobbi.seed), title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
     const status = this.cachedText(`status|${JSON.stringify(info)}`, (k) => statusCard({ ...info, face: this.portrait() }, k), ui);
     screen.blit(status, 2 * ui, 2 * ui);
     let bottom = 2 * ui + status.height;
+    // M11C: Guest or Connected, small, right under the card (the toasts follow it).
+    if (opts.identity) {
+      const chip = this.cachedText(`identity|${opts.identity}`, (k) => identityChip(opts.identity === 'connected', k), ui);
+      this.identityBox = { x: 2 * ui, y: bottom + ui, w: chip.width, h: chip.height };
+      screen.blit(chip, 2 * ui, bottom + ui);
+      bottom += chip.height + ui;
+    }
     // Item toasts under the card, newest last; they slide in (unless motion is reduced) and leave on time. Sim
     // time keeps frames deterministic, and a toast waits while a menu pauses the world.
     const now = live.clock.time;
@@ -426,13 +440,8 @@ export class ViewRenderer {
       screen.blit(card, 2 * ui + slide, bottom + ui);
       bottom += card.height + ui;
     }
-    // The tool in hand, bottom left above the camera indicator.
-    const tool = live.equipped && EQUIPMENT[live.equipped] ? live.equipped : null;
-    if (tool) {
-      const chip = this.cachedText(`tool|${tool}`, (k) => toolChip(itemIcon(tool, palette), itemLabel(tool), k), ui);
-      screen.blit(chip, 2 * ui, screen.height - chip.height - 13 * ui);
-    }
-    this.hudBox = { right: 2 * ui + status.width, bottom: 2 * ui + status.height };
+    // The tool in hand is shown by the hotbar (M11C, drawn by the game UI), not here.
+    this.hudBox = { right: 2 * ui + status.width, bottom: this.identityBox ? this.identityBox.y + this.identityBox.h : 2 * ui + status.height };
   }
 
   /** The Blobbi's face for the status card: its canonical front sprite at the gameplay size. */
@@ -497,7 +506,7 @@ export class ViewRenderer {
   }
 
   /** What E would do now, centred at the bottom. */
-  private drawPrompt(screen: PixelBuffer, ui: number, bottom = 0): void {
+  private drawPrompt(screen: PixelBuffer, ui: number, bottom = 0, avoid: { x: number; y: number; w: number; h: number } | null = null): void {
     const text = this.live.prompt();
     if (!text) return;
     const buf = this.cachedText(`prompt|${text}`, (scale) => {
@@ -514,7 +523,11 @@ export class ViewRenderer {
       b.text(words, 3 + kw, 3, hex('#fffaf0'));
       return b.out;
     }, ui);
-    screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), screen.height - buf.height - Math.max(14 * ui, bottom + 3 * ui));
+    let x = Math.round(screen.width / 2 - buf.width / 2);
+    const y = screen.height - buf.height - Math.max(14 * ui, bottom + 3 * ui);
+    // Beside the hotbar rather than over it (a narrow phone, a long prompt).
+    if (avoid && x < avoid.x + avoid.w && avoid.x < x + buf.width && y < avoid.y + avoid.h && avoid.y < y + buf.height) x = Math.min(screen.width - buf.width, avoid.x + avoid.w + 2 * ui);
+    screen.blit(buf, x, y);
   }
 
   /** A completed objective and its reward, centred at the top for a few seconds. */
@@ -560,6 +573,14 @@ export class ViewRenderer {
   indicatorBox: { x: number; y: number; w: number; h: number } | null = null;
 
   /** Whether screen point (x, y) is on the camera indicator (with a finger's margin). */
+  /** Where the Guest / Connected chip was drawn last frame: a click or a tap on it opens the ACCOUNT page (M11C). */
+  identityBox: { x: number; y: number; w: number; h: number } | null = null;
+
+  onIdentity(x: number, y: number, margin = 4): boolean {
+    const b = this.identityBox;
+    return !!b && x >= b.x - margin && x < b.x + b.w + margin && y >= b.y - margin && y < b.y + b.h + margin;
+  }
+
   onIndicator(x: number, y: number, margin = 6): boolean {
     const b = this.indicatorBox;
     return !!b && x >= b.x - margin && x < b.x + b.w + margin && y >= b.y - margin && y < b.y + b.h + margin;

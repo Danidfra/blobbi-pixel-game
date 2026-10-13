@@ -37,6 +37,7 @@ import { ViewRenderer, DEFAULT_VIEW_UI } from '../render/view-renderer';
 import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { GameUI, hudScale, readSettings } from '../ui/game-ui';
+import { hotbarIndexForKey, isTypingTarget, nextToolInCycle } from '../ui/hotbar';
 import { textPreference } from '../ui/surface';
 import { getLocale, initialLocale, loadLocale, LOCALE_KEY, onLocaleChange, setLocale, t } from '../i18n';
 import '../content/text'; // content text follows the language (items, quests, notes...)
@@ -578,6 +579,13 @@ settingsScreen.audio = audioEngine.settings;
 // The player's account (M11B, optional and read-only): remembered per browser, never part of a save. Creating it reads
 // one small local record; nothing touches the network until the player opens the ACCOUNT page or connects.
 settingsScreen.account = createNostrAccount(localStore() ?? memoryStore());
+/** Guest or Connected, for the HUD chip (M11C): what the account remembers on this device, never a guess. */
+const identityNow = (): 'guest' | 'connected' => (settingsScreen.account?.snapshot().status === 'connected' ? 'connected' : 'guest');
+/** Open SETTINGS on the ACCOUNT page (the HUD's identity chip). */
+function openAccountPage(): void {
+  settingsScreen.showPage('account');
+  gameUI.open('settings');
+}
 gameUI.onSound = (name) => {
   if (gameUI.settings.sound) audioEngine.play(name);
 };
@@ -833,6 +841,7 @@ function readSafeArea(): void {
   const rect = view.getBoundingClientRect();
   const k = view.width / Math.max(1, rect.width);
   touch.insets = { top: parseFloat(cs.paddingTop) * k || 0, right: parseFloat(cs.paddingRight) * k || 0, bottom: parseFloat(cs.paddingBottom) * k || 0, left: parseFloat(cs.paddingLeft) * k || 0 };
+  gameUI.insets = touch.insets;
   probe.remove();
 }
 window.addEventListener('resize', readSafeArea);
@@ -1205,7 +1214,7 @@ function playFrame(now: number): void {
   viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
   const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
-  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight });
+  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;
@@ -1403,9 +1412,7 @@ function craftPickaxe(): void {
 /** Cycle the hand: empty → each owned tool in order → empty. */
 function toggleAxe(): void {
   if (!live) return;
-  const owned = TOOLS.filter((t) => live!.inventory.count(t) > 0);
-  const order: (string | null)[] = [null, ...owned];
-  const next = order[(order.indexOf(live.equipped) + 1) % order.length];
+  const next = nextToolInCycle((t) => live!.inventory.count(t), live.equipped);
   if (next === null) live.unequip();
   else live.equip(next);
   showInventory();
@@ -1488,6 +1495,9 @@ view.addEventListener('keydown', (e) => {
     showBuilding();
   }
   if (e.code === 'KeyQ') toggleAxe();
+  // 1-5: the hotbar's slots (M11C). Never while something that types has the keyboard.
+  const slot = hotbarIndexForKey(e.code);
+  if (slot !== null && !isTypingTarget(e.target) && gameUI.pickTool(slot)) showInventory();
   if (e.code === 'KeyB') toggleBuild();
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
@@ -2280,6 +2290,12 @@ view.addEventListener('pointerdown', (e) => {
       return;
     }
     if (gameUI.handlePointer(sx, sy)) {
+      e.preventDefault();
+      return;
+    }
+    // M11C: the Guest / Connected chip opens the ACCOUNT page.
+    if (!gameUI.capturing && viewRenderer?.onIdentity(sx, sy)) {
+      openAccountPage();
       e.preventDefault();
       return;
     }
