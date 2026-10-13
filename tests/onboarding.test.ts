@@ -133,16 +133,18 @@ describe('the first-time flow on the title', () => {
     expect(t.page).toBe('carrier');
   });
 
-  it('a returning player gets CONTINUE, MY ISLANDS and NEW ISLAND; NEW ISLAND uses the same steps', () => {
+  it('a returning player gets CONTINUE (no NEW ISLAND); with NEW ISLAND allowed it uses the same steps', () => {
     const w: WorldEntry = { identity: 'seed=a|kind=whale|carrier=c|1280x768|scale=1.6|palette=cozy|density=1|islands=1', params: parseIdentity('seed=a|kind=whale|carrier=c|1280x768|scale=1.6|palette=cozy|density=1|islands=1')!, name: 'Kelp Harbour', day: 2, quests: 3, buildings: 1, lastPlayed: 5 };
-    const { t, calls } = titleFor([w]);
+    const { t, calls } = titleFor([w], { allowNewIsland: true });
     expect(t.page).toBe('main');
     t.render(new PixelBuffer(640, 360), 0);
     t.key('Enter');
     expect(calls).toEqual(['continue']);
     t.key('ArrowDown');
     t.key('ArrowDown');
-    t.key('Enter');
+    t.key('Enter'); // ISLANDS
+    t.key('ArrowDown');
+    t.key('Enter'); // NEW ISLAND (allowed here)
     expect(t.page).toBe('carrier');
     t.key('Escape');
     expect(t.page).toBe('main');

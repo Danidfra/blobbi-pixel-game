@@ -2,18 +2,21 @@
  * THE TITLE SCREEN, drawn over a slowly drifting view of an island. Keyboard (arrows, Enter, Escape), mouse and touch
  * all work; every page uses the same cards and buttons as the menus.
  *
- *   first time (no saved island)   WELCOME → CHOOSE YOUR CARRIER → NAME YOUR ISLAND → the island is made → intro
- *   returning                      CONTINUE (the most recent island) · MY ISLANDS · NEW ISLAND · SETTINGS · ABOUT
+ *   first time (no saved island)   BLOBBI PIXEL, "a little world awaits you": BEGIN · SETTINGS (· about)
+ *                                  BEGIN → CHOOSE YOUR CARRIER → NAME YOUR ISLAND → the island is made → intro
+ *   returning                      "welcome back!": CONTINUE (the active island) · SETTINGS (· islands · about)
  *
- * NEW ISLAND uses the same two steps as the first time. Choosing a Carrier changes the look and the mood of the
- * world, never how much there is to do. The name is optional (an empty one lets the island name itself).
+ * One island (M10 phase C): the first public release gives each player one active Carrier and island, so the main
+ * menu has no NEW ISLAND. This is a product rule only: every island keeps its own identity and save, the ISLANDS page
+ * lists every island this browser holds (older versions could make several) so none is ever trapped, opening one
+ * makes it the active island, and `allowNewIsland` brings NEW ISLAND back (development, or a later release).
  *
  * The title never makes a world itself: CREATE ISLAND moves to a short "creating" page and leaves a request
  * (`pendingCreate`) that the host takes on its next frame — exactly once, so a double press cannot make two islands.
  * If making the island fails, the host says why (`createFailed`) and the player is back on the Carrier page.
  *
  * Safety: NEW ISLAND always makes a world that has no save (see `newWorldSeeds`), so it can never overwrite one.
- * MY ISLANDS opens worlds; deleting one (its row's DELETE, or X / Delete on the keyboard) always asks first on a page
+ * ISLANDS opens worlds; deleting one (its row's DELETE, or X / Delete on the keyboard) always asks first on a page
  * of its own that names the island, starts on KEEP IT, and accepts DELETE only after a short pause (`ConfirmGate`),
  * so a double click or a repeated tap can never delete by accident.
  */
@@ -33,8 +36,12 @@ export interface TitleActions {
   worlds(): WorldEntry[];
   /** The world the playground has loaded now (its identity), whether it has a save, and whether a link named it. */
   current(): { identity: string; name: string; saved: boolean; linked?: boolean };
-  /** CONTINUE: the most recently played island. */
+  /** CONTINUE: the active island. */
   continueGame(): void;
+  /** The active island's identity (the one CONTINUE plays), when the host knows it; else the most recent one. */
+  activeIdentity?(): string | null;
+  /** Offer NEW ISLAND on the islands page (off for the one-island release; on in development). */
+  allowNewIsland?: boolean;
   openWorld(w: WorldEntry): void;
   /** Play the world the link named (a lab or shared link), when it is not a saved island yet. */
   playCurrent?(): void;
@@ -66,6 +73,8 @@ interface Item {
   detail?: string;
   world?: WorldEntry;
   danger?: boolean;
+  /** A small secondary row (ISLANDS, ABOUT): a slim card, never prominent. */
+  minor?: boolean;
   run: () => void;
 }
 
@@ -115,26 +124,27 @@ export class TitleScreen {
       return [
         { label: 'BEGIN', detail: 'CHOOSE YOUR WORLD CARRIER', run: () => this.go('carrier') },
         { label: 'SETTINGS', run: () => a.settings() },
-        { label: 'ABOUT', run: () => this.go('about') },
+        { label: 'ABOUT', minor: true, run: () => this.go('about') },
       ];
     if (this.page === 'main') {
       const worlds = a.worlds();
-      const recent = worlds[0];
+      const active = this.activeEntry(worlds);
       const cur = a.current();
       const out: Item[] = [];
-      if (recent) out.push({ label: 'CONTINUE', detail: `${recent.name.toUpperCase()}  ${speciesName(recent)}  DAY ${recent.day}`, run: () => a.continueGame() });
+      if (active) out.push({ label: 'CONTINUE', detail: `${active.name.toUpperCase()}  ${speciesName(active)}  DAY ${active.day}`, run: () => a.continueGame() });
       if (cur.linked && !worlds.some((w) => w.identity === cur.identity) && a.playCurrent) out.push({ label: 'PLAY THIS ISLAND', detail: `${cur.name.toUpperCase()} (FROM THE LINK)`, run: () => a.playCurrent!() });
-      out.push(
-        { label: 'MY ISLANDS', detail: `${worlds.length} SAVED`, run: () => this.go('islands') },
-        { label: 'NEW ISLAND', detail: 'A NEW WORLD CARRIER', run: () => this.go('carrier') },
-        { label: 'SETTINGS', run: () => a.settings() },
-        { label: 'ABOUT', detail: 'AND WATCH THE INTRO AGAIN', run: () => this.go('about') },
-      );
+      out.push({ label: 'SETTINGS', run: () => a.settings() });
+      // The islands page is always reachable (a quiet row): every saved island stays recoverable.
+      out.push({ label: worlds.length > 1 ? `ISLANDS (${worlds.length})` : 'ISLANDS', minor: true, run: () => this.go('islands') });
+      out.push({ label: 'ABOUT', minor: true, run: () => this.go('about') });
       return out;
     }
     if (this.page === 'islands') {
-      const list = a.worlds().map((w) => ({ label: w.name.toUpperCase(), detail: worldDetail(w), world: w, run: () => a.openWorld(w) }));
-      return [...list, { label: 'BACK', run: () => this.back() }];
+      const worlds = a.worlds();
+      const active = this.activeEntry(worlds);
+      const list = worlds.map((w) => ({ label: w.name.toUpperCase(), detail: (w === active ? 'ACTIVE  ' : '') + worldDetail(w), world: w, run: () => a.openWorld(w) }));
+      const more: Item[] = a.allowNewIsland ? [{ label: 'NEW ISLAND', detail: 'A NEW WORLD CARRIER', run: () => this.go('carrier') }] : [];
+      return [...list, ...more, { label: 'BACK', run: () => this.back() }];
     }
     if (this.page === 'delete') {
       const w = this.confirm.subject;
@@ -158,6 +168,12 @@ export class TitleScreen {
       return [...watch, { label: 'BACK', run: () => this.back() }];
     }
     return [];
+  }
+
+  /** The island CONTINUE plays: the host's active one, else the most recent. */
+  private activeEntry(worlds: readonly WorldEntry[]): WorldEntry | null {
+    const id = this.actions.activeIdentity?.() ?? null;
+    return worlds.find((w) => w.identity === id) ?? worlds[0] ?? null;
   }
 
   private go(page: TitlePage): void {
@@ -367,31 +383,38 @@ export class TitleScreen {
     const big = word.scaled(k);
     const bob = this.reducedMotion ? 0 : Math.round(Math.sin(time * 1.2) * 1);
     const tx = Math.floor((W - big.width) / 2);
-    const ty = compact ? 6 : 14;
+    const ty = compact ? 6 : 10;
     g.buf.blit(shadow.scaled(k), tx + 2, ty + bob + 2);
     g.buf.blit(big, tx, ty + bob);
     if (!compact) {
-      const sub = 'A LIVING ISLAND ON A WORLD CARRIER';
-      g.text(sub, Math.floor((W - textWidth(sub)) / 2), 42, UI.ink);
+      // PIXEL under the name, smaller; then one warm line: a welcome, or a welcome back.
+      const pixel = new PixelBuffer(textWidth('PIXEL') + 1, 6);
+      drawTinyText(pixel, 'PIXEL', 0, 0, UI.ink);
+      const p2 = pixel.scaled(2);
+      g.buf.blit(p2, Math.floor((W - p2.width) / 2), ty + 27 + bob);
+      const sub = this.page === 'welcome' ? 'A LITTLE WORLD AWAITS YOU.' : this.page === 'main' ? 'WELCOME BACK!' : '';
+      if (sub) g.text(sub, Math.floor((W - textWidth(sub)) / 2), 52, this.page === 'main' ? UI.accent : UI.ink);
     }
     if (this.page === 'carrier') return this.drawCarriers(g, time);
     if (this.page === 'creating') return this.drawCreating(g, time);
 
     const items = this.items();
-    const rows = 5;
+    // The islands page explains the active island above its list: one row fewer fits under it.
+    const rows = this.page === 'islands' && items.length > 2 ? 4 : 5;
     if (this.index < this.scroll) this.scroll = this.index;
     if (this.index >= this.scroll + rows) this.scroll = this.index - rows + 1;
     const panelW = 184;
     const named = this.page === 'name';
     const px = named ? 18 : Math.floor((W - panelW) / 2);
-    let y = named ? 24 : 56;
-    const heading = { islands: 'YOUR ISLANDS', about: 'ABOUT', delete: 'DELETE THIS ISLAND?', name: 'NAME YOUR ISLAND', error: 'THE SEA IS TOO ROUGH', welcome: 'WELCOME', main: '', carrier: '', creating: '' }[this.page];
+    const menu = this.page === 'welcome' || this.page === 'main';
+    let y = named ? 24 : menu ? 64 : 56;
+    const heading = { islands: 'YOUR ISLANDS', about: 'ABOUT', delete: 'DELETE THIS ISLAND?', name: 'NAME YOUR ISLAND', error: 'THE SEA IS TOO ROUGH', welcome: '', main: '', carrier: '', creating: '' }[this.page];
     if (heading) {
       g.text(heading, px, y, UI.accent);
       y += 9;
     }
-    if (this.page === 'welcome') {
-      y += g.para('A little Blobbi is looking for a home: an island on the back of a great sea creature. Choose its Carrier, name the island, and watch it begin.', px, y, panelW, UI.ink) + 5;
+    if (this.page === 'islands' && items.length > 2) {
+      y += g.para('CONTINUE plays your ACTIVE island. Opening another makes it the active one; nothing is lost.', px, y, panelW, UI.muted, 5) + 3;
     }
     if (this.page === 'about') {
       const para = 'A cozy procedural game. Your Blobbi lives on an island carried by a great sea creature: gather, farm, build a home, cook, discover the island\'s secrets and become friends. Everything is made from seeds; saves stay in this browser.';
@@ -412,7 +435,7 @@ export class TitleScreen {
     items.slice(this.scroll, this.scroll + rows).forEach((it, k2) => {
       const i = k2 + this.scroll;
       const selected = i === this.index;
-      const h = it.detail ? 18 : 11;
+      const h = it.minor ? 10 : it.detail ? 18 : 11;
       // The delete answer waits, greyed, until the question has been read for a moment.
       const waiting = !!it.danger && !this.confirm.armed(time);
       const c = card(panelW, h, selected ? (it.danger ? UI.bad : DESIGN.accent) : undefined);
@@ -420,7 +443,7 @@ export class TitleScreen {
       g.buf.blit(c, px, y);
       // A non-colour selection mark too.
       if (selected) for (let m = 0; m < 3; m++) g.buf.fillRect(px + 4 + m, y + 3 + m, 1, 5 - 2 * m, UI.accent);
-      g.text(it.label, px + 11, y + 3, waiting ? UI.line : it.danger ? UI.bad : selected ? UI.accent : UI.ink);
+      g.text(it.label, px + 11, y + (it.minor ? 2 : 3), waiting ? UI.line : it.danger ? UI.bad : selected ? UI.accent : it.minor ? UI.muted : UI.ink);
       if (it.detail) g.text(it.detail.slice(0, 43), px + 11, y + 10, UI.muted);
       g.hit(px, y, panelW, h, () => {
         this.index = i;
@@ -432,7 +455,7 @@ export class TitleScreen {
         const bw = textWidth('DELETE') + 6;
         g.button('DELETE', px + panelW - bw - 3, y + 3, () => this.askDelete(w), { w: bw });
       }
-      y += h + 2;
+      y += h + (it.minor ? 1 : 2);
     });
     if (named) this.drawChosen(g, px + panelW + 10, 40, time);
     if (this.scroll > 0) g.text('MORE', px + panelW + 3, 66, UI.muted);

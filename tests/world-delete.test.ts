@@ -59,7 +59,7 @@ describe('the confirmation gate', () => {
   });
 });
 
-describe('deleting from MY ISLANDS', () => {
+describe('deleting from ISLANDS', () => {
   function title(worlds: WorldEntry[]) {
     const deleted: string[] = [];
     const actions: TitleActions = {
@@ -83,7 +83,8 @@ describe('deleting from MY ISLANDS', () => {
   it('asks on its own page, defaults to KEEP IT, and only deletes after a pause', () => {
     const { t, deleted, draw } = title([entry('a', 'Mossy Cove'), entry('b', 'Quiet Isle')]);
     draw(0);
-    t.key('ArrowDown'); // ISLANDS
+    t.key('ArrowDown');
+    t.key('ArrowDown'); // ISLANDS (after CONTINUE and SETTINGS)
     t.key('Enter');
     expect(t.page).toBe('islands');
     draw(1);
@@ -112,6 +113,7 @@ describe('deleting from MY ISLANDS', () => {
   it('a double tap on DELETE never deletes: the first tap asks, the second lands on the question', () => {
     const { t, deleted, draw } = title([entry('a', 'Mossy Cove')]);
     t.key('ArrowDown');
+    t.key('ArrowDown'); // ISLANDS
     t.key('Enter');
     draw(0);
     const buttons = (t as unknown as { hits: { x: number; y: number; w: number; h: number }[] }).hits;
@@ -128,6 +130,7 @@ describe('deleting from MY ISLANDS', () => {
   it('Escape cancels the question', () => {
     const { t, deleted, draw } = title([entry('a', 'Mossy Cove')]);
     t.key('ArrowDown');
+    t.key('ArrowDown'); // ISLANDS
     t.key('Enter');
     draw(0);
     t.key('KeyX');

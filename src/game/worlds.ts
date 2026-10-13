@@ -13,6 +13,12 @@ import { sanitizeIslandName, worldName } from './island-name';
 
 export const SAVE_PREFIX = 'blobbi-pixel-lab:save:v1:';
 export const WORLD_INDEX_KEY = 'blobbi-pixel-lab:worlds';
+/**
+ * The ACTIVE island (M10 phase C): the one CONTINUE plays. The first public release shows one island per player, but
+ * this is a product rule, not a data-model one: every island keeps its own identity and save, older browsers may hold
+ * several, and the title can always open (and so re-activate) any of them. Absent or stale: the most recent one.
+ */
+export const ACTIVE_WORLD_KEY = 'blobbi-pixel-lab:active-world';
 
 export interface WorldParams {
   seed: string;
@@ -120,6 +126,20 @@ export function listWorlds(keys: readonly string[], get: (k: string) => string |
     });
   }
   return out.sort((a, b) => b.lastPlayed - a.lastPlayed || a.name.localeCompare(b.name));
+}
+
+/**
+ * The active island among the saved ones: the one named by `ACTIVE_WORLD_KEY` while it still has a readable save,
+ * else the most recently played (the list's first). Null when there is no saved island at all.
+ */
+export function activeWorld(worlds: readonly WorldEntry[], get: (k: string) => string | null): WorldEntry | null {
+  let stored: string | null = null;
+  try {
+    stored = get(ACTIVE_WORLD_KEY);
+  } catch {
+    stored = null;
+  }
+  return worlds.find((w) => w.identity === stored) ?? worlds[0] ?? null;
 }
 
 /** Whether a world identity has a save. */

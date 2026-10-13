@@ -62,7 +62,7 @@ import { TouchControls } from '../ui/touch';
 import { IntroCinematic, type IntroResult } from '../cinematic/intro';
 import { introPreviewWorld, isIntroSpecies } from '../cinematic/preview';
 import type { CarrierKind } from '../game/carrier';
-import { listWorlds, newWorldSeeds, resolveFrame, readIndex, touchIndex, worldName, WORLD_INDEX_KEY, hasSave, type WorldEntry } from '../game/worlds';
+import { activeWorld, listWorlds, newWorldSeeds, resolveFrame, readIndex, touchIndex, worldName, ACTIVE_WORLD_KEY, WORLD_INDEX_KEY, hasSave, type WorldEntry } from '../game/worlds';
 import { worldIdentity } from '../game/persistence';
 import { ConfirmGate, CONFIRM_ARM_SECONDS, deleteWorld } from '../game/world-delete';
 import { blobbiIdentity } from '../blobbi/identity';
@@ -584,12 +584,13 @@ const storeGet = (k: string): string | null => {
     return null;
   }
 };
-/** Remember that this world was just played (orders CONTINUE and the islands list). */
+/** Remember that this world was just played (orders the islands list) and, unless visiting, make it the active one. */
 function touchWorld(): void {
   if (!live) return;
   if (!live.visitor) claimWorld(live.identity);
   try {
     localStorage.setItem(WORLD_INDEX_KEY, JSON.stringify(touchIndex(readIndex(storeGet), live.identity, Date.now())));
+    if (!live.visitor && hasSave(live.identity, storeGet)) localStorage.setItem(ACTIVE_WORLD_KEY, live.identity);
   } catch {
     /* not stored */
   }
@@ -643,10 +644,13 @@ function openWorldParams(w: WorldEntry): boolean {
 /** The link named a world (`#seed=…`): the title offers to play it even before it has a save. */
 const linkedWorld = params.has('seed');
 let linkedIdentity: string | null = null;
-/** The island most recently played, if any. */
-const recentWorld = (): WorldEntry | null => listWorlds(storeKeys(), storeGet)[0] ?? null;
+/** The active island (the one CONTINUE plays): the stored one while it has a save, else the most recent. */
+const recentWorld = (): WorldEntry | null => activeWorld(listWorlds(storeKeys(), storeGet), storeGet);
 const title = new TitleScreen({
   worlds: () => listWorlds(storeKeys(), storeGet),
+  activeIdentity: () => recentWorld()?.identity ?? null,
+  // One island per player in this release; `#islands=many` brings NEW ISLAND back for development.
+  allowNewIsland: params.get('islands') === 'many',
   current: () => {
     const identity = live?.identity ?? (world ? worldIdentity(world) : '');
     return { identity, name: identity ? islandLabel(identity) : 'this island', saved: !!identity && hasSave(identity, storeGet), linked: linkedWorld && !!identity && identity === linkedIdentity };

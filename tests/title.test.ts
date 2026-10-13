@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateTurtleWorld } from '../src/world/turtle-world';
 import { LiveWorld, IDLE_INPUT } from '../src/sim/live-world';
 import { memoryStore, saveKey, worldIdentity } from '../src/game/persistence';
-import { listWorlds, newWorldSeeds, parseIdentity, resolveFrame, readIndex, SAVE_PREFIX, touchIndex, worldName, WORLD_INDEX_KEY } from '../src/game/worlds';
+import { activeWorld, listWorlds, newWorldSeeds, parseIdentity, resolveFrame, readIndex, SAVE_PREFIX, touchIndex, worldName, ACTIVE_WORLD_KEY, WORLD_INDEX_KEY } from '../src/game/worlds';
 import { TitleScreen, type TitleActions } from '../src/ui/title';
 import { TouchControls, stickDirections, DEAD_ZONE } from '../src/ui/touch';
 import { ToastFeed, TOAST_SECONDS, goalCard, statusCard, timeChip, card } from '../src/ui/hud';
@@ -54,6 +54,25 @@ describe('saved worlds', () => {
     expect(readIndex(store.get)[b.identity]).toBe(2000);
   });
 
+  it('the active island: the stored one while its save exists, else the most recent; reading never writes', () => {
+    const store = listedStore();
+    expect(activeWorld(listWorlds(store.keys(), store.get), store.get)).toBeNull();
+    const a = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16, { store });
+    a.save();
+    const b = new LiveWorld(generateTurtleWorld('turtle-1'), 'blobbi-9', 16, { store });
+    b.save();
+    store.set(WORLD_INDEX_KEY, JSON.stringify(touchIndex(touchIndex({}, a.identity, 1000), b.identity, 2000)));
+    const list = () => listWorlds(store.keys(), store.get);
+    expect(activeWorld(list(), store.get)!.identity).toBe(b.identity); // nothing stored: the most recent
+    store.set(ACTIVE_WORLD_KEY, a.identity);
+    const snapshot = new Map(store.map);
+    expect(activeWorld(list(), store.get)!.identity).toBe(a.identity); // explicit, even if not the most recent
+    expect(store.map).toEqual(snapshot);
+    store.set(ACTIVE_WORLD_KEY, 'seed=gone|kind=turtle');
+    expect(activeWorld(list(), store.get)!.identity).toBe(b.identity); // stale: falls back, nothing is lost
+    expect(list().length).toBe(2);
+  });
+
   it('names are stable and friendly', () => {
     expect(worldName('x')).toBe(worldName('x'));
     expect(worldName('x')).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
@@ -94,21 +113,39 @@ describe('title screen', () => {
     return { title: new TitleScreen(actions), calls };
   };
 
-  it('keyboard: continue, my islands, new island (Carrier, then name, then create once), back', () => {
+  it('a returning player: CONTINUE and SETTINGS, with quiet ISLANDS and ABOUT rows; no NEW ISLAND', () => {
     const { title, calls } = make();
     expect(title.page).toBe('main');
+    const labels = () => (title as unknown as { items(): { label: string; minor?: boolean }[] }).items();
+    expect(labels().map((i) => i.label)).toEqual(['CONTINUE', 'SETTINGS', 'ISLANDS', 'ABOUT']);
+    expect(labels().filter((i) => i.minor).map((i) => i.label)).toEqual(['ISLANDS', 'ABOUT']);
     title.key('Enter');
     expect(calls).toEqual(['continue']);
     title.key('ArrowDown');
     title.key('Enter');
+    expect(calls.at(-1)).toBe('settings');
+    title.key('ArrowDown');
+    title.key('Enter');
     expect(title.page).toBe('islands');
+    // The islands page opens the island; it offers no NEW ISLAND in the one-island release.
+    expect(labels().map((i) => i.label)).toEqual(['MOSSY COVE', 'BACK']);
     title.key('Enter');
     expect(calls.at(-1)).toBe('open Mossy Cove');
     title.key('Escape');
     expect(title.page).toBe('main');
+    // The words on screen: BLOBBI PIXEL and a welcome back.
+    title.render(new PixelBuffer(960, 540), 0);
+  });
+
+  it('NEW ISLAND only when the host allows it (development), through the same Carrier and name steps', () => {
+    const calls: string[] = [];
+    const world = { identity: 'id', params: parseIdentity('seed=s|kind=turtle|turtle=t|variant=0|10x10|scale=1|palette=cozy|density=1|islands=auto')!, name: 'Mossy Cove', day: 3, quests: 2, buildings: 1, lastPlayed: 1 };
+    const title = new TitleScreen({ worlds: () => [world], current: () => ({ identity: 'id', name: 'Mossy Cove', saved: true }), continueGame: () => calls.push('continue'), openWorld: () => {}, settings: () => {}, allowNewIsland: true });
     title.key('ArrowDown');
     title.key('ArrowDown');
-    title.key('Enter');
+    title.key('Enter'); // ISLANDS
+    title.key('ArrowDown');
+    title.key('Enter'); // NEW ISLAND
     expect(title.page).toBe('carrier');
     title.key('Enter'); // the turtle
     expect(title.page).toBe('name');
@@ -120,29 +157,52 @@ describe('title screen', () => {
     expect(title.takeCreate()).toBeNull(); // taken exactly once
   });
 
-  it('a first-time player is welcomed, and the main menu needs a saved island', () => {
+  it('a first-time player sees BEGIN and SETTINGS; BEGIN leads to the Carrier choice', () => {
     const { title, calls } = make(false);
     expect(title.page).toBe('welcome');
+    const labels = (title as unknown as { items(): { label: string; minor?: boolean }[] }).items();
+    expect(labels.filter((i) => !i.minor).map((i) => i.label)).toEqual(['BEGIN', 'SETTINGS']);
     const screen = new PixelBuffer(960, 540);
     title.render(screen, 0);
-    // The first row is BEGIN: click its middle.
+    // The first row is BEGIN: click it.
     const s = TitleScreen.scaleFor(960, 540);
-    const ox = Math.floor((960 - 320 * s) / 2);
-    const oy = Math.floor((540 - 180 * s) / 2);
-    const begin = title.regions.find((h) => h.y > oy + 80 * s && h.w > 150 * s)!;
+    const begin = [...title.regions].filter((h) => h.w > 150 * s).sort((a, b) => a.y - b.y)[0];
     title.pointer(begin.x + 4, begin.y + 4);
     expect(title.page).toBe('carrier');
     expect(calls).toEqual([]);
-    void ox;
     expect(title.key('KeyI')).toBe(true); // owns the keyboard
   });
 
   it('wraps selection and never leaves the main page with Escape', () => {
     const { title } = make();
     title.key('ArrowUp');
-    expect(title.index).toBe(4);
+    expect(title.index).toBe(3);
     title.key('Escape');
     expect(title.page).toBe('main');
+  });
+
+  it('several islands from an older version: all listed, the active one marked, CONTINUE plays the active one', () => {
+    const p = parseIdentity('seed=s|kind=turtle|turtle=t|variant=0|10x10|scale=1|palette=cozy|density=1|islands=auto')!;
+    const worlds = [
+      { identity: 'a', params: p, name: 'Mossy Cove', day: 3, quests: 2, buildings: 1, lastPlayed: 9 },
+      { identity: 'b', params: { ...p, kind: 'whale' as const }, name: 'Kelp Harbour', day: 12, quests: 9, buildings: 4, lastPlayed: 5 },
+      { identity: 'c', params: { ...p, kind: 'manta' as const }, name: 'Quiet Isle', day: 1, quests: 0, buildings: 0, lastPlayed: 1 },
+    ];
+    const opened: string[] = [];
+    const title = new TitleScreen({ worlds: () => worlds, activeIdentity: () => 'b', current: () => ({ identity: 'b', name: 'Kelp Harbour', saved: true }), continueGame: () => opened.push('continue'), openWorld: (w) => opened.push(w.identity), settings: () => {} });
+    const items = () => (title as unknown as { items(): { label: string; detail?: string }[] }).items();
+    expect(items()[0].detail).toContain('KELP HARBOUR'); // CONTINUE names the active island, not the most recent
+    expect(items()[2].label).toBe('ISLANDS (3)');
+    title.key('ArrowDown');
+    title.key('ArrowDown');
+    title.key('Enter');
+    expect(items().map((i) => i.label)).toEqual(['MOSSY COVE', 'KELP HARBOUR', 'QUIET ISLE', 'BACK']);
+    expect(items().filter((i) => i.detail?.startsWith('ACTIVE')).map((i) => i.label)).toEqual(['KELP HARBOUR']);
+    title.render(new PixelBuffer(640, 360), 0);
+    title.key('ArrowDown');
+    title.key('ArrowDown');
+    title.key('Enter'); // the oldest island can still be opened (and so becomes the active one)
+    expect(opened).toEqual(['c']);
   });
 });
 
