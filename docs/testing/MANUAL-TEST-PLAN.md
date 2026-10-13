@@ -396,6 +396,30 @@ and do not count as passes.
 | SAVEC-02 | Development only: edit a save's `version` to 99 in localStorage | Open the island. | "Not saving: saved by a newer version of the game"; the stored record is unchanged; a backup key exists. | NOT TESTED | `tests/save-reliability.test.ts` |
 | PERFC-01 | A reasonable desktop and a lower-end device | Play at every zoom: a dense island, the canoe, the sea's edge. | Smooth; no hitch near the rough water. | NOT TESTED | proxy figures only: `docs/testing/perf/` |
 
+## M11B: accounts, languages, readable text (ACCT, LANG, READ)
+
+Every test in this section is **NOT TESTED**. Automated tests and the images in `examples/m11b/` (made with a mocked
+extension and blocked relays) are listed in Notes and do not count as passes.
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| ACCT-01 | A browser without a Nostr extension | SETTINGS → ACCOUNT; press CONNECT. | The pitch and "playing never needs an account"; CONNECT says no extension was found; nothing else changes. | NOT TESTED | `tests/nostr-identity.test.ts`; `browser-*-account-guest-no-signer.png` |
+| ACCT-02 | A real NIP-07 extension (Alby, nos2x...) with an account that has a profile | CONNECT; approve in the extension. | CONNECTED, the profile name, the short npub; "your islands are still saved only in this browser". The extension was asked only for the public key (it never shows a signing request). | NOT TESTED | mocked only: `browser-*-account-connected*.png` |
+| ACCT-03 | ACCT-02 | Reject the extension's prompt instead. | "The extension said no. Nothing changed." | NOT TESTED | `tests/nostr-identity.test.ts` |
+| ACCT-04 | ACCT-02 | Reload the page; open ACCOUNT. | Still connected, no new prompt. | NOT TESTED | |
+| ACCT-05 | ACCT-02 | Switch accounts in the extension; CHECK THE ACCOUNT AGAIN. | The new account's name and npub. | NOT TESTED | |
+| ACCT-06 | ACCT-02, a played island | DISCONNECT; play; reload. | A guest again; the island, its progress and every other island unchanged. | NOT TESTED | |
+| ACCT-07 | ACCT-02 with the network offline (or relays blocked) | Open ACCOUNT. | Connected with the short npub; ADVANCED says the relays are out of reach; the game never waits. | NOT TESTED | |
+| ACCT-08 | ACCT-02 | ADVANCED DETAILS. | Public key, "Browser extension (NIP-07)", profile state, relays, "read only". No secret anywhere. | NOT TESTED | `browser-*-account-advanced.png` |
+| LANG-01 | A browser set to Portuguese (Brazil), fresh profile | Open the game. | Everything in Portuguese from the first frame, no English flash. | NOT TESTED | `tests/i18n.test.ts`; `browser-desktop-menu-pt-BR.png` |
+| LANG-02 | A browser set to Spanish, fresh profile | Open the game; play the first quests. | Everything in Spanish. | NOT TESTED | `browser-*-es.png` |
+| LANG-03 | Any browser | Change LANGUAGE on the title (button or L) and in SETTINGS, in play, with a menu open. | The change shows at once; no restart; the island and progress unchanged. | NOT TESTED | |
+| LANG-04 | LANG-03 | Reload. | The chosen language is kept. | NOT TESTED | |
+| LANG-05 | A Portuguese and a Spanish speaker | Play 20 minutes each; read quests, notes, the guide, tips, notices, bubbles. | Natural, warm wording; no English left in play; no awkward or wrong agreement ("a pedra", "el palo"). | NOT TESTED | 1 675 strings per language were written by hand and never reviewed by a native speaker |
+| READ-01 | A laptop and a phone in landscape | Read the journal, crafting, bag, tips and the HUD at every camera zoom. | Comfortable to read; the pixel look kept. | NOT TESTED | `browser-*-journal-*.png`, `browser-*-hud-*.png` |
+| READ-02 | READ-01 | TEXT SIZE small, normal, large. | Small: smaller menus and text; large: a larger HUD, larger menus where the window has room; nothing clipped; the world camera unchanged. | NOT TESTED | `tests/readability.test.ts`; `browser-*-large-*.png` |
+| READ-03 | A small phone (about 667×375) | Open every menu. | Menus at 2× with the readable font (they were 1× before). | NOT TESTED | |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

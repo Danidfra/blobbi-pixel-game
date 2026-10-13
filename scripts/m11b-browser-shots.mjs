@@ -125,6 +125,92 @@ const scenarios = {
   },
 };
 
+/** A new island in a language, past the intro, with the story's first chapter done (a home to show). */
+async function islandIn(W, H, mobile, locale, extra = {}) {
+  const p = await open(W, H, mobile, { storage: { 'blobbi-pixel-lab:locale': locale, ...extra } });
+  await p.key('Enter'); // BEGIN
+  await sleep(300);
+  await p.key('Enter'); // the turtle
+  await sleep(300);
+  await p.key('Enter'); // CREATE ISLAND
+  await sleep(15000);
+  await p.key('Escape'); // skip the rest of the intro
+  await sleep(2500);
+  await p.evaluate(`const l = window.__blobbi.live(); for (const id of ['meet','arrive','gather','axe','wood','materials']) l.objectives.completed[id] = 0; l.inventory.add('blobbi-pixel:material:wood', 6); l.inventory.add('blobbi-pixel:resource:stone', 5); l.inventory.add('blobbi-pixel:resource:stick', 4); l.inventory.add('blobbi-pixel:food:carrot', 3); l.pinQuest?.('improve'); l.save();`);
+  await sleep(800);
+  return p;
+}
+
+Object.assign(scenarios, {
+  /** The title in English, Portuguese and Spanish (desktop), the language and text size settings. */
+  async menus() {
+    for (const locale of ['en', 'pt-BR', 'es']) {
+      const p = await open(1280, 720, false, { storage: { 'blobbi-pixel-lab:locale': locale } });
+      await p.shot(`desktop-menu-${locale}`);
+      if (locale === 'pt-BR') {
+        await p.key('ArrowDown');
+        await p.key('Enter'); // SETTINGS
+        await p.shot('desktop-settings-language-pt-BR');
+        await p.key('ArrowDown');
+        await p.key('ArrowRight'); // TEXT SIZE: large
+        await p.shot('desktop-settings-text-size-large-pt-BR');
+        await p.key('ArrowRight'); // small
+        await p.shot('desktop-settings-text-size-small-pt-BR');
+        await p.key('ArrowRight'); // normal again
+      }
+      await p.close();
+    }
+    const phone = await open(844, 390, true, { storage: { 'blobbi-pixel-lab:locale': 'es' } });
+    await phone.shot('phone-menu-es');
+    await phone.key('Enter'); // EMPEZAR
+    await sleep(400);
+    await phone.shot('phone-carrier-es');
+    await phone.close();
+  },
+  /** Playing in Portuguese: HUD (desktop and phone), journal, crafting, a dialogue bubble and a notice. */
+  async playing() {
+    for (const [vp, W, H, mobile] of VIEWPORTS) {
+      const p = await islandIn(W, H, mobile, 'pt-BR');
+      await p.shot(`${vp}-hud-pt-BR`);
+      await p.key('KeyJ');
+      await sleep(400);
+      await p.shot(`${vp}-journal-pt-BR`);
+      await p.key('Escape');
+      await p.key('KeyK');
+      await sleep(400);
+      await p.shot(`${vp}-crafting-pt-BR`);
+      await p.key('Escape');
+      await p.key('KeyI');
+      await sleep(400);
+      await p.shot(`${vp}-bag-pt-BR`);
+      await p.key('Escape');
+      // A dialogue: the Blobbi says something, and a notice comes.
+      await p.evaluate(`const l = window.__blobbi.live(); l.feed('blobbi-pixel:food:carrot'); l.notices.push({ heading: 'x', title: 'y', text: 'z', until: l.clock.time + 5 }); l.notices.pop();`);
+      await p.evaluate(`const l = window.__blobbi.live(); l.objectives.completed['shelter'] = 0; l.save();`);
+      await sleep(900);
+      await p.shot(`${vp}-dialogue-pt-BR`);
+      await p.close();
+    }
+    const es = await islandIn(844, 390, true, 'es');
+    await es.shot('phone-hud-es');
+    await es.key('KeyJ');
+    await sleep(400);
+    await es.shot('phone-journal-es');
+    await es.close();
+  },
+  /** Large text on a desktop and a phone (the HUD grows; menus where the window has room). */
+  async large() {
+    for (const [vp, W, H, mobile] of [['desktop-wide', 1920, 1080, false], ...VIEWPORTS]) {
+      const p = await islandIn(W, H, mobile, 'pt-BR', { 'blobbi-pixel-lab:settings': JSON.stringify({ textSize: 'large' }) });
+      await p.shot(`${vp}-hud-large-pt-BR`);
+      await p.key('KeyJ');
+      await sleep(400);
+      await p.shot(`${vp}-journal-large-pt-BR`);
+      await p.close();
+    }
+  },
+});
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const wanted = process.argv.slice(2);
   for (const name of wanted.length ? wanted : Object.keys(scenarios)) {

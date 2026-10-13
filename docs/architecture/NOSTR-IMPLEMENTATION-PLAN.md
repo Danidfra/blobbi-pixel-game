@@ -24,6 +24,11 @@ deliberately, never removed); the game remains fully playable with no account an
 
 ## M11B — Signer connection (read-only)
 
+> **Done in M11B (2026-10-13), with one change:** NIP-07 only. NIP-46 was left out because it needs a client
+> session key made by the game and request events published to a relay, both outside M11B's rules (KI-64). See
+> [M11B](../milestones/M11B.md).
+
+
 - **Objective:** a player can connect an existing signer and the game knows their pubkey; nothing is published.
 - **Scope:** NIP-07 (`window.nostr`) and NIP-46 (`bunker://` paste and `nostrconnect://` QR) via `@nostrify/nostrify`
   `NBrowserSigner` / `NConnectSigner`; a small login record (`blobbi-pixel-lab:account`, pubkey + method + NIP-46

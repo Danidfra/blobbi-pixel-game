@@ -42,7 +42,9 @@ plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M1
 - [World Carriers](architecture/WORLD-CARRIERS.md): turtle, manta, whale.
 - [Save and persistence](architecture/SAVE-AND-PERSISTENCE.md): schema 1–12, migrations, and what happens to a save
   that cannot be read.
-- Nostr (M11A audit, DESIGN ONLY): [identity](architecture/NOSTR-IDENTITY.md),
+- [Languages and readable text](architecture/I18N.md) (M11B): catalogues, content overlay, fonts, text size.
+- [Blobbi generations V1/V2/V3](architecture/BLOBBI-GENERATION-COMPATIBILITY.md) (M11B investigation).
+- Nostr: identity is IMPLEMENTED read-only in M11B (`src/nostr/`, [M11B](milestones/M11B.md)); the rest is the M11A design: [identity](architecture/NOSTR-IDENTITY.md),
   [world persistence](architecture/NOSTR-WORLD-PERSISTENCE.md), [inventory interop](architecture/NOSTR-INVENTORY-INTEROP.md),
   [implementation plan](architecture/NOSTR-IMPLEMENTATION-PLAN.md).
 - [Nostr persistence readiness](architecture/NOSTR-PERSISTENCE-READINESS.md): the local record's boundaries, gaps and
