@@ -48,6 +48,8 @@ export type Goal =
   | { friendship: number }
   /** The home has reached a house level (M8). */
   | { house: number }
+  /** The island has grown to at least this stage (M10 phase C). */
+  | { stage: number }
   | { all: readonly Goal[] }
   | { any: readonly Goal[] };
 
@@ -118,7 +120,11 @@ export const QUEST_CONTENT: readonly QuestContent[] = [
   // ─── Chapter 3: Whispers of the Carrier ──────────────────────────────────
   { id: 'cook', type: 'main', chapter: 3, title: 'A warm meal', story: 'Raw turnips are fine. A roasted one is better.', hint: 'Craft a cooking station (K), place it, and cook something (E at the stove).', requires: ['harvest'], goal: { tally: 'cooked', n: 1 }, reward: { items: [{ item: I.wheatSeed, quantity: 3 }], text: '+3 wheat seeds, new recipes, herb planter plans' } },
   { id: 'mystery', type: 'main', chapter: 3, title: 'Something that hums', story: 'Blobbi keeps staring at a patch of grass, as if listening.', hint: 'Explore the island: somewhere, a stone is glinting. Press E on it.', requires: ['home'], goal: { found: 'carrier-stone' }, reward: { friendship: 5, text: 'a painting plan' } },
-  { id: 'carrier', type: 'main', chapter: 3, title: 'Listen to the Carrier', story: 'The stone hums. So, you suspect, does the island.', hint: 'Go to the shore near the turtle\'s head and press E to listen.', requires: ['mystery'], goal: { tally: 'talked', n: 1 }, reward: { lore: ['hum'], items: [{ item: I.sunflowerSeed, quantity: 3 }], text: '+3 sunflower seeds, a journal note, bookshelf and fishing rod plans' } },
+  // M10 phase C: the island's first growth, taught in the story (the Carrier stone hums: the island is alive). Its first
+  // growth always opens a way to the sea (the landing, see world/landing.ts), and everything at sea — the rod, the
+  // seal, the canoe — comes after listening to the Carrier, so the shore is reachable by the time it matters.
+  { id: 'grow', type: 'main', chapter: 3, title: 'Help your island grow', story: 'Your island is alive. As you care for it, new land appears, opening paths to places you could not reach before: even the sea.', hint: 'Open GROWTH (L) to see what the island needs: care for Blobbi, harvests, crafting, a discovery, a few days. When it is ready, let it grow there (or at the Carrier).', requires: ['mystery'], goal: { stage: 1 }, reward: { lore: ['growing'], friendship: 3, text: 'a journal note, and a path to the sea' } },
+  { id: 'carrier', type: 'main', chapter: 3, title: 'Listen to the Carrier', story: 'The stone hums. So, you suspect, does the island.', hint: 'Go to the shore near the turtle\'s head and press E to listen.', requires: ['mystery', 'grow'], goal: { tally: 'talked', n: 1 }, reward: { lore: ['hum'], items: [{ item: I.sunflowerSeed, quantity: 3 }], text: '+3 sunflower seeds, a journal note, bookshelf and fishing rod plans' } },
   { id: 'restore', type: 'main', chapter: 3, title: 'Begin restoring the island', story: 'A tended island makes a strong, calm Carrier.', hint: 'Grow 3 flowers in your garden and place 3 decorations outside.', requires: ['carrier'], goal: { all: [{ tally: 'flowers', n: 3 }, { decorations: 3 }] }, reward: { lore: ['restoring', 'where-to'], friendship: 10, text: 'two journal notes, the harvest feast recipe' } },
   // ─── Chapter 4: A Growing Home (M8) ──────────────────────────────────────
   { id: 'cottage', type: 'main', chapter: 4, title: 'A bigger home', story: 'Blobbi keeps bumping into the table. Time for more room.', hint: 'Open HOME (1): upgrade to a Cottage with 10 wood, 6 stones and 2 cloth.', requires: ['home', 'harvest'], goal: { house: 2 }, reward: { friendship: 5, text: 'new roof and wall colours, room styles' } },

@@ -25,6 +25,9 @@ import { shellRadius } from '../turtle/turtle';
 import { islandRadius } from './layout';
 import { bandsFor, islandDistance } from './terrain';
 import { T, type CoastFeature, type Island, type Placement, type WorldDescription } from './types';
+import { OCEAN_ACCESS_STAGE, distanceField, paintLanding, planLanding, type Landing } from './landing';
+import { movingPartsMask } from '../cinematic/sea';
+import { clearableKind } from '../game/clearing';
 
 /**
  * The growth generator's version. Bump it (and keep the old branch) whenever its output would change.
@@ -33,16 +36,23 @@ import { T, type CoastFeature, type Island, type Placement, type WorldDescriptio
  *     narrow aft land is never walled off (v1 could fence off the tip of the stage-3 grove). Turtle and manta
  *     worlds are identical in v1 and v2; a v1 save is still regrown exactly as v1.
  */
-export const GROWTH_VERSION = 3;
+export const GROWTH_VERSION = 4;
 /** Every version this generator can reproduce. */
-export const GROWTH_VERSIONS: readonly number[] = [1, 2, 3];
+export const GROWTH_VERSIONS: readonly number[] = [1, 2, 3, 4];
 /**
  *  3  M9: stage 4, the Sanctuary. Stages 1-3 are exactly v2's for every Carrier; only stage 4 is new, so a v1 or v2
  *     save at stage 0-3 is still regrown exactly, and grows on to stage 4 with v3.
+ *  4  M10 phase C: the LANDING (`world/landing.ts`). From stage `OCEAN_ACCESS_STAGE` every island also has one narrow
+ *     tongue of shore across the Carrier's edge margin to open water, so the sea (fishing, the canoe) is always
+ *     reachable. Everything else is exactly v3's: the same land (the tongue only adds carrying-surface pixels), the
+ *     same objects (it is painted after each stage's objects are placed, and grows none). A world grown with v1-v3
+ *     is therefore upgraded to v4 safely (`LiveWorld` does so on load: see `upgradeGrowth`).
  */
 export const MAX_GROWTH_STAGE = 4;
 /** The last stage each generator version can make (a v1/v2 save cannot be stage 4). */
-export const MAX_STAGE_OF_VERSION: Readonly<Record<number, number>> = { 1: 3, 2: 3, 3: 4 };
+export const MAX_STAGE_OF_VERSION: Readonly<Record<number, number>> = { 1: 3, 2: 3, 3: 4, 4: 4 };
+/** The first version with the landing (the guaranteed way to the sea). */
+export const LANDING_VERSION = 4;
 
 export type BiomeId = 'meadow' | 'woodland' | 'rocky' | 'coastal' | 'mushroom' | 'sanctuary';
 
@@ -106,6 +116,15 @@ export interface WorldGrowth {
    * turtle shell's soil band along a coast that is no longer the island record's. Absent below stage 4.
    */
   landField?: Float32Array;
+  /** Version 4 from `OCEAN_ACCESS_STAGE`: the landing, the island's guaranteed way to the sea. */
+  landing?: Landing;
+  /** A turtle's landing: distance from every pixel to the landing's land (the shell's soil band follows it). */
+  landingField?: Float32Array;
+  /**
+   * Natural objects (indices: trees, bushes, rocks, stumps, mushrooms) whose ground the landing covers: they are not
+   * there (cleared ground that never returns), so nothing ever blocks the way to the sea. Indices never change.
+   */
+  landingClear?: number[];
 }
 
 /** Can this world grow? A turtle on an enlarged shell (Variant A-C): there must be a shell ring to grow over. */
@@ -270,6 +289,9 @@ export function planV1(base: WorldDescription): Plan {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
+/** A coast's shore band (it may become inland ground when land grows past it). */
+const shoreBand = (c: number) => c === T.GRASS_EDGE || c === T.SAND || c === T.SAND_WET || c === T.MOSS;
+
 /** The grown coastline at a stage: the base record, a ring factor, and the lobes of every stage up to it. */
 function landAt(island: Island, plan: Plan, stage: number): Island {
   const lobes = plan.lobes.filter((l) => plan.regions[l.region].stage <= stage).map(({ angle, width, size, kind }) => ({ angle, width, size, kind }));
@@ -377,6 +399,14 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
   const objectsAt = [base.objects.length];
   let final = terrainAt(1);
   let landField: Float32Array | undefined;
+  // Version 4: the landing, planned once on the access stage's terrain and objects (before it is painted).
+  let landing: Landing | null = null;
+  const mask: Uint8Array | null = version >= LANDING_VERSION && stage >= OCEAN_ACCESS_STAGE ? movingPartsMask(base) : null;
+  const palette = PALETTES[base.options.palette] ?? PALETTES.cozy;
+  const footOf = (p: Placement) => OBJECT_GENERATORS[p.kind]({ seed: p.seed, size: p.size, palette, variation: p.variation as never });
+  // The landing's pixels (1: its new land, 2: old shore made inland at its root), over every stage.
+  const landingMark = mask ? new Uint8Array(width * height) : null;
+  let prevCls: Uint8Array | null = null;
   for (let s = 1; s <= stage; s++) {
     if (s > 1) final = terrainAt(s);
     // Stage 4: the stage-3 land (stage 4's coastline record is stage 3's), then the Sanctuary fill over the back.
@@ -386,6 +416,43 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
     const sv = history.find((h) => h.stage === s)?.version ?? version;
     newObjects.push(...regionObjects(base, plan, s, final.cls, final.dist, final.region, feet, passageFor(base, Math.min(sv, version))));
     objectsAt.push(base.objects.length + newObjects.length);
+    // The landing is planned on the access stage, once its objects stand: it keeps off their ground where it can.
+    if (mask && s === OCEAN_ACCESS_STAGE) landing = planLanding(base, final.cls, suitableSurface(base), mask, occupancy(base, [...base.objects, ...newObjects], footOf));
+    // After the stage's objects: the landing never changes where anything grows (and nothing grows on it).
+    if (landing && mask && s >= OCEAN_ACCESS_STAGE) {
+      paintLanding(base, landing, final, mask, 0, OCEAN_ACCESS_STAGE, landingMark ?? undefined);
+      // Later stages are computed afresh: under them the landing's pixels are free again (painted again above) or
+      // covered by the stage's own new land, which keeps its ground (as in version 3) — except that a landing pixel
+      // never turns back into a shore band, and the Sanctuary (stage 4, which never repaints land) leaves every
+      // landing pixel the class it had at stage 3. It has been land since the access stage (`bornAt`, for the reveal).
+      if (s > OCEAN_ACCESS_STAGE && prevCls && landingMark)
+        for (let i = 0; i < landingMark.length; i++) {
+          if (!landingMark[i]) continue;
+          const was = prevCls[i];
+          const now = final.cls[i];
+          if ((!shoreBand(was) && (s === 4 || shoreBand(now))) || (was >= T.GRASS_EDGE && now < T.GRASS_EDGE)) final.cls[i] = was;
+          if (landingMark[i] === 1) {
+            final.bornAt[i] = OCEAN_ACCESS_STAGE;
+            if (final.dist[i] > 0) final.dist[i] = -0.5;
+          }
+        }
+      prevCls = final.cls.slice();
+    }
+  }
+  const landingField = landing && landingMark && base.turtle ? distanceField(landingMark, width, height) : undefined;
+  // Natural objects on the landing's ground (of any stage) are cleared for good; a keeper piece never is (the
+  // landing was planned off them).
+  const landingClear: number[] = [];
+  if (landing && landingMark) {
+    const all = [...base.objects, ...newObjects];
+    for (let k = 0; k < all.length; k++) {
+      const p = all[k];
+      if (!SOLID_KINDS_GROWTH.has(p.kind) || !clearableKind(p)) continue;
+      const f = footOf(p);
+      if (f.footRx <= 1 && f.footRy <= 1) continue;
+      // The foot, grown by the Blobbi's own foot (3 × 2) and a pixel: room to stand and walk the landing.
+      if (ellipseTouches(landingMark, width, height, p.x, p.y, f.footRx + 4, Math.max(1, f.footRy) + 3)) landingClear.push(k);
+    }
   }
   const { cls, dist, owner, region, bornAt } = final;
   const regions = plan.regions.filter((g) => g.stage <= stage);
@@ -401,8 +468,48 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
     terrain: { width, height, cls, dist, owner, elevation: base.terrain.elevation },
     objects,
     stats: { ...base.stats, landPixels, objects: counts },
-    growth: { version, stage, regions, baseObjects: base.objects.length, land: lands[stage]!, region, bornAt, area, objectsAt, ...(landField ? { landField } : {}) },
+    growth: { version, stage, regions, baseObjects: base.objects.length, land: lands[stage]!, region, bornAt, area, objectsAt, ...(landField ? { landField } : {}), ...(landing ? { landing } : {}), ...(landingField ? { landingField } : {}), ...(landingClear.length ? { landingClear } : {}) },
   };
+}
+
+/** Kinds a Blobbi cannot walk through (the same set as the collision map's `SOLID_KINDS`). */
+const SOLID_KINDS_GROWTH = new Set<Placement['kind']>(['tree', 'bush', 'rock', 'house', 'fence', 'decor']);
+
+/**
+ * Where objects stand, for planning the landing: 1 under a natural object's foot (it could be cleared), 2 under
+ * anything else solid (a keeper piece: a sign, a well, the house).
+ */
+function occupancy(base: WorldDescription, objects: readonly Placement[], footOf: (p: Placement) => { footRx: number; footRy: number }): Uint8Array {
+  const { width, height } = base.terrain;
+  const out = new Uint8Array(width * height);
+  for (const p of objects) {
+    if (!SOLID_KINDS_GROWTH.has(p.kind)) continue;
+    const f = footOf(p);
+    if (f.footRx <= 1 && f.footRy <= 1) continue;
+    const v = clearableKind(p) ? 1 : 2;
+    const rx = f.footRx + 4;
+    const ry = Math.max(1, f.footRy) + 3;
+    for (let y = Math.floor(p.y - ry); y <= Math.ceil(p.y + ry); y++)
+      for (let x = Math.floor(p.x - rx); x <= Math.ceil(p.x + rx); x++) {
+        if (x < 0 || y < 0 || x >= width || y >= height) continue;
+        const u = (x + 0.5 - p.x) / (rx + 0.5);
+        const w = (y + 0.5 - p.y) / (ry + 0.5);
+        if (u * u + w * w <= 1) out[y * width + x] = Math.max(out[y * width + x], v);
+      }
+  }
+  return out;
+}
+
+/** Does an ellipse at (cx, cy) touch any marked pixel? */
+function ellipseTouches(mark: Uint8Array, width: number, height: number, cx: number, cy: number, rx: number, ry: number): boolean {
+  for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+      if (x < 0 || y < 0 || x >= width || y >= height || !mark[y * width + x]) continue;
+      const u = (x + 0.5 - cx) / (rx + 0.5);
+      const v = (y + 0.5 - cy) / (ry + 0.5);
+      if (u * u + v * v <= 1) return true;
+    }
+  return false;
 }
 
 interface Foot {

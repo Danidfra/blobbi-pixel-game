@@ -37,6 +37,7 @@ import { HITS_TO_FELL, STUMP_SECONDS, TREE_RETURN_SECONDS, stumpSprite, treeCond
 import { EquipmentRig, type EquipmentAnimation } from '../game/equipment';
 import { HITS_TO_MINE, isLargeRock, rockCondition, rubbleSprite, stoneYield, RUBBLE_CLEAR_SECONDS, ROCK_RETURN_SECONDS, type RockCondition, type RockState } from '../game/rocks';
 import { CANOE, SeaNav, seaRegion, stepBoat, type BoatState, type Heading } from '../game/canoe';
+import { findOceanAccess } from '../game/ocean-access';
 import { movingPartsMask } from '../cinematic/sea';
 import { worldBounds } from '../render/view-camera';
 import { clearableKind, CLEAR_YIELD, RETURN_SECONDS, RETRY_SECONDS, MIN_STANDING_TREES, type ClearState } from '../game/clearing';
@@ -70,7 +71,8 @@ import type { PointOfInterest } from './brain';
 import { TeleportController, type PresenceState } from '../game/teleport';
 import { findPlaces, type Place } from '../game/places';
 import { OWNER, READ_ONLY, type VisitorPermissions } from '../game/visiting';
-import { canGrow, growWorld, GROWTH_VERSION, MAX_GROWTH_STAGE } from '../world/growth';
+import { canGrow, growWorld, GROWTH_VERSION, GROWTH_VERSIONS, LANDING_VERSION, MAX_GROWTH_STAGE } from '../world/growth';
+import { OCEAN_ACCESS_STAGE, landingStandOf } from '../world/landing';
 import { growthReadiness, type GrowthReadiness } from '../game/growth-progress';
 import { growthResources, placeGrowthDiscoveries, regionPlaces } from '../game/growth-content';
 import { BOND, HUM_LINES, carrierFavourites, carrierToSave, growthStage, harmony, newCarrier, nextObservation, type CarrierState } from '../game/carrier';
@@ -503,7 +505,7 @@ export class LiveWorld {
     let world = base;
     if (save && save.growth.stage > 0) {
       try {
-        world = growWorld(base, save.growth.stage, save.growth.version, save.growth.history);
+        world = growWorld(base, save.growth.stage, ...this.upgradedGrowth(save.growth, base));
         this.growth = save.growth;
       } catch (e) {
         // Never regrow differently or overwrite: keep the save untouched and play nothing that could save.
@@ -626,6 +628,8 @@ export class LiveWorld {
     void this.listenSpot;
     // The canoe (M10 phase B): afloat where it was, or moved to the nearest water if that spot is water no more.
     this.settleBoat();
+    // An island grown before the landing has just been given it (M10 phase C): say so, once.
+    if (this.landingUpgraded && this.world.growth?.landing) this.announceSeaPath();
   }
 
   // ─── Scenes: the island, or a house interior ───────────────────────────
@@ -733,6 +737,9 @@ export class LiveWorld {
       this.allResources = this.allResources.filter((n, i) => i < baseNodes.length || grownReach(n.x, n.y));
       const canStand = (x: number, y: number) => this.islandCollision.canStand(x, y, this.blobbi.footRx, this.blobbi.footRy) && grownReach(x, y);
       this.places.push(...regionPlaces(this.world, canStand));
+      // The landing (M10 phase C): the island's way to the sea is a place on the map.
+      const spot = this.landingStand();
+      if (spot) this.places.push({ id: 'landing', name: 'The landing', note: 'Where the island reaches the water. The canoe launches from here, and the fish come close.', x: spot.x, y: spot.y, radius: 18 });
       this.discoveries.push(...placeGrowthDiscoveries(this.world, (x, y) => this.islandCollision.canStand(x, y, 3, 2) && grownReach(x, y), [...this.allResources, ...this.discoveries]));
     }
   }
@@ -973,6 +980,7 @@ export class LiveWorld {
   absentObject(index: number): boolean {
     const p = this.world.objects[index];
     if (!p) return false;
+    if (this.landingClear.has(index)) return true;
     if (p.kind === 'tree' && this.trees.has(index)) return this.treeAt(index).phase === 'cleared';
     if (p.kind === 'rock' && this.rocks.has(index)) return this.rockAt(index).phase === 'cleared';
     const c = this.cleared.get(index);
@@ -986,15 +994,25 @@ export class LiveWorld {
 
   /** The objects absent now (only those with a state can be), in index order. */
   absentIndices(): number[] {
-    const out: number[] = [];
-    for (const i of this.trees.keys()) if (this.absentObject(i)) out.push(i);
-    for (const i of this.rocks.keys()) if (this.absentObject(i)) out.push(i);
-    for (const i of this.cleared.keys()) if (this.absentObject(i)) out.push(i);
-    return out.sort((a, b) => a - b);
+    const out = new Set<number>(this.landingClear);
+    for (const i of this.trees.keys()) if (this.absentObject(i)) out.add(i);
+    for (const i of this.rocks.keys()) if (this.absentObject(i)) out.add(i);
+    for (const i of this.cleared.keys()) if (this.absentObject(i)) out.add(i);
+    return [...out].sort((a, b) => a - b);
   }
 
   /** Bumped whenever the set of absent objects changes (renderers repaint the ground there). */
   absentVersion = 0;
+  /** Natural objects on the landing's ground (M10 phase C): never there (`WorldGrowth.landingClear`). */
+  private get landingClear(): ReadonlySet<number> {
+    if (this.landingClearOf !== this.world) {
+      this.landingClearOf = this.world;
+      this.landingClearSet = new Set(this.world.growth?.landingClear ?? []);
+    }
+    return this.landingClearSet;
+  }
+  private landingClearOf: WorldDescription | null = null;
+  private landingClearSet: ReadonlySet<number> = new Set();
 
   private absentNow(): string {
     return this.absentIndices().join(',');
@@ -2050,7 +2068,7 @@ export class LiveWorld {
   /** Complete what the tally and the world now satisfy; grant each reward once, announce it, save. */
   /** What quest goals read. */
   questContext(): ObjectiveContext {
-    return { tally: this.tally, inventory: this.inventory, buildings: this.buildings, worldTime: this.worldTime, found: this.found, friendship: friendLevel(this.companion.friendship) };
+    return { tally: this.tally, inventory: this.inventory, buildings: this.buildings, worldTime: this.worldTime, found: this.found, friendship: friendLevel(this.companion.friendship), growthStage: this.growth.stage };
   }
 
   private stepObjectives(): void {
@@ -2191,6 +2209,49 @@ export class LiveWorld {
       if (nav.canFloat(x, y, heading)) return { x, y, heading };
     }
     return null;
+  }
+
+  /**
+   * Can the Blobbi reach the sea on foot anywhere (M10 phase C)? Always once the island has its landing; on an island
+   * that has not grown yet, only where its own shore happens to come close (measured from its geometry, cached).
+   */
+  seaReachable(): boolean {
+    if (this.world.growth?.landing) return true;
+    const key = `${this.growth.stage}|${this.structureVersion}|${this.absentVersion}`;
+    if (this.seaReachCache?.key !== key) {
+      const hub = this.world.hubs[0] ?? { x: this.world.islands[0].cx, y: this.world.islands[0].cy };
+      const reach = this.reachability(this.islandNav, hub);
+      const { footRx, footRy } = this.blobbi;
+      const found = findOceanAccess({ width: this.world.terrain.width, height: this.world.terrain.height, canStand: (x, y) => this.islandCollision.canStand(x, y, footRx, footRy), reach, nav: this.seaNav(), subject: worldBounds(this.world).subject ?? { x0: 0, y0: 0, x1: this.world.terrain.width, y1: this.world.terrain.height } });
+      this.seaReachCache = { key, reachable: found.length > 0 };
+    }
+    return this.seaReachCache.reachable;
+  }
+  private seaReachCache: { key: string; reachable: boolean } | null = null;
+  private seaHintAt = -Infinity;
+
+  /**
+   * The sea is in sight but out of reach (a cast or a launch): say why, kindly. Before the island reaches the water,
+   * that growth opens a path to the shore (a notice too, at most once a minute); after, where the landing is.
+   */
+  private seaTooFar(what: 'cast' | 'launch'): void {
+    const b = this.blobbi;
+    const time = this.clock.time;
+    const reachable = this.seaReachable();
+    const text = reachable ? (this.world.growth?.landing ? `too far to ${what} here. the landing reaches the sea` : `too far to ${what} here. try another shore`) : 'the ocean is still out of reach';
+    this.bubble = { text, until: time + 2.2, x: b.x, y: b.y - b.size - 2, head: b.size };
+    b.animator.react('neutral', time, 0.6, 0);
+    if (!reachable && time - this.seaHintAt > 60) {
+      this.seaHintAt = time;
+      this.notices.push({ heading: 'The sea', title: 'still out of reach', text: 'help your island grow to open a path to the shore! (L)', until: (this.notices.at(-1)?.until ?? time) + 4 });
+    }
+  }
+
+  /** E with the canoe in the bag, facing a sea too far away to launch on: why it cannot go in here. */
+  canoeTooFar(): boolean {
+    if (this.inside || this.boat || this.visitor || !this.inventory.count(CANOE_ITEM.id) || !this.seaAheadOutOfReach()) return false;
+    this.seaTooFar('launch');
+    return true;
   }
 
   /** E with the canoe in the bag at the water: it goes in, moored by the shore. */
@@ -2806,9 +2867,7 @@ export class LiveWorld {
         // Water ahead, but out of the line's reach (M10 phase B): say so, and that growth brings the sea closer.
         const far = this.seaAheadOutOfReach();
         if (!far) return false;
-        const grows = this.growth.stage < 4;
-        say(grows ? 'too far to cast. the island will grow closer to the sea' : 'too far to cast from here. try another shore');
-        b.animator.react('neutral', time, 0.6, 0);
+        this.seaTooFar('cast');
         return true;
       }
       const rng = stream(this.world.seed, 'fishing', this.casts++);
@@ -4025,6 +4084,40 @@ export class LiveWorld {
 
   // ─── Island growth (M7) ─────────────────────────────────────────────────
 
+  /** Set on load when an island grown before the landing was given it (M10 phase C): announced once. */
+  landingUpgraded = false;
+
+  /** Where the Blobbi stands on the landing to face the water (a step inside its tip), or null without one. */
+  landingStand(): { x: number; y: number; heading: Heading } | null {
+    const l = this.world.growth?.landing;
+    return l ? landingStandOf(l) : null;
+  }
+
+  /** "A path to the sea has opened!": the moment the island first reaches the water (once per island). */
+  announceSeaPath(): void {
+    if (this.visitor) return;
+    this.notices.push({ heading: 'The shore', title: 'a path to the sea has opened!', text: 'a little landing reaches the water: see the map (N)', until: (this.notices.at(-1)?.until ?? this.clock.time) + 5 });
+    this.events.add('sea-path');
+  }
+
+  /**
+   * The growth version and per-stage history to regrow a save with. An island grown with version 1-3 to the access
+   * stage or beyond is UPGRADED to version 4, which adds only the landing (a strip of shore over the Carrier's edge
+   * margin to the sea) and changes nothing else — not one object (see `world/growth.ts`, version 4). Each stage
+   * keeps the version it was grown with for its objects: missing history entries are filled with the old version.
+   * The record itself is updated (and saved later), so this happens once. Visitors never change a record.
+   */
+  private upgradedGrowth(g: GrowthSave, base: WorldDescription): [number, GrowthSave['history']] {
+    if (this.visitor || g.version >= LANDING_VERSION || g.stage < OCEAN_ACCESS_STAGE || !GROWTH_VERSIONS.includes(g.version) || !canGrow(base)) return [g.version, g.history];
+    // (Before, a stage's objects used min(its history version, the record's): keep exactly that.)
+    const history = g.history.map((h) => ({ ...h, version: Math.min(h.version, g.version) }));
+    for (let s = 1; s <= g.stage; s++) if (!history.some((h) => h.stage === s)) history.push({ stage: s, worldTime: 0, version: g.version });
+    g.history = history;
+    g.version = LANDING_VERSION;
+    this.landingUpgraded = true;
+    return [g.version, g.history];
+  }
+
   /** Progress toward the island's next growth stage (never goes backwards; see game/growth-progress.ts). */
   growthReadiness(): GrowthReadiness {
     return growthReadiness({ stage: this.growth.stage, harmony: this.harmony().value, tally: this.tally, completed: this.objectives.completed, found: this.found.size, days: dayAt(this.worldTime), places: this.visited.size, possible: canGrow(this.baseWorld) && !this.growthError });
@@ -4182,6 +4275,7 @@ export class LiveWorld {
       this.revealGlow = { start: this.clock.time, duration: REVEAL_GLOW_SECONDS, pixels: r.pixels };
       this.blobbi.animator.react('happy', this.clock.time, 1.4, 3);
       this.notices.push({ heading: 'The island grew', title: this.world.growth ? `Stage ${this.world.growth.stage}` : 'New land', text: 'new land to explore: see the map (N)', until: (this.notices.at(-1)?.until ?? this.clock.time) + 4 });
+      if (this.world.growth?.landing && r.fromStage < OCEAN_ACCESS_STAGE) this.announceSeaPath();
     }
   }
 
@@ -4657,7 +4751,7 @@ export class LiveWorld {
       } else if (this.boat?.aboard) {
         // Afloat: fish, greet the sea's creatures, or land; otherwise a word on how to land.
         if (!(this.fishing && this.fish()) && !this.greetMarine() && !this.visitFeature() && !this.goAshore() && !this.fish()) this.bubble = { text: 'paddle to the shore to land', until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
-      } else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.greetMarine() && !this.boardCanoe() && !this.launchCanoe() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
+      } else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.greetMarine() && !this.boardCanoe() && !this.launchCanoe() && !this.canoeTooFar() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
     }
     // Walking into the door gap leaves the house.
     if (this.interior && atDoor(b.x, b.y, this.roomLayout)) this.exitInterior();

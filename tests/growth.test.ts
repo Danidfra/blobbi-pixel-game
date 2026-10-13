@@ -28,7 +28,7 @@ describe('island growth: deterministic and versioned', () => {
   });
 
   it('version 2 changes only the whale: turtle and manta grow exactly as in version 1; version 3 (M9) only adds stage 4', () => {
-    expect(GROWTH_VERSION).toBe(3);
+    expect(GROWTH_VERSION).toBe(4);
     for (const w of [generateTurtleWorld('turtle-0'), generateMantaWorld('manta-world-0')])
       for (let s = 1; s <= 3; s++) {
         const v1 = growWorld(w, s, 1);
@@ -48,7 +48,28 @@ describe('island growth: deterministic and versioned', () => {
     expect(growWorld(whale, 4, 2).growth!.stage).toBe(3);
   });
 
-  it('a whale saved with version 1 is regrown exactly as version 1 (never silently changed)', () => {
+  it('version 4 (M10 phase C) only adds the landing: the same objects, all the same land, new land only on the carrying surface', () => {
+    for (const w of [generateTurtleWorld('turtle-0'), generateMantaWorld('manta-world-0'), generateWhaleWorld('whale-v3', { carrierSeed: 'whale-test' })])
+      for (let s = 1; s <= 4; s++) {
+        const v3 = growWorld(w, s, 3);
+        const v4 = growWorld(w, s, 4);
+        expect(JSON.stringify(v4.objects)).toBe(JSON.stringify(v3.objects));
+        expect(v4.growth!.landing).toBeTruthy();
+        expect(v3.growth!.landing).toBeUndefined();
+        const free = w.turtle ? T.RIM : T.SKIN;
+        for (let i = 0; i < v3.terrain.cls.length; i++) {
+          const a = v3.terrain.cls[i];
+          const b = v4.terrain.cls[i];
+          if (a === b) continue;
+          if (a === free) expect(b === T.RIM || b === T.SKIN).toBe(false);
+          // The old shore band at its root; at stage 4 the landing keeps its own turf where v3's Sanctuary covered it.
+          else if (s === 4) expect([T.CLOVER, T.GRASS_EDGE, T.SAND, T.MOSS]).toContain(b);
+          else expect([T.GRASS_EDGE, T.SAND, T.SAND_WET, T.MOSS]).toContain(a);
+        }
+      }
+  });
+
+  it('a whale saved with version 1 keeps its version-1 objects exactly (upgraded only by the landing)', () => {
     const whale = generateWhaleWorld('whale-v1-save', { carrierSeed: 'whale-test' });
     const store = memoryStore();
     const live = new LiveWorld(whale, 'blobbi-9', 16, { store });
@@ -58,7 +79,8 @@ describe('island growth: deterministic and versioned', () => {
     store.set(saveKey(live.identity), JSON.stringify(raw));
     const again = new LiveWorld(whale, 'blobbi-9', 16, { store });
     expect(again.growthError).toBeNull();
-    expect(again.growth.version).toBe(1);
+    expect(again.growth.version).toBe(GROWTH_VERSION);
+    expect(again.world.growth!.landing).toBeTruthy();
     expect(JSON.stringify(again.world.objects)).toBe(JSON.stringify(growWorld(whale, 3, 1).objects));
     // Version 2 differs for a whale (its plants and rocks keep a passage); the land itself is the same.
     expect(JSON.stringify(growWorld(whale, 3, 2).objects)).not.toBe(JSON.stringify(growWorld(whale, 3, 1).objects));

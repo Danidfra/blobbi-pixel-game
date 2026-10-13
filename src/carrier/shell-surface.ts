@@ -30,6 +30,8 @@ export interface ShellSurfaceContext {
   land?: Island;
   /** Stage 4 (M9): distance from each canvas pixel to the land (0 on land), when the coast is no island record. */
   landField?: Float32Array;
+  /** The landing (M10 phase C): distance from each canvas pixel to its land; the soil band follows it too. */
+  landingField?: Float32Array;
   palette: WorldPalette;
   /** The turtle seed: plate layout, soil and moss come from it. */
   seed: string;
@@ -157,7 +159,8 @@ export function paintShellSurface(buf: PixelBuffer, a: TurtleAnatomy, ctx: Shell
       // Dome lighting, kept mostly mid and light: the ring should read warm, not as a dark rind.
       shade[k] = shadeIndex(blobScore(dx / (a.rx + rim), dy / (a.ry + rim), 0.9), 0.95, 0.3, -0.28);
       const d = islandDistance(island, px, py, 0);
-      const dLand = ctx.landField ? ctx.landField[y * buf.width + x] : ctx.land ? islandDistance(ctx.land, px, py, 0) : d;
+      const dCoast = ctx.landField ? ctx.landField[y * buf.width + x] : ctx.land ? islandDistance(ctx.land, px, py, 0) : d;
+      const dLand = ctx.landingField ? Math.min(dCoast, ctx.landingField[y * buf.width + x]) : dCoast;
       if (dLand <= 0) {
         region[k] = SHELL_REGION.HIDDEN;
         continue;

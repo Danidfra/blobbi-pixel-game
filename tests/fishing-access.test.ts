@@ -11,6 +11,7 @@ import { generateWhaleWorld } from '../src/carriers/whale-world';
 import { NEW_WORLD_SHELL_VARIANT } from '../src/carrier/types';
 import { memoryStore } from '../src/game/persistence';
 import { pressE, stand } from '../src/dev/scripted-play';
+import { GROWTH_VERSION } from '../src/world/growth';
 import type { WorldDescription } from '../src/world/types';
 
 const CARRIERS: [string, (seed: string) => WorldDescription][] = [
@@ -23,7 +24,7 @@ function atStage(make: (s: string) => WorldDescription, seed: string, stage: num
   const store = memoryStore();
   if (stage) {
     const probe = new LiveWorld(make(seed), 'blobbi-9', 16, { store });
-    probe.growth = { stage, version: 3, history: [], regions: [] };
+    probe.growth = { stage, version: GROWTH_VERSION, history: [], regions: [] };
     probe.save();
   }
   const live = new LiveWorld(make(seed), 'blobbi-9', 16, { store });
@@ -77,7 +78,12 @@ describe('fishing access grows with the island', () => {
           live.resources = [];
           pressE(live);
           expect(live.fishing).toBeNull();
-          expect(live.bubble?.text).toBe('too far to cast. the island will grow closer to the sea');
+          // M10 phase C: kindly, and once a minute a notice says growth opens a path to the shore.
+          expect(live.bubble?.text).toBe('the ocean is still out of reach');
+          expect(live.notices.at(-1)?.text).toBe('help your island grow to open a path to the shore! (L)');
+          const shown = live.notices.length;
+          pressE(live);
+          expect(live.notices.length).toBe(shown); // not again straight away
           found = true;
           break;
         }

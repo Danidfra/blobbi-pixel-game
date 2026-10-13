@@ -11,7 +11,7 @@ import { generateMantaWorld } from '../src/carriers/manta-world';
 import { generateWhaleWorld } from '../src/carriers/whale-world';
 import { NEW_WORLD_SHELL_VARIANT } from '../src/carrier/types';
 import { loadSave, memoryStore, saveKey } from '../src/game/persistence';
-import { pressE, run, stand } from '../src/dev/scripted-play';
+import { paddleAshore, pressE, run, sailTo, stand } from '../src/dev/scripted-play';
 import { CANOE, SeaNav, seaRegion } from '../src/game/canoe';
 import { CANOE_ITEM } from '../src/content/tools';
 import { recipeById } from '../src/game/crafting';
@@ -146,7 +146,7 @@ describe('aboard', () => {
       let landed = 0;
       for (const stage of [1, 2, 3, 4]) {
         const live = atStage(make, stage);
-        if (!toLaunch(live)) continue; // no shore by the sea at this stage (fishing waits too)
+        expect(toLaunch(live), `${name} stage ${stage}: a shore to launch from`).toBe(true);
         tried++;
         aboard(live);
         const boat = live.boat!;
@@ -166,27 +166,23 @@ describe('aboard', () => {
         // A long trip: round in a square, out toward the edge, straight at the island.
         for (const key of [{ right: true }, { down: true }, { left: true }, { up: true }, { right: true, down: true }, { left: true }, { left: true }, { up: true }])
           paddle(live, 200, key, check);
-        // Back toward the island's hub until there is somewhere to land.
-        const hub = live.world.hubs[0];
-        for (let i = 0; i < 60 * 40 && !live.landingSpot(); i++) {
-          const dx = hub.x - boat.x;
-          const dy = hub.y - boat.y;
-          live.update(1 / 60, { ...IDLE_INPUT, right: dx > 4, left: dx < -4, down: dy > 4, up: dy < -4 });
-          // Stuck against the coast: slide along it.
-          if (i % 240 === 239) paddle(live, 60, i % 480 === 239 ? { right: true } : { down: true }, check);
-        }
-        const spot = live.landingSpot();
-        if (!spot) continue; // could not find the way back by this simple steering (the player can)
+        // Back to the landing (M10 phase C: every island has one from stage 1), steering round the Carrier.
+        const landing = live.world.growth!.landing!;
+        expect(sailTo(live, landing.launch.x, landing.launch.y, check)).toBe(true);
+        expect(paddleAshore(live, landing.tip.x, landing.tip.y, check)).toBe(true);
         expect(live.prompt()).toBe('E  go ashore');
         pressE(live);
         run(live, 40);
         expect(boat.aboard).toBe(false);
         expect(live.collision.canStand(live.blobbi.x, live.blobbi.y, live.blobbi.footRx, live.blobbi.footRy)).toBe(true);
+        // (A find glinting by the landing would be picked up first: count those as found.)
+        for (const d of live.discoveries) if (Math.hypot(d.x - live.blobbi.x, d.y - live.blobbi.y) < 30) live.found.add(d.id);
+        live.resources = [];
         expect(live.prompt()).toBe('E  get in the canoe');
         landed++;
       }
-      expect(tried, name).toBeGreaterThan(0);
-      expect(landed, name).toBeGreaterThan(0);
+      expect(tried, name).toBe(4);
+      expect(landed, name).toBe(4);
     }, 240_000);
 
   it('the current turns the canoe back at the edge of its sea, and says so', () => {

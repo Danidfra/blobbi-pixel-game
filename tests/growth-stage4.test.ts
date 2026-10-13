@@ -159,7 +159,7 @@ describe('stage 4 in play', () => {
     expect(at4.world.growth!.stage).toBe(4);
     expect(at4.world.objects.slice(0, objects3.length).map((o) => `${o.kind}@${o.x},${o.y}`)).toEqual(objects3);
     expect(JSON.stringify(at4.buildings)).toBe(buildings);
-    expect(loadSave(store, live.identity)!.growth.history.map((h) => h.version)).toEqual([2, 2, 2, 3]);
+    expect(loadSave(store, live.identity)!.growth.history.map((h) => h.version)).toEqual([2, 2, 2, GROWTH_VERSION]);
     const raw = JSON.parse(store.get(saveKey(live.identity))!);
     expect(raw.growth.stage).toBe(4);
   });
@@ -191,10 +191,10 @@ describe('growth requirements are achievable on every Carrier', () => {
     });
 });
 
-describe('M8 saves keep their grown worlds exactly (M9 compatibility)', () => {
+describe('M8 saves keep their grown worlds (M9 compatibility; M10 phase C adds only the landing)', () => {
   for (const [name, make] of CARRIERS)
-    for (const version of [1, 2])
-      it(`${name}: a stage-3 save made with growth version ${version} loads the very same land and objects`, () => {
+    for (const version of [1, 2, 3])
+      it(`${name}: a stage-3 save made with growth version ${version} keeps every object and all its land; only the landing is added, announced once`, () => {
         const base = make();
         const store = memoryStore();
         const live = new LiveWorld(base, 'blobbi-9', 16, { store });
@@ -203,8 +203,47 @@ describe('M8 saves keep their grown worlds exactly (M9 compatibility)', () => {
         const again = new LiveWorld(base, 'blobbi-9', 16, { store });
         const expected = growWorld(base, 3, version);
         expect(again.growthError).toBeNull();
-        expect(sig(again.world.terrain.cls)).toBe(sig(expected.terrain.cls));
+        // Not one object changes: same kinds, seeds, places and indices.
         expect(JSON.stringify(again.world.objects)).toBe(JSON.stringify(expected.objects));
         expect(again.world.growth!.stage).toBe(3);
+        // All the old land stays land with its ground (the landing's root may make a strip of old shore band inland);
+        // new land only over the free carrying surface.
+        const free = base.turtle ? T.RIM : T.SKIN;
+        let added = 0;
+        for (let i = 0; i < expected.terrain.cls.length; i++) {
+          const a = expected.terrain.cls[i];
+          const b = again.world.terrain.cls[i];
+          if (a === b) continue;
+          if (ground(a)) {
+            expect(ground(b)).toBe(true);
+            expect([T.GRASS_EDGE, T.SAND, T.SAND_WET, T.MOSS]).toContain(a);
+          } else {
+            expect(a).toBe(free);
+            added++;
+          }
+        }
+        expect(again.world.growth!.landing).toBeTruthy();
+        expect(added).toBeGreaterThan(0);
+        // The record is upgraded (each stage keeps its own version for its objects) and the player is told, once.
+        expect(again.growth.version).toBe(GROWTH_VERSION);
+        expect(again.growth.history.map((h) => h.version)).toEqual([version, version, version]);
+        expect(again.notices.some((n) => n.heading === 'The shore')).toBe(true);
+        again.save();
+        const third = new LiveWorld(base, 'blobbi-9', 16, { store });
+        expect(third.notices.some((n) => n.heading === 'The shore')).toBe(false);
+        expect(JSON.stringify(third.world.objects)).toBe(JSON.stringify(expected.objects));
+        expect(sig(third.world.terrain.cls)).toBe(sig(again.world.terrain.cls));
       });
+
+  it('a visitor never upgrades the record it reads', () => {
+    const base = CARRIERS[1][1]();
+    const store = memoryStore();
+    const live = new LiveWorld(base, 'blobbi-9', 16, { store });
+    live.growth = { stage: 2, version: 3, history: [1, 2].map((stage) => ({ stage, worldTime: stage, version: 3 })), regions: [] };
+    live.save();
+    const before = store.get(saveKey(live.identity));
+    const visitor = new LiveWorld(base, 'blobbi-9', 16, { store, visitor: true });
+    expect(visitor.world.growth!.landing).toBeUndefined();
+    expect(store.get(saveKey(live.identity))).toBe(before);
+  });
 });

@@ -33,6 +33,11 @@ export const LORE: readonly LoreNote[] = [
     text: 'Dig a little and the soil is deep and dark and full of seeds. Over a very long time, dust, driftwood, feathers and seeds settle on a Carrier\'s shell, and the shell keeps them warm. Islands like this one are grown, not built.',
   },
   {
+    id: 'growing',
+    title: 'A growing island',
+    text: 'The island grew today. Not much: a strip of new turf along the shore, still damp, as if the Carrier had stretched in its sleep. Where the land reached the water there is a little landing now, and the sea is close enough to touch. Care for the island and it keeps growing.',
+  },
+  {
     id: 'hum',
     title: 'The hum',
     text: 'At the shore, near the great head, there is a sound under the waves: a deep, slow hum, like someone humming in their sleep. When you hum back, one huge eye opens a little, and closes again, content.',

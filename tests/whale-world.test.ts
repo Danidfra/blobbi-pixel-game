@@ -110,7 +110,7 @@ describe('the whale world: generation', () => {
       expect(sig(w.terrain.cls)).toBe(p.cls);
       expect(hash32(JSON.stringify(w.objects))).toBe(p.obj);
       for (const s of [1, 2, 3]) {
-        const g = growWorld(w, s);
+        const g = growWorld(w, s, 3);
         expect(sig(g.terrain.cls) ^ hash32(JSON.stringify(g.objects))).toBe(p[`g${s}`]);
       }
       const l = new LiveWorld(w, 'blobbi-9', 16);

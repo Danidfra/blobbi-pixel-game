@@ -44,7 +44,8 @@ describe('the small start: existing worlds unchanged', () => {
     for (const seed of ['turtle-0', 'turtle-7'])
       for (const v of [0, 1, 2, 3] as ShellVariant[]) {
         const w = generateTurtleWorld(seed, { shellVariant: v });
-        const g3 = v ? growWorld(w, 3) : w;
+        // (Pinned with growth version 3, as M8 made them; version 4 adds only the landing: tests/growth.test.ts.)
+        const g3 = v ? growWorld(w, 3, 3) : w;
         const pin = PINS[`${seed}|${v}`];
         expect({ cls: h(w.terrain.cls), objects: hash32(JSON.stringify(w.objects)), land: w.stats.landPixels, stage3cls: h(g3.terrain.cls), stage3objects: g3.objects.length, canvas: `${w.options.width}x${w.options.height}` }).toEqual(pin);
       }

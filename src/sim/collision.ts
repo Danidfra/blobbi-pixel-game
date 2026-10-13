@@ -47,9 +47,12 @@ export class CollisionMap {
       else for (let x = b.x0 - half + 1; x <= b.x0 + half - 1; x++) for (let y = b.y0; y <= b.y1; y++) map.unblock(x, y);
     }
     const all = [...world.objects, ...extra];
+    // The landing's ground (M10 phase C): the natural objects it covers are never there.
+    const gone = world.growth?.landingClear ? new Set(world.growth.landingClear) : null;
     for (let k = 0; k < all.length; k++) {
       const p = all[k];
       if (!SOLID_KINDS.has(p.kind)) continue;
+      if (gone?.has(k)) continue;
       if (absent && k < world.objects.length && absent(k)) continue;
       const s = spriteOf(p);
       if (s.footRx <= 1 && s.footRy <= 1) continue; // seedlings are stepped over

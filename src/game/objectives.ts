@@ -35,6 +35,8 @@ export interface ObjectiveContext {
   found?: ReadonlySet<string>;
   /** The Blobbi's friendship level. */
   friendship?: number;
+  /** The island's growth stage (M10 phase C). */
+  growthStage?: number;
 }
 
 export type Reward = Required<Pick<QuestReward, 'text'>> & { items: NonNullable<QuestReward['items']>; unlocks: NonNullable<QuestReward['unlocks']>; lore: NonNullable<QuestReward['lore']>; friendship: number };
@@ -57,6 +59,7 @@ export function goalProgress(goal: Goal, ctx: ObjectiveContext): { have: number;
   if ('found' in goal) return { have: ctx.found?.has(goal.found) ? 1 : 0, need: 1 };
   if ('house' in goal) return { have: Math.min(goal.house, Math.max(0, ...ctx.buildings.filter((b) => b.kind === 'shelter' && buildingProgress(b, ctx.worldTime) >= 1).map((b) => houseLevel(b)))), need: goal.house };
   if ('friendship' in goal) return { have: Math.min(goal.friendship, ctx.friendship ?? 1), need: goal.friendship };
+  if ('stage' in goal) return { have: Math.min(goal.stage, ctx.growthStage ?? 0), need: goal.stage };
   const list: readonly Goal[] = 'all' in goal ? goal.all : goal.any;
   const parts = list.map((g) => goalProgress(g, ctx));
   if ('all' in goal) return parts.reduce((a, p) => ({ have: a.have + p.have, need: a.need + p.need }), { have: 0, need: 0 });

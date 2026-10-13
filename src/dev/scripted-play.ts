@@ -5,12 +5,13 @@
  */
 import { LiveWorld, IDLE_INPUT, SWING, type LiveInput } from '../sim/live-world';
 import type { Direction } from '../blobbi/animation';
-import { PLOT_GRID, type Cell } from '../game/farming';
+import { PLOT_GRID, type Cell, type CropKind } from '../game/farming';
 import { ITEMS } from '../game/items';
 import { recipeById } from '../game/crafting';
 import { BUILDINGS, footOf, type BuildingKind } from '../game/buildings';
 import type { ResourceKind } from '../game/resources';
 import { MAIN_QUESTS } from '../game/objectives';
+import { DAY_SECONDS } from '../game/daylight';
 
 const QUESTS_MAIN_IDS = MAIN_QUESTS.map((q) => q.id);
 
@@ -40,6 +41,81 @@ export function pressUntil(live: LiveWorld, done: () => boolean, max = 4): boole
 }
 
 /** Where to stand to face a cell from above (facing down: the target cell is just below the feet). */
+/**
+ * Aboard: paddle the canoe to (x, y) the way a player steers — along a path over water the hull fits (a
+ * breadth-first search on a 4 px grid of `SeaNav.canFloat` positions), holding the keys toward each waypoint.
+ * `each` runs after every frame. Returns whether the canoe got within 6 px.
+ */
+export function sailTo(live: LiveWorld, x: number, y: number, each?: () => void, maxFrames = 60 * 90): boolean {
+  const boat = live.boat;
+  if (!boat?.aboard) return false;
+  const nav = live.seaNav();
+  const r = nav.region;
+  const g = 4;
+  const cols = Math.ceil((r.x1 - r.x0) / g);
+  const rows = Math.ceil((r.y1 - r.y0) / g);
+  const cell = (px: number, py: number) => Math.round((py - r.y0) / g) * cols + Math.round((px - r.x0) / g);
+  const fits = (k: number) => {
+    const px = r.x0 + (k % cols) * g;
+    const py = r.y0 + Math.floor(k / cols) * g;
+    return nav.canFloat(px, py, 'right') || nav.canFloat(px, py, 'down') || nav.canFloat(px, py, 'left') || nav.canFloat(px, py, 'up');
+  };
+  const start = cell(boat.x, boat.y);
+  const goal = cell(x, y);
+  const from = new Int32Array(cols * rows).fill(-2);
+  from[start] = -1;
+  const queue = [start];
+  for (let q = 0; q < queue.length && from[goal] === -2; q++) {
+    const k = queue[q];
+    const c = k % cols;
+    const rr = Math.floor(k / cols);
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dc;
+      const nr = rr + dr;
+      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+      const nk = nr * cols + nc;
+      if (from[nk] !== -2 || (nk !== goal && !fits(nk))) continue;
+      from[nk] = k;
+      queue.push(nk);
+    }
+  }
+  if (from[goal] === -2) return false;
+  const path: { x: number; y: number }[] = [];
+  for (let k = goal; k >= 0; k = from[k]) path.unshift({ x: r.x0 + (k % cols) * g, y: r.y0 + Math.floor(k / cols) * g });
+  path[path.length - 1] = { x, y };
+  let i = 0;
+  for (let f = 0; f < maxFrames; f++) {
+    while (i < path.length - 1 && Math.hypot(path[i].x - boat.x, path[i].y - boat.y) < 5) i++;
+    const t = path[i];
+    const dx = t.x - boat.x;
+    const dy = t.y - boat.y;
+    if (i === path.length - 1 && Math.hypot(dx, dy) < 6) {
+      // Arrived: let go and drift to a stop, as a player does.
+      for (let k = 0; k < 120 && Math.hypot(boat.vx, boat.vy) > 0.5; k++) {
+        live.update(1 / 60, IDLE_INPUT);
+        each?.();
+      }
+      return true;
+    }
+    live.update(1 / 60, { ...IDLE_INPUT, right: dx > 2, left: dx < -2, down: dy > 2, up: dy < -2 });
+    each?.();
+  }
+  return Math.hypot(x - boat.x, y - boat.y) < 6;
+}
+
+/** Aboard by the shore: nudge toward (x, y) until "go ashore" is offered (at most `frames`). */
+export function paddleAshore(live: LiveWorld, x: number, y: number, each?: () => void, frames = 60 * 4): boolean {
+  const boat = live.boat;
+  if (!boat?.aboard) return false;
+  for (let f = 0; f < frames && !live.landingSpot(); f++) {
+    const dx = x - boat.x;
+    const dy = y - boat.y;
+    live.update(1 / 60, { ...IDLE_INPUT, right: dx > 2, left: dx < -2, down: dy > 2, up: dy < -2 });
+    each?.();
+  }
+  return !!live.landingSpot();
+}
+
 export function standAbove(live: LiveWorld, cell: Cell): void {
   const o = live.world.carrier?.origin ?? { x: 0, y: 0 };
   stand(live, cell.gx * PLOT_GRID + PLOT_GRID / 2 + o.x, cell.gy * PLOT_GRID - 2 + o.y, 'down');
@@ -255,6 +331,50 @@ function placeNear(live: LiveWorld, kind: BuildingKind, near: { x: number; y: nu
  * listen to the Carrier, grow flowers and decorate. Returns the quests still open (none, if the story can be
  * finished by playing).
  */
+/**
+ * The island's next growth, the way a player gets there: care for the Blobbi (petting), let the days pass (world
+ * time only passes while playing: here it is waited out), then grow it. Anything else still missing (harvests,
+ * crafting, finds) is left to the caller's play. Returns the new stage, or null when it is not ready.
+ */
+export function helpIslandGrow(live: LiveWorld): number | null {
+  const shelter = live.buildings.find((b) => b.kind === 'shelter');
+  for (let k = 0; k < 60; k++) {
+    const r = live.growthReadiness();
+    if (r.ready || !r.next) break;
+    const unmet = (id: string) => r.requirements.find((q) => q.id === id && q.have < q.need);
+    const days = unmet('days');
+    if (unmet('care')) {
+      live.pet();
+      run(live, 60 * 2);
+    } else if (unmet('farm') && shelter) farmField(live, shelter, 'turnip');
+    else if (days) live.timeOffset += (days.need - days.have) * DAY_SECONDS;
+    else break;
+  }
+  return live.growIsland();
+}
+
+/** Till three plots near the house, plant `crop` in each, and water them until they are harvested. */
+function farmField(live: LiveWorld, shelter: { x: number; y: number }, crop: CropKind): void {
+  live.equip(ITEMS.hoe.id);
+  const o = live.origin;
+  const field = findField(live, 3, [{ gx: Math.floor((shelter.x - o.x) / PLOT_GRID), gy: Math.floor((shelter.y - o.y) / PLOT_GRID) }, ...live.plots]);
+  if (!field) return;
+  for (const cell of field) {
+    standAbove(live, cell);
+    pressUntil(live, () => !!live.plotAt(cell));
+    live.selectedCrop = crop;
+    pressUntil(live, () => !!live.plotAt(cell)?.crop);
+  }
+  for (let round = 0; round < 6 && field.some((c) => live.plotAt(c)?.crop); round++) {
+    for (const cell of field) {
+      standAbove(live, cell);
+      const a = live.farmAction()?.kind;
+      if (a === 'water' || a === 'harvest') pressUntil(live, () => live.farmAction()?.kind !== a);
+    }
+    run(live, 60 * 52);
+  }
+}
+
 export function playStory(live: LiveWorld, shot: LoopShots = () => {}): string[] {
   const inv = live.inventory;
   live.pet(); // say hello
@@ -298,6 +418,10 @@ export function playStory(live: LiveWorld, shot: LoopShots = () => {}): string[]
   stand(live, stone.x, stone.y + 3, 'down');
   pressUntil(live, () => live.found.has('carrier-stone'));
   run(live, 2);
+  // Help the island grow (M10 phase C): its first growth comes before the Carrier speaks.
+  helpIslandGrow(live);
+  run(live, 2);
+  shot('GROWN');
   // Listen to the Carrier.
   if (live.listenSpot) {
     live.resources = live.resources.filter((n) => Math.hypot(n.x - live.listenSpot!.x, n.y - live.listenSpot!.y) > 20);
@@ -306,26 +430,8 @@ export function playStory(live: LiveWorld, shot: LoopShots = () => {}): string[]
   }
   run(live, 2);
   shot('LISTENED');
-  // Restore: three sunflowers grown in the garden, three decorations outside.
-  live.equip(ITEMS.hoe.id);
-  const o = live.origin;
-  const field = findField(live, 3, [{ gx: Math.floor((shelter.x - o.x) / PLOT_GRID), gy: Math.floor((shelter.y - o.y) / PLOT_GRID) }, ...live.plots]);
-  if (field) {
-    for (const cell of field) {
-      standAbove(live, cell);
-      pressUntil(live, () => !!live.plotAt(cell));
-      live.selectedCrop = 'sunflower';
-      pressUntil(live, () => !!live.plotAt(cell)?.crop);
-    }
-    for (let round = 0; round < 6 && field.some((c) => live.plotAt(c)?.crop); round++) {
-      for (const cell of field) {
-        standAbove(live, cell);
-        const a = live.farmAction()?.kind;
-        if (a === 'water' || a === 'harvest') pressUntil(live, () => live.farmAction()?.kind !== a);
-      }
-      run(live, 60 * 52);
-    }
-  }
+  // Restore: three sunflowers grown in the garden (their seeds are the Carrier's gift), three decorations outside.
+  farmField(live, shelter, 'sunflower');
   fellTrees(live, () => inv.count(ITEMS.wood.id) >= 12);
   for (const kind of ['fence', 'fence', 'fence'] as BuildingKind[]) {
     live.setBuildMode(kind);
