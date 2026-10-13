@@ -541,7 +541,7 @@ export class TitleScreen {
     g.text(shown, x + 4, y + 4, UI.ink);
     const caretOn = this.reducedMotion || Math.floor(time * 2) % 2 === 0;
     if (caretOn) g.buf.fillRect(x + 4 + (shown ? g.measure(shown) + 1 : 0), y + 3, 1, 7, UI.accent);
-    g.text(`${this.name.length}/${MAX_NAME}`, x + w - 22, y + 4, UI.line);
+    g.text(`${this.name.length}/${MAX_NAME}`, x + w - 22, y + 4, UI.muted);
     if (this.actions.requestTextInput) g.hit(x, y, w, 13, () => this.actions.requestTextInput!(this.name));
     return y + 17;
   }

@@ -13,6 +13,7 @@ import { isConfirm, moveSelection, TEXT_SIZES, type GameUI, type Screen, type Te
 import type { AudioSettings } from '../../audio/engine';
 import type { AccountPort, AccountSnapshot } from '../../nostr/port';
 import { getLocale, LOCALES, setLocale, t, type MessageKey } from '../../i18n';
+import { bodyFontHas } from '../fonts/body-font';
 
 const CONTROLS: readonly MessageKey[] = ['controls.move', 'controls.use', 'controls.menus1', 'controls.menus2', 'controls.care', 'controls.seed', 'controls.build', 'controls.moveMode', 'controls.tools', 'controls.view', 'controls.home'];
 
@@ -218,7 +219,15 @@ export class SettingsScreen implements Screen {
   }
 }
 
-/** The account's friendly name: its profile name, or "no profile name" (the short npub is shown under it). */
+/**
+ * The account's friendly name: its profile name as far as the pixel fonts can draw it (emoji or scripts they lack are
+ * left out; nothing readable left → the short npub), else "no profile name" (the short npub is shown under it).
+ */
 export function accountName(s: AccountSnapshot): string {
-  return s.displayName ?? t(s.profile === 'loading' ? 'account.lookingForProfile' : 'account.noProfileName');
+  if (s.displayName) {
+    const drawable = [...s.displayName].filter(bodyFontHas).join('').replace(/\s+/g, ' ').trim();
+    if (/[\p{L}\p{N}]/u.test(drawable)) return drawable;
+    return s.npubShort ?? t('account.noProfileName');
+  }
+  return t(s.profile === 'loading' ? 'account.lookingForProfile' : 'account.noProfileName');
 }

@@ -284,3 +284,15 @@ describe('the relay reader can only read', () => {
     }
   });
 });
+
+describe('the account page shows names safely', () => {
+  it('keeps what the pixel fonts can draw; an unreadable name falls back to the short npub', async () => {
+    const { accountName } = await import('../src/ui/screens/settings');
+    const base = { status: 'connected', pubkey: PK, npub: NPUB, npubShort: shortNpub(NPUB), method: 'nip07', profile: 'found', profileAt: 1, problem: null, signerAvailable: true, relays: [] } as const;
+    expect(accountName({ ...base, displayName: 'Ana Clara' })).toBe('Ana Clara');
+    expect(accountName({ ...base, displayName: 'João 🌊' })).toBe('João');
+    expect(accountName({ ...base, displayName: '🌊🌊' })).toBe('npub10elf…jptg');
+    expect(accountName({ ...base, displayName: '山田' })).toBe('npub10elf…jptg');
+    expect(accountName({ ...base, displayName: null })).toBe('No profile name');
+  });
+});

@@ -143,7 +143,7 @@ export class CraftingScreen implements Screen {
       // A locked row ends with a small padlock and the word, as wide as the language needs.
       const lockWord = upper(t('craft.locked'));
       const lockW = e.locked ? g.measure(lockWord) + 10 : 0;
-      g.text(fitText(g, upper(e.label), listW - 20 - lockW), x + 18, ry + 3, e.locked ? UI.line : ok ? UI.ink : UI.muted);
+      g.text(fitText(g, upper(e.label), listW - 20 - lockW), x + 18, ry + 3, e.locked ? UI.muted : ok ? UI.ink : UI.muted);
       if (e.locked) {
         const lx = x + listW - lockW;
         g.buf.strokeRect(lx + 1, ry + 2, 3, 3, UI.muted);

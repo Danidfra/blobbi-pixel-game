@@ -169,7 +169,7 @@ class StyleTab {
       g.button('<', cx + rw - 98, cy + 2, () => ((this.row = i), this.cycle(part, -1)), { w: 10 });
       g.button('>', cx + rw - 12, cy + 2, () => ((this.row = i), this.cycle(part, 1)), { w: 10 });
       const name = upper(opt.name);
-      g.text(fitText(g, name, 72), cx + rw - 86, cy + 5, open ? UI.ink : UI.line);
+      g.text(fitText(g, name, 72), cx + rw - 86, cy + 5, open ? UI.ink : UI.muted);
       g.text(fitText(g, upper(open ? t('style.open', { n: openCount, of: total }) : t('style.lockedHint', { hint: unlockHint(opt.unlock) })), rw - 8), cx + 4, cy + 13, open ? UI.muted : UI.bad);
       if (!open) padlock(g.buf, cx + rw - 110, cy + 1);
       g.hit(cx, cy, rw - 100, 22, () => (this.row = i));
