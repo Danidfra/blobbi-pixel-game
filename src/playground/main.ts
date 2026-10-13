@@ -39,6 +39,7 @@ import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { GameUI, hudScale, readSettings } from '../ui/game-ui';
 import { hotbarIndexForKey, isTypingTarget, nextToolInCycle } from '../ui/hotbar';
+import { AccountInvite, isBusy } from '../ui/account-invite';
 import { textPreference } from '../ui/surface';
 import { getLocale, initialLocale, loadLocale, LOCALE_KEY, onLocaleChange, setLocale, t } from '../i18n';
 import '../content/text'; // content text follows the language (items, quests, notes...)
@@ -646,6 +647,26 @@ function syncAccountBlobbi(restore = true): void {
   shownName = blobbiDisplayName();
 }
 account.onChange(() => syncAccountBlobbi());
+
+// ─── M11C.5: the gentle account invitation (never asks the signer, never publishes) ───────
+const invite = new AccountInvite(localStore(), () => identity === 'connected');
+gameUI.invite = invite;
+gameUI.onInviteExplore = () => openAccountPage();
+/** When the player last pressed a key or touched the game (ms, performance clock): idle time is not active play. */
+let lastInputAt = -Infinity;
+/** The moment is not calm: the invitation waits (menus, speech, notices, timed actions, the first tips). */
+function inviteBusy(): boolean {
+  const l = live;
+  if (!l) return true;
+  return isBusy({
+    menuOpen: gameUI.capturing,
+    bubble: !!l.bubble && l.bubble.until > l.clock.time,
+    notice: l.notices.length > 0,
+    action: !!(l.fishing || l.swing || l.restPlan || l.reveal || l.boat?.aboard || l.buildMode || l.placing || l.manage || l.moving || l.getPresenceState() !== 'present'),
+    tip: l.tutorialTip()?.id ?? null,
+    intro: !!intro,
+  });
+}
 // At start-up the choice already follows the rule (`startupBlobbi`); this only reads the identity and the name.
 syncAccountBlobbi(false);
 /** Open SETTINGS on the ACCOUNT page (the HUD's identity chip). */
@@ -1285,6 +1306,8 @@ function playFrame(now: number): void {
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;
+  gameUI.hudBottom = viewRenderer!.hudBottom;
+  invite.update(real, { running: steps > 0 && !gameUI.capturing && document.visibilityState === 'visible', inputAge: (performance.now() - lastInputAt) / 1000, world: live, busy: inviteBusy() });
   gameUI.render(frame, now / 1000);
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
   // Sound: the world's events to the audio director (and to any other listener as events), then cleared.
@@ -1516,6 +1539,7 @@ function showPlayStats(): void {
 
 view.addEventListener('keydown', (e) => {
   if (state.mode !== 'play') return;
+  lastInputAt = performance.now();
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Escape'].includes(e.code)) e.preventDefault();
   // The intro cinematic: any key skips it.
   if (intro) {
@@ -1569,7 +1593,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -2344,6 +2368,7 @@ function zoomAt(next: number, sx: number, sy: number): void {
 let drag: { x: number; y: number; panX: number; panY: number } | null = null;
 view.addEventListener('pointerdown', (e) => {
   view.focus();
+  lastInputAt = performance.now();
   // Any touch (on the title, the intro or a menu too) switches the game to touch: bigger buttons, "tap" in tips.
   if (e.pointerType === 'touch' || e.pointerType === 'pen') touch.enabled = true;
   if (state.mode === 'play') {

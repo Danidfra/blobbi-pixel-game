@@ -18,6 +18,8 @@ import { Gfx, UI, type Hit } from './gfx';
 import { card } from './hud';
 import { getLocale, t, upper, type MessageKey } from '../i18n';
 import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
+import type { AccountInvite } from './account-invite';
+import { REST_POSE } from '../blobbi/sprite';
 
 export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis';
 
@@ -236,10 +238,13 @@ export class GameUI {
     this.hits = [];
     const scale = (this.lastScale = this.scaleFor(screen.width, screen.height));
     this.hotbarBox = null;
+    this.tipBox = null;
+    this.inviteBox = null;
     if (!this.screen) {
       this.drawMenuBar(screen, Math.max(1, Math.min(2, scale)));
       this.drawHotbar(screen, hudScale(this.settings));
       this.drawTip(screen, hudScale(this.settings));
+      this.drawInvite(screen, hudScale(this.settings));
       return;
     }
     // Dim the world behind the panel.
@@ -335,6 +340,7 @@ export class GameUI {
       else oy = Math.max(0, hb.y - big.height - 2 * scale);
     }
     screen.blit(big, ox2, oy);
+    this.tipBox = { x: ox2, y: oy, w: big.width, h: big.height };
     this.hits.push(...g.screenHits(ox2, oy));
     if (justDone && live.clock.time - live.tipDoneAt > 1.6) live.tipJustDone = null;
   }
@@ -373,6 +379,85 @@ export class GameUI {
     // The card itself takes presses (a near miss between slots must not walk the Blobbi), the slots pick a tool.
     this.hits.push({ x: ox, y: oy, w: out.width, h: out.height, action: () => {}, inert: true });
     slotRects.forEach((r, i) => this.hits.push({ x: ox + r.x * s, y: oy + r.y * s, w: r.w * s, h: r.h * s, action: () => this.pickTool(i) }));
+  }
+
+  /** Where the tip and the invitation were drawn this frame (screen pixels). */
+  tipBox: { x: number; y: number; w: number; h: number } | null = null;
+  inviteBox: { x: number; y: number; w: number; h: number } | null = null;
+  /** M11C.5: the gentle account invitation (owned by the playground), and what EXPLORE ACCOUNTS does. */
+  invite: AccountInvite | null = null;
+  /** Where the HUD's top-left cards end (screen pixels; the playground sets it): the card stays below when it can. */
+  hudBottom = 0;
+  onInviteExplore: (() => void) | null = null;
+
+  /**
+   * The account invitation card (M11C.5): the player's Blobbi, a title, two short lines, EXPLORE ACCOUNTS, MAYBE LATER
+   * and a "don't show this again" box. A floating card at the bottom right on a keyboard screen; on a touch screen
+   * a wider card above the menu bar, the hotbar and USE. It never pauses the world and takes no key: only its own
+   * presses (the rest of the screen plays on).
+   */
+  private drawInvite(screen: PixelBuffer, s: number): void {
+    const inv = this.invite;
+    const live = this.live;
+    if (!inv?.visible || !live) return;
+    const touch = this.touchMode;
+    const avail = Math.floor((screen.width - this.insets.left - this.insets.right) / s) - 8;
+    const w = Math.max(150, Math.min(touch ? 300 : 210, avail));
+    const probe = new Gfx(1, 1, s);
+    const pic = 20;
+    const textX = 4 + pic + 5;
+    const textW = w - textX - 4;
+    const title = probe.lines(t('invite.title'), textW);
+    // The question on its own line, then the explanation (two catalogue entries: the fonts have no line break).
+    const body = [...probe.lines(t('invite.question'), textW), ...probe.lines(t('invite.body'), textW)];
+    const later = t('invite.later');
+    const lw = probe.measure(later) + 10;
+    const explore = t('invite.explore');
+    const ew = probe.measure(explore) + 12;
+    const label = t('invite.never');
+    const tickW = 10 + probe.measure(label);
+    // The tick box shares the buttons' row when it fits (a shorter card), else gets its own row above them.
+    const oneRow = ew + 8 + tickW + 8 + lw + 8 <= w;
+    const textH = title.length * 8 + 1 + body.length * 7;
+    const top = 4 + Math.max(pic, textH) + 3;
+    const boxY = oneRow ? top + 2 : top;
+    const btnY = oneRow ? top : top + 11;
+    const h = btnY + 11 + 4;
+    const g = new Gfx(w, h, s);
+    g.buf.blit(card(w, h, UI.accent), 0, 0);
+    g.hits.push({ x: 0, y: 0, w, h, action: () => {}, inert: true });
+    // The player's own Blobbi, as it walks (the existing sprite, cropped to the frame).
+    g.box(4, 4, pic, pic, UI.slot, UI.line);
+    const sprite = live.blobbiSprite({ ...REST_POSE });
+    const face = new PixelBuffer(pic - 2, pic - 2);
+    face.blit(sprite.buffer, Math.floor((pic - 2) / 2) - sprite.anchorX, pic - 3 - sprite.anchorY);
+    g.buf.blit(face, 5, 5);
+    title.forEach((l, i) => g.text(l, textX, 4 + i * 8, UI.accent));
+    body.forEach((l, i) => g.text(l, textX, 4 + title.length * 8 + 1 + i * 7, UI.ink));
+    g.button(explore, 4, btnY, () => {
+      inv.answer('explore');
+      this.onInviteExplore?.();
+    }, { w: Math.min(ew, w - lw - 12), primary: true, case: 'as-is' });
+    g.button(later, w - lw - 4, btnY, () => inv.answer('later'), { w: lw, case: 'as-is' });
+    // "Don't show this again": a real tick box, the label pressable too.
+    const tx = oneRow ? 4 + ew + 8 : 4;
+    const ticked = inv.optOutTicked;
+    g.box(tx, boxY, 7, 7, UI.slot, ticked ? UI.accent : UI.muted);
+    if (ticked) g.buf.fillRect(tx + 2, boxY + 2, 3, 3, UI.accent);
+    g.text(label, tx + 10, boxY, UI.muted);
+    g.hit(tx - 2, boxY - 2, tickW + 4, 11, () => (inv.optOutTicked = !inv.optOutTicked));
+    const out = g.out;
+    // Above everything at the bottom (menu bar, hotbar, the touch USE button, a tip), clear of the safe area.
+    let bottom = screen.height - this.insets.bottom - this.menuBarHeight - 2 * s;
+    if (touch) bottom -= 40 * s; // the USE button sits above the menu bar
+    const ox = touch ? Math.round((screen.width - out.width) / 2) : screen.width - this.insets.right - out.width - 2 * s;
+    const over = (b: { x: number; y: number; w: number; h: number } | null) => b && b.x < ox + out.width && ox < b.x + b.w;
+    if (over(this.hotbarBox)) bottom = Math.min(bottom, this.hotbarBox!.y - 2 * s);
+    if (over(this.tipBox)) bottom = Math.min(bottom, this.tipBox!.y - 2 * s);
+    const oy = Math.max(this.insets.top, Math.min(bottom - out.height, Math.max(this.hudBottom, bottom - out.height)));
+    screen.blit(out, ox, oy);
+    this.inviteBox = { x: ox, y: oy, w: out.width, h: out.height };
+    this.hits.push(...g.screenHits(ox, oy));
   }
 
   /** A hotbar slot was clicked or tapped (or its number key pressed): the same as the bag's EQUIP / PUT AWAY. */

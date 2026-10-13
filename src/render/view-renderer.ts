@@ -573,6 +573,11 @@ export class ViewRenderer {
   indicatorBox: { x: number; y: number; w: number; h: number } | null = null;
 
   /** Whether screen point (x, y) is on the camera indicator (with a finger's margin). */
+  /** Where the HUD's top-left cards (status, identity) end, in screen pixels (0 without a HUD). */
+  get hudBottom(): number {
+    return this.hudBox?.bottom ?? 0;
+  }
+
   /** Where the Guest / Connected chip was drawn last frame: a click or a tap on it opens the ACCOUNT page (M11C). */
   identityBox: { x: number; y: number; w: number; h: number } | null = null;
 
