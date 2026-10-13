@@ -473,6 +473,18 @@ Automated: `tests/m11d1-baby.test.ts`, `tests/m11d1-intro.test.ts`; images `exam
 | BABY-01 .. BABY-12 | NOT TESTED |
 | INTROFIX-01 .. INTROFIX-03 | NOT TESTED |
 
+## M11D.2: world forms, departure and arrival, Baby effects and tools (FORM, SWAP, BPART, BTOOL)
+
+All **NOT TESTED**; steps and expected results in [M11D.2](../milestones/M11D2.md). Automated: `tests/m11d2.test.ts`;
+images `examples/m11d2/`.
+
+| ID | Status |
+|---|---|
+| FORM-01 .. FORM-10 | NOT TESTED |
+| SWAP-01 .. SWAP-08 | NOT TESTED |
+| BPART-01 .. BPART-03 | NOT TESTED |
+| BTOOL-01 .. BTOOL-03 | NOT TESTED |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

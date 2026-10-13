@@ -78,7 +78,7 @@ adult** walk the island. Every other Blobbi is listed, never drawn as something 
 | V1, V2 | its colours (the kit's `visualTraits`), "earlier generation, its form for this pixel world is not ready yet" | other artwork, another seed (§1); drawing V3 from it would show an unrelated creature |
 | unknown `visual_generation` | "a style this version does not know yet" | the kit would fall back to V1 (and then call it legacy); this game refuses to guess |
 
-## 5. Plan: a local world form for V1/V2 (PROPOSED, not implemented)
+## 5. Plan: a local world form for V1/V2 (PROPOSED in M11B; superseded by §6, IMPLEMENTED in M11D.2)
 
 New evidence (renderer 0.6.0 types, `node_modules/@blobbi-kit/renderer/dist/procedural/genome.d.ts`): `generateGenome(input)` accepts a **semantic
 identity** besides the seed (`colors`, `pattern`, `mark`, `antenna`, `horns`, `ears`, `tail`, `belly`, `freckles`),
@@ -104,3 +104,32 @@ with". So a deterministic pixel form that a V1/V2 owner can recognise is feasibl
    script), and the kit maintainer agrees that the mapping may later move into the kit as a shared spec.
 
 Estimated size: one module + tests + one screen change + the rasterizer additions; no save or event change.
+
+## 6. World forms as implemented (M11D.2, IMPLEMENTED)
+
+The owner approved temporary world forms ([M11D.2](../milestones/M11D2.md)). What was built differs from the §5
+proposal in two deliberate points, both noted here:
+
+| | §5 proposal | M11D.2 |
+|---|---|---|
+| Seed | `sha256("blobbi-pixel:world-form:v1|" + seed tag)` | the readable string `blobbi-pixel:world-form:v1:<pubkey>:<d>`, hashed by the kit's own `generateGenome` (deterministic per canonical address; not 64 hex, so never read as a V3 seed; no V3 address derives it) |
+| Anatomy traits (antenna, horns, ears, tail, belly) | all none | derived from that seed, as the owner asked ("a deterministic mapping based on the canonical identity") |
+| Colours | `{ base, secondary, eye }`, `mapping: 'kit'` | the same (the kit's own reading of the event, `parseBlobbiEvent(...).visualTraits`: for V1/V2 the kit derives these from the Blobbi's seed tag) |
+| Pattern, mark | same words; star/heart/sparkle kept, blush to freckles | the same; an unknown word reads as solid / none |
+| Size tag | ±1 px | not used (KI-81) |
+| Stage | adult body | a V1/V2 Baby gets the pixel Baby body, an Adult the pixel Adult body |
+| Identity | address kept, new source kind `world-form` | the same; selection record v1 `source.kind: 'world-form'` with pubkey, d, generation, traits and the seed, re-derived and refused whole on any mismatch, always beside its account |
+| Original picture | rasterized V1/V2 art | a Baby's original is the kit's baby art (M11D.1); an Adult's original is shown as its three colours (V1/V2 adult art is not rasterized) |
+
+| Blobbi | Since M11D.2 |
+|---|---|
+| V3 adult, V3 baby | unchanged: their canonical pixel picture, visit |
+| V1 / V2 baby, adult (readable colours) | visit in their world form after a one-time explanation per Blobbi on this device ("Your Blobbi discovered a new form!", TRY THIS FORM / NOT NOW) with both pictures |
+| V1 / V2 without readable colours | listed with the reason (unchanged) |
+| any egg | cannot walk |
+| unknown generation | never guessed |
+
+Guarantees: the kind 31124 event is only read; the generation, stage, name, owner and address are never changed; no
+event is signed or published; the form is local to Blobbi Pixel and other apps never see it; the same Blobbi always
+takes the same form (`WORLD_FORM_VERSION = 1`; a different mapping would be a new version, never a silent change).
+
