@@ -112,25 +112,79 @@ export class SeaNav {
     return this.phasesCache;
   }
 
+  /** Beyond the outline, how far the rough water holds, then fades back to calm (drawing only; M10 phase C). */
+  static readonly ROUGH_HOLD = 12;
+  static readonly ROUGH_FADE = 28;
+  /** How far beyond the region the rough ring can reach (hold, fade and the outline's wobble). */
+  static readonly ROUGH_OUT = SeaNav.ROUGH_HOLD + SeaNav.ROUGH_FADE + CANOE.wobble;
+
+  /** The rough ring's strength per row (0..255) over the region grown by `ROUGH_OUT`, made the first time a row is drawn. */
+  private roughRows: (Uint8Array | null)[] | null = null;
+
+  /**
+   * How rough the water looks at (x, y), 0..1, for drawing: it rises through the band (`edge`), holds just past the
+   * region's rounded, breathing outline, then fades back to calm open sea — a ring with no straight edge, inner or
+   * outer. Rows are made on first use (the field is fixed for a world) and read every frame. Returns the strength as
+   * 0..255.
+   */
+  roughness255(x: number, y: number): number {
+    const row = this.roughRow(y);
+    const i = x - (this.region.x0 - SeaNav.ROUGH_OUT);
+    return row && i >= 0 && i < row.length ? row[i] : 0;
+  }
+
+  /** One row of the rough ring (index 0 is x = region.x0 − `ROUGH_OUT`), or null beyond the ring's rows. */
+  roughRow(y: number): Uint8Array | null {
+    const r = this.region;
+    const out = SeaNav.ROUGH_OUT;
+    const x0 = r.x0 - out;
+    const y0 = r.y0 - out;
+    const h = r.y1 - r.y0 + 2 * out;
+    if (y < y0 || y >= y0 + h) return null;
+    const rows = (this.roughRows ??= new Array(h).fill(null));
+    let row = rows[y - y0];
+    if (!row) {
+      row = new Uint8Array(r.x1 - r.x0 + 2 * out);
+      for (let i = 0; i < row.length; i++) row[i] = Math.round(this.roughAt(x0 + i, y) * 255);
+      rows[y - y0] = row;
+    }
+    return row;
+  }
+
+  /** The rough ring's strength at (x, y), computed (see `roughness255`). */
+  private roughAt(x: number, y: number): number {
+    const d = this.outlineDistance(x, y);
+    if (d >= CANOE.band) return 0;
+    if (d >= 0) return 1 - d / CANOE.band;
+    if (d >= -SeaNav.ROUGH_HOLD) return 1;
+    return Math.max(0, 1 - (-d - SeaNav.ROUGH_HOLD) / SeaNav.ROUGH_FADE);
+  }
+
+  /**
+   * Signed distance (px) from (x, y) to the sea's breathing outline: positive inside the region, negative beyond. The
+   * outline is the region's rectangle with rounded corners, moved in and out by a slow deterministic wobble.
+   */
+  private outlineDistance(x: number, y: number): number {
+    const r = this.region;
+    const cx = (r.x0 + r.x1) / 2;
+    const cy = (r.y0 + r.y1) / 2;
+    const R = Math.min(CANOE.corner, (r.x1 - r.x0) / 2, (r.y1 - r.y0) / 2);
+    const qx = Math.abs(x - cx) - ((r.x1 - r.x0) / 2 - R);
+    const qy = Math.abs(y - cy) - ((r.y1 - r.y0) / 2 - R);
+    const inside = R - Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - Math.min(Math.max(qx, qy), 0);
+    if (inside > CANOE.band + CANOE.wobble) return inside;
+    const a = Math.atan2(y - cy, x - cx);
+    const [p1, p2, p3] = this.phases;
+    return inside + CANOE.wobble * (0.55 * Math.sin(3 * a + p1) + 0.3 * Math.sin(7 * a + p2) + 0.15 * Math.sin(13 * a + p3));
+  }
+
   /**
    * How far into the outer band a point is, 0 (inside) .. 1 (at the edge). The band follows the region's outline with
    * rounded corners and a slow deterministic wobble (M10 phase C): never a straight rectangle. Beyond the region
    * the canoe cannot float at all (`water`), so the wobble only moves where the current starts.
    */
   edge(x: number, y: number): number {
-    const r = this.region;
-    const cx = (r.x0 + r.x1) / 2;
-    const cy = (r.y0 + r.y1) / 2;
-    const R = Math.min(CANOE.corner, (r.x1 - r.x0) / 2, (r.y1 - r.y0) / 2);
-    // Signed distance to the rounded rectangle (positive inside).
-    const qx = Math.abs(x - cx) - ((r.x1 - r.x0) / 2 - R);
-    const qy = Math.abs(y - cy) - ((r.y1 - r.y0) / 2 - R);
-    const inside = R - Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - Math.min(Math.max(qx, qy), 0);
-    if (inside > CANOE.band + CANOE.wobble) return 0;
-    const a = Math.atan2(y - cy, x - cx);
-    const [p1, p2, p3] = this.phases;
-    const wobble = CANOE.wobble * (0.55 * Math.sin(3 * a + p1) + 0.3 * Math.sin(7 * a + p2) + 0.15 * Math.sin(13 * a + p3));
-    return Math.max(0, Math.min(1, 1 - (inside + wobble) / CANOE.band));
+    return Math.max(0, Math.min(1, 1 - this.outlineDistance(x, y) / CANOE.band));
   }
 }
 

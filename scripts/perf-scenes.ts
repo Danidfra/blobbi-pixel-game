@@ -7,7 +7,8 @@
  *   node --expose-gc --import tsx scripts/perf-scenes.ts [label] [--frames 600] [--only name]
  *
  * Scenes: turtle stage 0 and 4, manta 4, whale 4, the house interior, rain, active fishing, Carrier animation at
- * overview, the minimum and maximum zoom (close-up, and up close since M10), the canoe paddling and fishing (M10 B); each at desktop 1280×720, desktop 1920×1080 and a phone 844×390.
+ * overview, the minimum and maximum zoom (close-up, and up close since M10), the canoe paddling and fishing (M10 B), the
+ * canoe by the rough edge of its sea (M10 C); each at desktop 1280×720, desktop 1920×1080 and a phone 844×390.
  * Output: a table, and JSON in docs/testing/perf/<label>.json.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -120,6 +121,9 @@ const SCENES: Scene[] = [
   // M10 phase B: paddling the canoe round the Carrier, and fishing from it (stage 2: the shore reaches the sea).
   { name: 'canoe-navigation', mode: 'exploration', make: () => afloat(liveAt(turtle, 2)), input: walk },
   { name: 'canoe-fishing', mode: 'closeup', make: () => afloat(liveAt(turtle, 2), true) },
+  // M10 phase C: aboard by a corner of the canoe's sea, where the rough water is drawn (the worst case for its cost).
+  { name: 'canoe-edge-overview', mode: 'overview', make: () => atEdge(afloat(liveAt(turtle, 2))) },
+  { name: 'canoe-edge-exploration', mode: 'exploration', make: () => atEdge(afloat(liveAt(turtle, 2))) },
 ];
 
 /** Launch the canoe from the shore nearest the hub and step in (and, if asked, cast a line from it). */
@@ -147,6 +151,19 @@ function afloat(live: LiveWorld, fishing = false): LiveWorld {
     live.equip('blobbi-pixel:tool:fishing-rod');
     live.fish();
     if (live.fishing) live.fishing.biteAt = 1e9;
+  }
+  return live;
+}
+
+/** Put the canoe (aboard) by the north-west corner of its sea, inside the rough band. */
+function atEdge(live: LiveWorld): LiveWorld {
+  const r = live.seaNav().region;
+  if (live.boat) {
+    live.boat.x = r.x0 + 60;
+    live.boat.y = r.y0 + 60;
+    live.boat.vx = live.boat.vy = 0;
+    live.blobbi.x = live.boat.x;
+    live.blobbi.y = live.boat.y + 4;
   }
   return live;
 }

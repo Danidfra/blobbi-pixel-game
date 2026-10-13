@@ -23,7 +23,7 @@ import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { OpenSea } from './open-sea';
 import { drawMarine, drawOceanFeatures } from './marine-render';
 import { canoeSprites, paddleSprite } from './canoe-render';
-import { CANOE } from '../game/canoe';
+import { CANOE, SeaNav } from '../game/canoe';
 import type { WorldPalette as WorldPaletteLike } from '../core/palette';
 import { BUILDINGS, buildingSprite } from '../game/buildings';
 import { drawPlacementOverlay } from './placement-overlay';
@@ -291,38 +291,47 @@ export class LiveRenderer {
   private drawRoughWater(frame: PixelBuffer, ox: number, oy: number, time: number, palette: WorldPaletteLike): void {
     const nav = this.live.seaNav();
     const r = nav.region;
-    // Only near the region's outline can a pixel be in the band (its sides and its rounded corners); beyond the
-    // region the water is rough all the way (M10 phase C: no line where the sea round the Carrier ends).
+    // The rough ring lies along the region's outline (M10 phase C): a band inside it, a short hold and a fade beyond.
+    // Only pixels near the outline are visited: whole rows near the top and bottom, the two ends of the others
+    // (wider by the rounded corners), from rows of the ring's strength made once.
     const reach = CANOE.band + CANOE.wobble;
+    const out = SeaNav.ROUGH_OUT;
     const R = CANOE.corner;
     const W = frame.width;
     const H = frame.height;
-    const phase = Math.floor(time * 3);
+    const data = frame.data;
+    const phase = Math.floor(time * 3) * 2654435761;
     const deep = palette.water.dark;
-    const paint = (x: number, y: number, e: number) => {
-      if (e <= 0) return;
-      // A gradient by ordered dither (darker water deeper into the band), whitecaps flickering over it.
-      if (BAYER4[(y & 3) * 4 + (x & 3)] < e * 0.62) frame.set(x - ox, y - oy, deep);
-      const h = ((x * 374761393 + y * 668265263 + phase * 2654435761) >>> 0) % 1000;
-      if (h < e * e * 220) frame.set(x - ox, y - oy, h % 3 ? palette.foam : palette.shallow.light);
-    };
-    for (let y = oy; y < oy + H; y++) {
-      if (y < r.y0 || y >= r.y1) {
-        for (let x = ox; x < ox + W; x++) paint(x, y, 1);
-        continue;
+    const foam = palette.foam;
+    const light = palette.shallow.light;
+    const rx0 = r.x0 - out;
+    const span = (y: number, from: number, to: number) => {
+      const strength = nav.roughRow(y);
+      if (!strength) return;
+      const a = Math.max(from, ox, rx0);
+      const b = Math.min(to, ox + W, rx0 + strength.length);
+      const row = (y - oy) * W - ox;
+      const bayer = (y & 3) * 4;
+      for (let x = a; x < b; x++) {
+        const v = strength[x - rx0];
+        if (!v) continue;
+        const e = v / 255;
+        // A gradient by ordered dither (darker water deeper into the ring), whitecaps flickering over it.
+        if (BAYER4[bayer + (x & 3)] < e * 0.62) data[row + x] = deep;
+        const h = ((x * 374761393 + y * 668265263 + phase) >>> 0) % 1000;
+        if (h < e * e * 220) data[row + x] = h % 3 ? foam : light;
       }
-      for (let x = ox; x < Math.min(ox + W, r.x0); x++) paint(x, y, 1);
-      for (let x = Math.max(ox, r.x1); x < ox + W; x++) paint(x, y, 1);
-      const x0 = Math.max(r.x0, ox);
-      const x1 = Math.min(r.x1, ox + W);
-      // A row near the top or bottom is in reach everywhere; any other only near its two ends (wider at a corner).
+    };
+    const y0 = Math.max(r.y0 - out, oy);
+    const y1 = Math.min(r.y1 + out, oy + H);
+    for (let y = y0; y < y1; y++) {
       if (y < r.y0 + reach || y >= r.y1 - reach) {
-        for (let x = x0; x < x1; x++) paint(x, y, nav.edge(x, y));
+        span(y, r.x0 - out, r.x1 + out);
         continue;
       }
       const side = y < r.y0 + R || y >= r.y1 - R ? Math.max(reach, R) : reach;
-      for (let x = x0; x < Math.min(x1, r.x0 + side); x++) paint(x, y, nav.edge(x, y));
-      for (let x = Math.max(x0, r.x1 - side); x < x1; x++) paint(x, y, nav.edge(x, y));
+      span(y, r.x0 - out, r.x0 + side);
+      span(y, r.x1 - side, r.x1 + out);
     }
   }
 

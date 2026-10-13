@@ -64,8 +64,8 @@ export const MAX_TONGUE = 110;
 /**
  * Plan the landing for a world from its terrain at the access stage. `suit` is `suitableSurface(base)`, `mask` the
  * Carrier's `movingPartsMask`, `occupied` where objects stand (1: a natural one, which the landing would clear; 2: a
- * keeper piece, which it never covers). Each natural object in the way counts as 40 pixels more of tongue. Null only if the Carrier offers no such place at all (none of the shipped Carriers;
- * see tests/ocean-access.test.ts).
+ * keeper piece, which it never covers). Each natural object in the way counts as 40 pixels more of tongue. Null only
+ * if the Carrier offers no such place at all (none of the shipped Carriers; see tests/ocean-access.test.ts).
  */
 export function planLanding(base: WorldDescription, cls: Uint8Array, suit: Uint8Array, mask: Uint8Array, occupied?: Uint8Array): Landing | null {
   const { width, height } = base.terrain;

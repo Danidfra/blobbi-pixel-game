@@ -401,9 +401,9 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
   let landField: Float32Array | undefined;
   // Version 4: the landing, planned once on the access stage's terrain and objects (before it is painted).
   let landing: Landing | null = null;
-  const mask: Uint8Array | null = version >= LANDING_VERSION && stage >= OCEAN_ACCESS_STAGE ? movingPartsMask(base) : null;
+  const mask: Uint8Array | null = version >= LANDING_VERSION && stage >= OCEAN_ACCESS_STAGE ? landingInputs(base).mask : null;
   const palette = PALETTES[base.options.palette] ?? PALETTES.cozy;
-  const footOf = (p: Placement) => OBJECT_GENERATORS[p.kind]({ seed: p.seed, size: p.size, palette, variation: p.variation as never });
+  const footOf = (p: Placement) => objectFoot(p, palette);
   // The landing's pixels (1: its new land, 2: old shore made inland at its root), over every stage.
   const landingMark = mask ? new Uint8Array(width * height) : null;
   let prevCls: Uint8Array | null = null;
@@ -417,7 +417,7 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
     newObjects.push(...regionObjects(base, plan, s, final.cls, final.dist, final.region, feet, passageFor(base, Math.min(sv, version))));
     objectsAt.push(base.objects.length + newObjects.length);
     // The landing is planned on the access stage, once its objects stand: it keeps off their ground where it can.
-    if (mask && s === OCEAN_ACCESS_STAGE) landing = planLanding(base, final.cls, suitableSurface(base), mask, occupancy(base, [...base.objects, ...newObjects], footOf));
+    if (mask && s === OCEAN_ACCESS_STAGE) landing = planLanding(base, final.cls, landingInputs(base).suit, mask, occupancy(base, [...base.objects, ...newObjects], footOf));
     // After the stage's objects: the landing never changes where anything grows (and nothing grows on it).
     if (landing && mask && s >= OCEAN_ACCESS_STAGE) {
       paintLanding(base, landing, final, mask, 0, OCEAN_ACCESS_STAGE, landingMark ?? undefined);
@@ -470,6 +470,34 @@ export function growWorld(base: WorldDescription, stage: number, version = GROWT
     stats: { ...base.stats, landPixels, objects: counts },
     growth: { version, stage, regions, baseObjects: base.objects.length, land: lands[stage]!, region, bornAt, area, objectsAt, ...(landField ? { landField } : {}), ...(landing ? { landing } : {}), ...(landingField ? { landingField } : {}), ...(landingClear.length ? { landingClear } : {}) },
   };
+}
+
+/**
+ * What planning the landing needs from a base world, made once per base world (both are pure functions of it): the
+ * Carrier's moving-parts mask and its suitable carrying surface.
+ */
+const landingCache = new WeakMap<WorldDescription, { mask: Uint8Array; suit: Uint8Array }>();
+function landingInputs(base: WorldDescription): { mask: Uint8Array; suit: Uint8Array } {
+  let hit = landingCache.get(base);
+  if (!hit) {
+    hit = { mask: movingPartsMask(base), suit: suitableSurface(base) };
+    landingCache.set(base, hit);
+  }
+  return hit;
+}
+
+/** An object's footprint (only the foot is kept: the sprite is not), by what decides it. */
+const footCache = new Map<string, { footRx: number; footRy: number }>();
+function objectFoot(p: Placement, palette: (typeof PALETTES)[string]): { footRx: number; footRy: number } {
+  const key = `${p.kind}|${p.seed}|${p.size}|${JSON.stringify(p.variation ?? null)}`;
+  let hit = footCache.get(key);
+  if (!hit) {
+    const s = OBJECT_GENERATORS[p.kind]({ seed: p.seed, size: p.size, palette, variation: p.variation as never });
+    hit = { footRx: s.footRx, footRy: s.footRy };
+    if (footCache.size > 20000) footCache.clear();
+    footCache.set(key, hit);
+  }
+  return hit;
 }
 
 /** Kinds a Blobbi cannot walk through (the same set as the collision map's `SOLID_KINDS`). */

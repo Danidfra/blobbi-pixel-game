@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateTurtleWorld } from '../src/world/turtle-world';
 import { LiveWorld, IDLE_INPUT } from '../src/sim/live-world';
-import { memoryStore, saveKey, loadSave } from '../src/game/persistence';
+import { memoryStore, saveKey, loadSave, SAVE_VERSION } from '../src/game/persistence';
 import { BOND, GROWTH_STAGES, OBSERVATIONS, carrierFavourites, carrierFromSave, growthStage, harmony, newCarrier, nextObservation } from '../src/game/carrier';
 import { DAY_SECONDS } from '../src/game/daylight';
 import { ALL_ITEMS, ITEMS } from '../src/game/items';
@@ -178,7 +178,7 @@ describe('carrier save (schema 8)', () => {
     expect(again.carrier.bond).toBe(live.carrier.bond);
     expect(again.carrier.observations).toEqual(live.carrier.observations);
     const raw = JSON.parse(store.get(saveKey(live.identity))!);
-    expect(raw.version).toBe(11);
+    expect(raw.version).toBe(SAVE_VERSION);
     const v7 = { ...raw, version: 7 };
     delete v7.carrier;
     store.set(saveKey(live.identity), JSON.stringify(v7));
