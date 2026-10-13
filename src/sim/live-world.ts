@@ -25,8 +25,8 @@ import type { TreeResult } from '../objects/tree';
 import type { HouseResult } from '../objects/structures';
 import { paletteFor } from '../world/generate';
 import { T, WALKABLE, type Placement, type WorldDescription } from '../world/types';
-import { blobbiIdentity, stagedIdentity, type PixelBlobbiIdentity } from '../blobbi/identity';
-import type { BlobbiStage } from '../blobbi/canonical';
+import { identityOfSource, type PixelBlobbiIdentity } from '../blobbi/identity';
+import { babyHeightFor, type BlobbiStage } from '../blobbi/canonical';
 import { sourceFromSeed, type BlobbiSource } from '../blobbi/source';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
@@ -532,6 +532,7 @@ export class LiveWorld {
     this.blobbi = this.makeBlobbi(blobbi, blobbiSize, options.stage ?? 'adult');
     this.rig = new EquipmentRig(this.blobbi.identity, this.blobbi.size);
     this.teleport = new TeleportController(world.seed, blobbiSize, Math.max(4, Math.round(blobbiSize * 0.42)));
+    this.fitTeleport();
     this.placeBlobbiAtStart();
     this.rebuildBrain();
     // Resources on the ground, minus what a saved game says the player already collected.
@@ -1326,8 +1327,8 @@ export class LiveWorld {
     this.stats.crafted++;
     this.tally.crafted++;
     if (recipe.output.item === ITEMS.axe.id) this.tally.axesCrafted++;
-    for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-6, 6), b.y - b.size * 0.6 + this.particles.rng.range(-5, 5), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
-    this.particles.note(b.x + 4, b.y - b.size - 2);
+    for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-6 * this.bodyK, 6 * this.bodyK), b.y - this.bodyH * 0.6 + this.particles.rng.range(-5 * this.bodyK, 5 * this.bodyK), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
+    this.particles.note(b.x + 4 * this.bodyK, b.y - this.bodyH - 2);
     this.bubble = { text: recipe.output.quantity > 1 ? lang('craft.craftedN', { count: recipe.output.quantity, what: itemPlural(recipe.output.item) }) : lang('craft.craftedOne', itemNoun(recipe.output.item)), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
     this.sound(recipe.group === 'meals' ? 'cook' : 'craft');
     if (recipe.group === 'meals') {
@@ -1852,8 +1853,8 @@ export class LiveWorld {
       addHappiness(this.care, JOY.favourite);
     }
     this.addFriendship(favourite ? FRIEND.favourite : meal ? FRIEND.meal : FRIEND.feed);
-    for (let i = 0; i < 4; i++) this.particles.dust(b.x + this.particles.rng.range(-3, 3), b.y - b.size * 0.45, i % 2 ? hex('#fff2b0') : hex('#e3c48a'));
-    for (let i = 0; i < (favourite ? 4 : 2); i++) this.particles.heart(b.x + this.particles.rng.range(-4, 4), b.y - b.size - 2 - i * 3);
+    for (let i = 0; i < 4; i++) this.particles.dust(b.x + this.particles.rng.range(-3 * this.bodyK, 3 * this.bodyK), b.y - this.bodyH * 0.45, i % 2 ? hex('#fff2b0') : hex('#e3c48a'));
+    for (let i = 0; i < (favourite ? 4 : 2); i++) this.particles.heart(b.x + this.particles.rng.range(-4 * this.bodyK, 4 * this.bodyK), b.y - this.bodyH - 2 - i * 3);
     say(lang(favourite ? 'feed.favourite' : meal ? 'feed.yumMeal' : 'feed.yum', itemNoun(item)));
     b.animator.react('excited', time, favourite ? 1.8 : 1.3, favourite ? 4 : 3);
     this.sound('eat');
@@ -1867,12 +1868,12 @@ export class LiveWorld {
     const b = this.blobbi;
     this.tally.petted++;
     if (this.brain.state === 'rest') {
-      this.particles.heart(b.x, b.y - b.size - 2);
+      this.particles.heart(b.x, b.y - this.bodyH - 2);
       return false;
     }
     const counted = petCare(this.care, this.worldTime);
     if (counted) this.addFriendship(FRIEND.pet);
-    for (let i = 0; i < (counted ? 3 : 1); i++) this.particles.heart(b.x + this.particles.rng.range(-4, 4), b.y - b.size - 1 - i * 3);
+    for (let i = 0; i < (counted ? 3 : 1); i++) this.particles.heart(b.x + this.particles.rng.range(-4 * this.bodyK, 4 * this.bodyK), b.y - this.bodyH - 1 - i * 3);
     b.animator.react('happy', time, counted ? 1.1 : 0.6, counted ? 3 : 1);
     this.sound(counted ? 'pet' : 'happy');
     this.save();
@@ -2046,7 +2047,7 @@ export class LiveWorld {
           b.animator.state.direction = 'down';
           b.animator.state.sleeping = true;
           // Snug: a little heart as it settles (no reaction: that would open its eyes).
-          this.particles.heart(b.x, b.y - b.size + 2);
+          this.particles.heart(b.x, b.y - this.bodyH + 2);
         }
         return;
       }
@@ -2122,7 +2123,7 @@ export class LiveWorld {
       return;
     }
     if (look?.kind === 'curious') {
-      this.particles.exclaim(b.x, b.y - b.size - 4);
+      this.particles.exclaim(b.x, b.y - this.bodyH - 4);
       say(lang('idle.whatsThat'), 2);
       b.animator.react('surprised', time, 1.2, 2);
       return;
@@ -2139,7 +2140,7 @@ export class LiveWorld {
     if (placed) {
       this.visitBuilding(placed, false);
       if (placed.kind === this.tastes.thing) {
-        for (let i = 0; i < 3; i++) this.particles.heart(b.x + this.particles.rng.range(-4, 4), b.y - b.size - 2 - i * 3);
+        for (let i = 0; i < 3; i++) this.particles.heart(b.x + this.particles.rng.range(-4 * this.bodyK, 4 * this.bodyK), b.y - this.bodyH - 2 - i * 3);
         this.bubble = { text: lang('idle.love', buildingNoun(placed.kind)), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
         addHappiness(this.care, JOY.decoration);
       }
@@ -2163,7 +2164,7 @@ export class LiveWorld {
       this.sleepTimer -= dt;
       if (this.sleepTimer <= 0) {
         this.sleepTimer = 1.4;
-        this.particles.zzz(b.x + 3, b.y - b.size - 1);
+        this.particles.zzz(b.x + 3, b.y - this.bodyH - 1);
       }
       return;
     }
@@ -2177,7 +2178,7 @@ export class LiveWorld {
       this.bubble = { text: lang('idle.sleepy'), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     } else if (this.care.happiness >= 90 && now >= this.nextHappyNote) {
       this.nextHappyNote = now + 30;
-      this.particles.heart(b.x, b.y - b.size - 2);
+      this.particles.heart(b.x, b.y - this.bodyH - 2);
     }
   }
 
@@ -2210,7 +2211,7 @@ export class LiveWorld {
     for (const o of done) this.grantReward(o);
     // A pinned side quest that is done comes off the goal box by itself.
     if (this.pinnedQuest && this.pinnedQuest in this.objectives.completed) this.pinnedQuest = null;
-    for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-8, 8), b.y - b.size * 0.6 + this.particles.rng.range(-6, 6), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
+    for (let i = 0; i < 6; i++) this.particles.sparkle(b.x + this.particles.rng.range(-8 * this.bodyK, 8 * this.bodyK), b.y - this.bodyH * 0.6 + this.particles.rng.range(-6 * this.bodyK, 6 * this.bodyK), i % 2 ? hex('#ffe07a') : hex('#ffffff'));
     b.animator.react('excited', this.clock.time, 1, 3);
     this.save();
   }
@@ -3122,7 +3123,7 @@ export class LiveWorld {
     // The float lands: a ring on the water.
     if (time >= f.start + CAST.land && time - this.clock.dt < f.start + CAST.land) this.particles.ripple(f.x, f.y, hex('#eaf8ff'));
     if (time >= f.biteAt && time - this.clock.dt < f.biteAt) {
-      this.particles.exclaim(this.blobbi.x, this.blobbi.y - this.blobbi.size - 4);
+      this.particles.exclaim(this.blobbi.x, this.blobbi.y - this.bodyH - 4);
       this.particles.ripple(f.x, f.y, hex('#eaf8ff'));
       this.sound('bite');
     }
@@ -3212,7 +3213,7 @@ export class LiveWorld {
     const after = friendLevel(this.companion.friendship);
     if (after > before) {
       const b = this.blobbi;
-      for (let i = 0; i < 5; i++) this.particles.heart(b.x + this.particles.rng.range(-8, 8), b.y - b.size - 2 - i * 2);
+      for (let i = 0; i < 5; i++) this.particles.heart(b.x + this.particles.rng.range(-8 * this.bodyK, 8 * this.bodyK), b.y - this.bodyH - 2 - i * 2);
       this.notices.push({ heading: lang('notice.friendship'), title: `${sentence(FRIEND_TITLES[after - 1])}!`, text: lang('notice.level', { n: after }), until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
       this.sound('friend');
     }
@@ -4544,6 +4545,20 @@ export class LiveWorld {
 
   private stepTeleport(time: number): void {
     for (const e of this.teleport.step(time)) {
+      // A swap (M11D.2): when the outgoing Blobbi is gone, the incoming one takes its place and arrives.
+      if (this.swap && e === 'gone') {
+        const t = this.swap.target;
+        this.setBlobbi(t.source, t.size, t.stage);
+        this.faceViewer();
+        this.swap.phase = 'arriving';
+        this.teleport.enterBlobbi(time);
+      } else if (this.swap && e === 'arrived') this.swap = null;
+      else if (this.swap && e === 'cancelled') {
+        // A cancelled swap never strands anyone: the chosen Blobbi is simply there.
+        const t = this.swap.target;
+        this.swap = null;
+        if (this.blobbi.seed !== t.source.seed || this.blobbi.identity.stage !== t.stage) this.setBlobbi(t.source, t.size, t.stage);
+      }
       this.sound(`teleport-${e}`);
       if (e === 'arrived') this.blobbi.animator.react('happy', time, 1.6, 3);
       if (e === 'gone' || e === 'cancelled') this.brain.manual(time);
@@ -4814,10 +4829,10 @@ export class LiveWorld {
   private makeBlobbi(blobbi: string | BlobbiSource, size: number, stage: BlobbiStage): BlobbiEntity {
     const source = typeof blobbi === 'string' ? sourceFromSeed(blobbi) : blobbi;
     const seed = source.seed;
-    const identity = stage === 'adult' ? blobbiIdentity(seed) : stagedIdentity(seed, stage);
+    const identity = identityOfSource(source, stage);
     // The footprint is the ADULT's of the same genome at every stage (M11D.1): a baby walks, collides, reaches and
     // pathfinds exactly as its adult self, so choosing a Baby never changes where the Blobbi can go.
-    const sprite = buildBlobbiSprite(stage === 'adult' ? identity : blobbiIdentity(seed), { view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 }, size);
+    const sprite = buildBlobbiSprite(stage === 'adult' ? identity : identityOfSource(source, 'adult'), { view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 }, size);
     return { seed, source, identity, animator: new BlobbiAnimator(seed), x: 0, y: 0, size, footRx: Math.max(2, sprite.footRx - 1), footRy: 2, speed: 42 };
   }
 
@@ -4840,6 +4855,7 @@ export class LiveWorld {
     this.blobbi.y = y;
     this.blobbiCache.clear();
     this.rig = new EquipmentRig(this.blobbi.identity, this.blobbi.size);
+    this.fitTeleport();
     this.swing = null;
     // Another Blobbi has its own tastes; the island's bag, buildings and companion state stay.
     if (this.tastes) this.useCompanion(this.blobbi.seed);
@@ -4885,6 +4901,89 @@ export class LiveWorld {
     const s = buildBlobbiSprite(this.blobbi.identity, pose, this.blobbi.size);
     this.blobbiCache.set(key, s);
     return s;
+  }
+
+  /**
+   * M11D.2, THE BODY AS DRAWN, world px: a Baby's own height (`babyHeightFor`) and its ratio to the adult's (1 for an
+   * adult, so adult effects are exactly as before). Particles (sparkles, hearts, notes, the "!" mark) and the
+   * teleport rise from and spread over this body, never the adult footprint.
+   */
+  get bodyH(): number {
+    return this.blobbi.identity.stage === 'baby' ? babyHeightFor(this.blobbi.size) : this.blobbi.size;
+  }
+
+  get bodyK(): number {
+    return this.bodyH / this.blobbi.size;
+  }
+
+  /** The teleport's body: the adult's numbers as before, a Baby's drawn height and the half width of its droplet. */
+  private fitTeleport(): void {
+    const size = this.blobbi.size;
+    if (this.blobbi.identity.stage !== 'baby') return this.teleport.resize(size, Math.max(4, Math.round(size * 0.42)));
+    const s = this.blobbiSprite({ view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 });
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    for (let y = 0; y < s.buffer.height; y++)
+      for (let x = 0; x < s.buffer.width; x++)
+        if (s.buffer.get(x, y) >>> 24) {
+          x0 = Math.min(x0, x);
+          x1 = Math.max(x1, x);
+        }
+    this.teleport.resize(this.bodyH, Math.max(2, Math.round((x1 - x0 + 1) / 2)));
+  }
+
+  /**
+   * M11D.2, CHANGING BLOBBIS IN PLAY, with the existing teleport: the outgoing Blobbi stops, turns to face the player
+   * and dissolves up into pixels; at its spot the incoming one rebuilds from falling pixels, facing the player, then
+   * play resumes. Movement, actions and autonomy are locked throughout (the teleport's own lock), so nothing is done
+   * by accident, and there is only ever one Blobbi. A new choice while one is leaving just changes who arrives; while
+   * one is arriving it turns the arrival back into a departure; choosing the one already walking during its
+   * departure turns it back. Inside a home, on the canoe, in bed or while away the change is immediate (no effect).
+   * Presence is never saved: a reload during a swap shows the chosen Blobbi, present.
+   */
+  swap: { target: { source: BlobbiSource; size: number; stage: BlobbiStage }; phase: 'leaving' | 'arriving' } | null = null;
+
+  swapBlobbi(blobbi: string | BlobbiSource, size = this.blobbi.size, stage: BlobbiStage = 'adult'): 'animated' | 'immediate' | 'unchanged' {
+    const source = typeof blobbi === 'string' ? sourceFromSeed(blobbi) : blobbi;
+    const target = { source, size, stage };
+    const same = source.seed === this.blobbi.seed && stage === this.blobbi.identity.stage && size === this.blobbi.size;
+    const time = this.clock.time;
+    if (this.swap?.phase === 'leaving') {
+      // The one walking was chosen again before it was gone: it turns back.
+      if (same) {
+        this.swap = null;
+        this.teleport.reverse(time);
+        return 'unchanged';
+      }
+      this.swap.target = target;
+      return 'animated';
+    }
+    if (this.swap?.phase === 'arriving') {
+      if (same) return 'unchanged';
+      this.swap = { target, phase: 'leaving' };
+      this.faceViewer();
+      this.teleport.leaveBlobbi(time); // turns the arrival into a departure from the same visible part
+      return 'animated';
+    }
+    if (same) return 'unchanged';
+    if (this.teleport.state !== 'present' || this.inside || this.boat?.aboard || this.restPlan) {
+      this.setBlobbi(source, size, stage);
+      return 'immediate';
+    }
+    this.leaveBlobbi();
+    this.faceViewer();
+    this.swap = { target, phase: 'leaving' };
+    return 'animated';
+  }
+
+  /** Face the player (the front view), standing still. */
+  private faceViewer(): void {
+    const a = this.blobbi.animator.state;
+    a.direction = 'down';
+    a.turning = null;
+    a.moving = false;
+    a.walkPhase = 0;
+    a.glance.until = 0;
   }
 
   /** Run as many fixed steps as `realSeconds` allows. Returns the number of steps run. */
@@ -5191,12 +5290,12 @@ export class LiveWorld {
         if (o.variation?.kind === 'sign') {
           this.bubble = { text: this.signText(o), until: time + 2.5, x: o.x, y: top - 2 };
           b.animator.react('neutral', time, 0.5, 0);
-          this.particles.exclaim(b.x, b.y - this.blobbi.size - 4);
+          this.particles.exclaim(b.x, b.y - this.bodyH - 4);
         } else if (o.variation?.kind === 'lantern') {
           for (let i = 0; i < 5; i++) this.particles.sparkle(o.x + this.particles.rng.range(-3, 3), top + this.particles.rng.range(0, 4), hex('#ffe07a'));
           b.animator.react('surprised', time, 0.8, 2);
         } else {
-          this.particles.exclaim(b.x, b.y - this.blobbi.size - 4);
+          this.particles.exclaim(b.x, b.y - this.bodyH - 4);
           b.animator.react('surprised', time, 0.8, 2);
         }
         break;
@@ -5290,7 +5389,7 @@ export class LiveWorld {
         return;
       case 'play':
         this.tally.played++;
-        for (let i = 0; i < 2; i++) this.particles.heart(b.x + this.particles.rng.range(-4, 4), b.y - b.size - 2 - i * 3);
+        for (let i = 0; i < 2; i++) this.particles.heart(b.x + this.particles.rng.range(-4 * this.bodyK, 4 * this.bodyK), b.y - this.bodyH - 2 - i * 3);
         say(lang('say.boing'));
         b.animator.react('excited', time, 1.4, 4);
         joy();

@@ -24,9 +24,21 @@
  * kept only beside an account, like `name`. Older code ignores it and draws the adult of the same genome (the same
  * Blobbi, grown up): never another creature. The stage is a drawing choice, never identity: the seed, the address and
  * every island save are unchanged by it, and MY BLOBBIS refreshes it when the Blobbi has grown up in another app.
+ *
+ * M11D.2, WORLD FORMS. A V1/V2 Blobbi chosen from MY BLOBBIS is stored as a `world-form` source in the same version-1
+ * record: its address (pubkey, d), its generation, the look its event states (colours, pattern, mark) and the
+ * address-derived world-form seed, always beside `account`. On load it is rebuilt and refused whole unless the seed is
+ * the one its address derives and the account owns it. Code before M11D.2 does not know the kind and ignores the
+ * record (the visiting Blobbi walks): never another Blobbi.
  */
 import type { BlobbiStage } from '../blobbi/canonical';
-import { resolveBlobbi, type BlobbiSource } from '../blobbi/source';
+import { resolveBlobbi, worldFormSource, type BlobbiSource } from '../blobbi/source';
+import type { WorldFormTraits } from '../blobbi/world-form';
+
+/** Sources that belong to an owner's address: a V3 address, or (M11D.2) a V1/V2 Blobbi's world form. */
+function ownedKind(s: BlobbiSource): s is Extract<BlobbiSource, { kind: 'v3-address' | 'world-form' }> {
+  return s.kind === 'v3-address' || s.kind === 'world-form';
+}
 import type { KeyValueStore } from './persistence';
 
 export const SELECTION_VERSION = 1;
@@ -76,16 +88,20 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
   }
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd', unknown>>; name?: unknown; account?: unknown; stage?: unknown };
+    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown };
     if (parsed.version !== SELECTION_VERSION || !parsed.source || typeof parsed.source !== 'object') return null;
     const s = parsed.source;
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
-    const resolved =
-      s.kind === 'v3-address' ? resolveBlobbi({ pubkey: str(s.pubkey) ?? '', d: str(s.d) ?? '' }) : s.kind === 'v3-seed' || s.kind === 'demo' ? resolveBlobbi({ seed: str(s.seed) ?? '' }) : null;
+    // M11D.2: a world form is rebuilt from its stored parts and must derive the stored seed from its address.
+    const form = s.kind === 'world-form' && (s.generation === 'v1' || s.generation === 'v2') && s.traits && typeof s.traits === 'object' ? worldFormSource(str(s.pubkey) ?? '', str(s.d) ?? '', s.generation, s.traits as WorldFormTraits) : null;
+    const resolved: ReturnType<typeof resolveBlobbi> | null =
+      s.kind === 'world-form' ? (form ? { ok: true, source: form, notes: [] } : null) : s.kind === 'v3-address' ? resolveBlobbi({ pubkey: str(s.pubkey) ?? '', d: str(s.d) ?? '' }) : s.kind === 'v3-seed' || s.kind === 'demo' ? resolveBlobbi({ seed: str(s.seed) ?? '' }) : null;
     if (!resolved?.ok || resolved.source.kind !== s.kind || resolved.source.seed !== s.seed) return null;
     const account = typeof parsed.account === 'string' && KEY_HEX.test(parsed.account) ? parsed.account : null;
     // An account marker only makes sense on that account's own Blobbi (an address with the same owner).
-    if (account && (resolved.source.kind !== 'v3-address' || resolved.source.pubkey !== account)) return null;
+    if (account && (!ownedKind(resolved.source) || resolved.source.pubkey !== account)) return null;
+    // A world form is only ever chosen from the player's own Blobbis: never without its account.
+    if (resolved.source.kind === 'world-form' && !account) return null;
     // An unknown stage value reads as the adult (the same Blobbi), never as a refusal of the whole record.
     const stage: BlobbiStage = account && parsed.stage === 'baby' ? 'baby' : 'adult';
     return { source: resolved.source, name: account ? cleanSelectionName(parsed.name) : null, account, stage };
@@ -96,7 +112,7 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
 
 export function storeSelection(store: KeyValueStore, source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }): void {
   const record: BlobbiSelection = { version: SELECTION_VERSION, source };
-  if (from && source.kind === 'v3-address' && source.pubkey === from.account && KEY_HEX.test(from.account)) {
+  if (from && ownedKind(source) && source.pubkey === from.account && KEY_HEX.test(from.account)) {
     record.name = cleanSelectionName(from.name) ?? 'Blobbi';
     record.account = from.account;
     if (from.stage === 'baby') record.stage = 'baby';

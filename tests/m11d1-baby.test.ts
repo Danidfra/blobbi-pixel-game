@@ -189,8 +189,8 @@ describe('Baby tools: held by invisible arms', () => {
           const { at, sprite } = attach(item, pose, a);
           expect(at.sprite.buffer.width).toBeGreaterThan(0);
           if (pose.view !== 'side') {
-            // The grip column is exactly one pixel outside the silhouette on its row.
-            const gx = sprite.anchorX + at.dx;
+            // The grip column, as drawn (M11D.2: with the renderers' in-front nudge), touches the silhouette from outside.
+            const gx = sprite.anchorX + at.dx + (at.behind ? 0 : 2);
             const gy = sprite.anchorY + at.dy;
             expect(sprite.buffer.get(gx, gy) >>> 24, `${item} ${pose.view} ${a}`).toBe(0);
             const inward = at.dx < 0 ? 1 : -1;
@@ -282,13 +282,13 @@ describe('MY BLOBBIS with Babies', () => {
   ).items;
   const by = (name: string) => items.find((b) => b.name === name)!;
 
-  it('a V3 Baby may visit; an egg, V1/V2 Babies and older adults may not (each with its reason)', () => {
+  it('a V3 Baby may visit; an egg may not; V1/V2 Blobbis visit in world forms (M11D.2), else their reason', () => {
     expect(by('Bean')).toMatchObject({ stage: 'baby', generation: 'v3', availability: 'available', seed: deriveBlobbiV3Seed(PK, getCanonicalBlobbiD(PK, '0000000001')) });
     expect(by('Big').availability).toBe('available');
     expect(by('Eggy').availability).toBe('egg');
-    expect(by('Old Bean').availability).toBe('older-generation');
-    expect(reasonKey(by('Old Bean'))).toBe('blobbis.reason.olderBaby');
-    expect(reasonKey(by('Older'))).toBe('blobbis.reason.older');
+    expect(by('Old Bean').availability).toBe('available');
+    expect(reasonKey({ ...by('Old Bean'), availability: 'older-generation' })).toBe('blobbis.reason.olderBaby');
+    expect(reasonKey({ ...by('Older'), availability: 'older-generation' })).toBe('blobbis.reason.older');
     expect(reasonKey(by('Eggy'))).toBe('blobbis.reason.egg');
   });
 
@@ -342,8 +342,9 @@ describe('MY BLOBBIS with Babies', () => {
     draw(); // the art is not loaded yet: the colours stand in, nothing throws
     await screen.loadOlderArt(); // the lazy chunk (the kit's authored baby art)
     draw();
-    ui.handleKey('Enter');
-    expect(ui.message?.text).toBe(en['blobbis.reason.olderBaby'].replace('{g}', 'V1'));
+    ui.handleKey('Enter'); // M11D.2: it may visit in its world form; the explanation shows both pictures
+    expect(screen.confirming?.name).toBe('Old Bean');
+    draw();
   });
 
   it('the new texts exist in English, Portuguese and Spanish without an em dash', () => {

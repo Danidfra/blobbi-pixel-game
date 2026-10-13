@@ -13,11 +13,18 @@
  * is not one of the three is refused with a reason.
  */
 import { canonicalBlobbiV3Seed, deriveBlobbiV3Seed, isCanonicalBlobbiD } from '@blobbi-kit/core';
+import { validWorldForm, worldFormSeed, type WorldFormTraits } from './world-form';
 
 export type BlobbiSource =
   | { kind: 'v3-address'; pubkey: string; d: string; seed: string }
   | { kind: 'v3-seed'; seed: string }
-  | { kind: 'demo'; seed: string };
+  | { kind: 'demo'; seed: string }
+  /**
+   * M11D.2: a V1/V2 Blobbi in its temporary pixel world form (`world-form.ts`). Its identity is still the address
+   * `31124:pubkey:d` and its generation is still V1/V2; `seed` is the address-derived world-form seed, `traits` the
+   * look its event states. Only ever made from the connected player's own event (MY BLOBBIS); never typed or linked.
+   */
+  | { kind: 'world-form'; pubkey: string; d: string; generation: 'v1' | 'v2'; seed: string; traits: WorldFormTraits };
 
 /** What a player types: a seed (V3 or demo) in one field, or an owner pubkey and a `d` tag. */
 export interface BlobbiInput {
@@ -88,8 +95,15 @@ export function sameBlobbi(a: BlobbiSource, b: BlobbiSource): boolean {
   return a.seed === b.seed;
 }
 
+/** M11D.2: a V1/V2 Blobbi's world form source, or null when the stored or read parts do not make a valid one. */
+export function worldFormSource(pubkey: string, d: string, generation: 'v1' | 'v2', traits: WorldFormTraits): BlobbiSource | null {
+  const source = { kind: 'world-form' as const, pubkey, d, generation, seed: worldFormSeed(pubkey, d), traits };
+  return validWorldForm(source) ? source : null;
+}
+
 /** A short human label. */
 export function describeSource(s: BlobbiSource): string {
+  if (s.kind === 'world-form') return `${s.generation.toUpperCase()} ${s.d} (world form)`;
   if (s.kind === 'v3-address') return `V3 ${s.d} (seed ${s.seed.slice(0, 8)}…)`;
   if (s.kind === 'v3-seed') return `V3 seed ${s.seed.slice(0, 8)}…${s.seed.slice(-4)}`;
   return `demo ${s.seed}`;

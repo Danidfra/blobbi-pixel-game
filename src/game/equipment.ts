@@ -259,7 +259,7 @@ export class EquipmentRig {
     if (hit) return hit;
     const full = spriteOf(pose);
     if (this.identity.stage === 'baby') {
-      const point = babyHand(pose, arm, full);
+      const point = babyHand(pose, arm, full, this.size);
       this.hands.set(key, point);
       return point;
     }
@@ -296,7 +296,7 @@ export class EquipmentRig {
  * be; seen from the side, the near hand holds it against the front half of the body, the far hand behind it. It is
  * measured on the very sprite drawn, so the tool rides every hop frame with the body.
  */
-export function babyHand(pose: BlobbiPose, arm: string, full: Sprite): HandPoint {
+export function babyHand(pose: BlobbiPose, arm: string, full: Sprite, size = 16): HandPoint {
   const buf = full.buffer;
   let top = -1;
   let bottom = -1;
@@ -331,14 +331,21 @@ export function babyHand(pose: BlobbiPose, arm: string, full: Sprite): HandPoint
     }
   }
   const [x0, x1] = span(row);
+  // M11D.2, CLOSER: the grip touches the body's edge, never on it and never away from it. A tool drawn IN FRONT is
+  // placed one world pixel right by both renderers (the approved M2.3 nudge): one native pixel at 1x, but four at
+  // close range and six up close, which left a Baby's tool floating beside it. Its grip is moved back by that much,
+  // so it lands flush on either side at every camera size. (A tool drawn behind gets no nudge.)
+  const nudge = Math.max(1, Math.round(size / 12));
+  const inFront = pose.view === 'front' || (pose.view === 'side' && arm === 'near-arm');
+  const flush = (x: number) => (inFront ? x - nudge : x);
   if (pose.view === 'side') {
     // Seen from the side the tool hangs just behind the body's back edge (never across the face, the M2.3 lesson),
     // and the swing carries the hand to the front edge (`forward`), so the blow lands ahead of the baby.
-    const back = pose.facing > 0 ? x0 - 1 : x1 + 1;
-    const front = pose.facing > 0 ? x1 + 1 : x0 - 1;
+    const back = flush(pose.facing > 0 ? x0 - 1 : x1 + 1);
+    const front = flush(pose.facing > 0 ? x1 + 1 : x0 - 1);
     return { dx: back - full.anchorX, dy: row - full.anchorY, behind, guessed: false, forward: front - back };
   }
-  const x = arm === 'right-arm' ? x1 + 1 : x0 - 1;
+  const x = flush(arm === 'right-arm' ? x1 + 1 : x0 - 1);
   return { dx: x - full.anchorX, dy: row - full.anchorY, behind, guessed: false };
 }
 
@@ -374,7 +381,10 @@ export function attachTool(item: string, pose: BlobbiPose, animation: EquipmentA
   const visible = !farSide || animation !== 'idle';
   const sprite = toolSprite(item, orientation, palette, mirrored, scale);
   // The baby's invisible hand swings to the body's front edge for the blow, the cast and the held rod.
-  const dx = hand.dx + (hand.forward !== undefined && (animation === 'strike' || animation === 'cast' || animation === 'fishing') ? hand.forward : 0);
+  let dx = hand.dx + (hand.forward !== undefined && (animation === 'strike' || animation === 'cast' || animation === 'fishing') ? hand.forward : 0);
+  // A Baby's back-view swing comes in front of the body: its grip was placed for the layer behind (no nudge), so it
+  // takes back the renderers' in-front nudge too and stays flush instead of overlapping the body (M11D.2).
+  if (baby && pose.view === 'back' && !behind) dx -= Math.max(1, Math.round(rig.size / 12));
   const tip = sprite.tipX === null || sprite.tipY === null ? null : { dx: dx + sprite.tipX - sprite.anchorX, dy: hand.dy + sprite.tipY - sprite.anchorY };
   return { sprite, dx, dy: hand.dy, behind, visible, arm, orientation, mirrored, tip };
 }

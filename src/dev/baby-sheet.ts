@@ -14,7 +14,9 @@
 import { deriveBlobbiV3Seed, getCanonicalBlobbiD } from '@blobbi-kit/core';
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex, type Color } from '../core/color';
-import { stagedIdentity } from '../blobbi/identity';
+import { identityOfSource, stagedIdentity } from '../blobbi/identity';
+import { worldFormSource } from '../blobbi/source';
+import type { WorldFormTraits } from '../blobbi/world-form';
 import { buildBlobbiSprite, REST_POSE, type BlobbiPose } from '../blobbi/sprite';
 import { buildV1BabySprite, type V1Colors } from '../blobbi/v1-baby';
 import { attachTool, EquipmentRig, type EquipmentAnimation } from '../game/equipment';
@@ -158,11 +160,13 @@ export function holding(seed: string, stage: 'adult' | 'baby', item: string, pos
   const c = cellOf(w, h);
   const gx = Math.floor(w / 2);
   const gy = h - 4;
-  const drawTool = () => at.visible && c.blit(at.sprite.buffer, gx + at.dx - at.sprite.anchorX, gy + at.dy - at.sprite.anchorY);
+  // As the game draws it: a tool in front one world pixel right (round(size / 12) native pixels), M2.3's nudge.
+  const nudge = at.behind ? 0 : Math.max(1, Math.round(size / 12));
+  const drawTool = () => at.visible && c.blit(at.sprite.buffer, gx + at.dx + nudge - at.sprite.anchorX, gy + at.dy - at.sprite.anchorY);
   if (at.behind) drawTool();
   c.blit(sprite.buffer, gx - sprite.anchorX, gy - sprite.anchorY);
   if (!at.behind) drawTool();
-  if (at.tip && animation === 'fishing') c.set(gx + at.tip.dx, gy + at.tip.dy, hex('#ff3b5c'));
+  if (at.tip && animation === 'fishing') c.set(gx + at.tip.dx + nudge, gy + at.tip.dy, hex('#ff3b5c'));
   return c;
 }
 
@@ -212,6 +216,32 @@ export function scalesSheet(pet = SAMPLE_PETS[0]): PixelBuffer {
   return compose('BABY AT EVERY CAMERA SIZE (NATIVE PIXELS, NEVER RESAMPLED)', rows);
 }
 
+/** M11D.2: V1/V2 Blobbis in their temporary world forms beside their original look (the kit's baby art or colours). */
+export function worldFormsSheet(size = 32): PixelBuffer {
+  const w = Math.round(size * 1.6) + 6;
+  const h = Math.round(size * 1.5) + 8;
+  const owner = '7e7e9c42a91bfef19fa929e5fda1b72e0ebc1a4c1141673e2794234d86addf4e';
+  const rows: Row[] = [];
+  const looks: { label: string; gen: 'v1' | 'v2'; traits: WorldFormTraits }[] = [
+    { label: 'V1 SUNSET STRIPED STAR', gen: 'v1', traits: { base: '#ff9900', secondary: '#3355ff', eye: '#222222', pattern: 'striped', mark: 'star' } },
+    { label: 'V1 SKY SPOTTED HEART', gen: 'v1', traits: { base: '#7ad3ff', secondary: '#ffffff', eye: '#3b2a5a', pattern: 'spotted', mark: 'heart' } },
+    { label: 'V2 ROSE GRADIENT BLUSH', gen: 'v2', traits: { base: '#e85d9a', secondary: '#ffd1e6', eye: '#401020', pattern: 'gradient', mark: 'blush' } },
+    { label: 'V2 VIOLET SOLID SPARKLE', gen: 'v2', traits: { base: '#8b5cf6', secondary: '#c4b5fd', eye: '#1f2937', pattern: 'solid', mark: 'sparkle' } },
+  ];
+  looks.forEach((l, i) => {
+    const source = worldFormSource(owner, getCanonicalBlobbiD(owner, `00000000e${i}`), l.gen, l.traits)!;
+    const baby = identityOfSource(source, 'baby');
+    const adult = identityOfSource(source, 'adult');
+    const swatch = cellOf(w, h);
+    [l.traits.base, l.traits.secondary, l.traits.eye].forEach((c, k) => swatch.fillRect(4 + k * 6, 6, 6, h - 14, hex(c)));
+    const cells = [stand(buildV1BabySprite(l.traits, REST_POSE, size, l.gen), w, h), swatch];
+    for (const v of [VIEWS[0], VIEWS[2], VIEWS[3]]) cells.push(stand(buildBlobbiSprite(baby, { ...REST_POSE, ...v.pose }, size), w, h));
+    for (const v of [VIEWS[0], VIEWS[2], VIEWS[3]]) cells.push(stand(buildBlobbiSprite(adult, { ...REST_POSE, ...v.pose }, size), w, h));
+    rows.push({ label: `${l.label}: ORIGINAL BABY ART, COLOURS; WORLD FORM BABY F R B; ADULT F R B`, cells });
+  });
+  return compose(`V1/V2 WORLD FORMS AT ${size} PX (TEMPORARY, LOCAL)`, rows);
+}
+
 /** The whole set, by name. */
 export function babySheets(): { name: string; buffer: PixelBuffer }[] {
   return [
@@ -222,6 +252,7 @@ export function babySheets(): { name: string; buffer: PixelBuffer }[] {
     { name: 'tools-24', buffer: toolsSheet(24) },
     { name: 'tools-48', buffer: toolsSheet(48) },
     { name: 'scales', buffer: scalesSheet() },
+    { name: 'world-forms-32', buffer: worldFormsSheet(32) },
   ];
 }
 

@@ -75,9 +75,18 @@ export class TeleportController {
   constructor(
     readonly seed: string,
     /** The Blobbi's standing height and half width, world px (for particle placement). */
-    readonly height = 16,
-    readonly halfWidth = 7,
+    public height = 16,
+    public halfWidth = 7,
   ) {}
+
+  /**
+   * M11D.2: the body the effect is drawn for (a Baby's own drawn height and half width, not the adult's). Read by
+   * the particles every frame and by a transition's seeds when it begins, so it is set before a swap's arrival.
+   */
+  resize(height: number, halfWidth: number): void {
+    this.height = height;
+    this.halfWidth = halfWidth;
+  }
 
   getPresenceState(): PresenceState {
     return this.state;

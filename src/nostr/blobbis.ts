@@ -12,9 +12,10 @@
  * (`classifyBlobbiEvent`: the ecosystem marker, a known stage and state, a canonical d, a name, a seed). Legacy and
  * invalid ones are counted, never shown, never "repaired" (the kit's collection does the same).
  *
- * What may visit: a V3 adult or (M11D.1) a V3 baby (Blobbi Pixel draws the kit's V3 forms gene for gene). V1 and V2
- * Blobbis use other artwork and no V3 seed, and eggs cannot walk: they are listed with the reason, never drawn as an
- * unrelated V3 creature. An unknown future `visual_generation` is "unknown", not V1 (the kit would fall back to V1).
+ * What may visit: a V3 adult or (M11D.1) a V3 baby (Blobbi Pixel draws the kit's V3 forms gene for gene); since
+ * M11D.2 a V1/V2 Baby or Adult in its temporary world form (its own colours, pattern and mark on the pixel body, the
+ * rest derived from its address: `src/blobbi/world-form.ts`). Eggs cannot walk; a V1/V2 event without readable
+ * colours, and unknown generations, are listed with the reason, never drawn as an unrelated creature. An unknown future `visual_generation` is "unknown", not V1 (the kit would fall back to V1).
  */
 import { classifyBlobbiEvent, deriveBlobbiV3Seed, isCanonicalBlobbiD, isValidBlobbiEvent, KIND_BLOBBI_STATE, parseBlobbiEvent } from '@blobbi-kit/core';
 import { cleanName, isWellFormedEvent, type NostrEventLike } from './profile';
@@ -91,11 +92,14 @@ function readBlobbi(e: NostrEventLike, owner: string, d: string): OwnedBlobbi | 
     if (blobbi.v3Identity && blobbi.v3Identity.seed !== seed) return null;
   }
   const stage = blobbi.stage;
-  // M11D.1: a V3 baby visits too (the kit's own baby of the same genome, drawn in pixels); eggs do not walk.
-  const availability = generation === 'unknown' ? 'unknown-generation' : generation !== 'v3' ? 'older-generation' : stage === 'egg' ? 'egg' : 'available';
   const traits = blobbi.visualTraits;
   const hex = (c: unknown) => (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c) ? c.toLowerCase() : null);
   const colors = generation === 'v1' || generation === 'v2' ? { base: hex(traits.baseColor), secondary: hex(traits.secondaryColor), eye: hex(traits.eyeColor) } : null;
+  // M11D.2: a V1/V2 Blobbi's look, for its temporary world form (only with all three colours readable).
+  const worldForm = colors && colors.base && colors.secondary && colors.eye && stage !== 'egg' ? { base: colors.base, secondary: colors.secondary, eye: colors.eye, pattern: String(traits.pattern ?? 'solid'), mark: String(traits.specialMark ?? 'none') } : null;
+  // M11D.1: a V3 baby visits too (the kit's own baby of the same genome, drawn in pixels); eggs do not walk.
+  // M11D.2: a V1/V2 Baby or Adult visits in its world form when its colours are readable.
+  const availability = generation === 'unknown' ? 'unknown-generation' : stage === 'egg' ? 'egg' : generation !== 'v3' ? (worldForm ? 'available' : 'older-generation') : 'available';
   return {
     address: `${KIND_BLOBBI_STATE}:${owner}:${d}`,
     pubkey: owner,
@@ -106,6 +110,7 @@ function readBlobbi(e: NostrEventLike, owner: string, d: string): OwnedBlobbi | 
     availability,
     seed,
     colors: colors && colors.base && colors.secondary && colors.eye ? (colors as { base: string; secondary: string; eye: string }) : null,
+    worldForm,
     updatedAt: e.created_at,
   };
 }

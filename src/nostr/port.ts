@@ -57,8 +57,9 @@ export interface AccountPort {
 export type BlobbiGeneration = 'v1' | 'v2' | 'v3' | 'unknown';
 
 /**
- * Whether a Blobbi can visit this pixel world: a V3 adult or a V3 baby (M11D.1) is drawn faithfully here. The others
- * are listed with the reason, never drawn as something they are not. `baby` is no longer produced (kept for callers).
+ * Whether a Blobbi can visit this pixel world: a V3 adult or a V3 baby (M11D.1) is drawn faithfully here; a V1/V2
+ * Baby or Adult with readable colours visits in its temporary world form (M11D.2, `worldForm`). The others are listed
+ * with the reason, never drawn as something they are not. `baby` is no longer produced (kept for callers).
  */
 export type BlobbiAvailability = 'available' | 'egg' | 'baby' | 'older-generation' | 'unknown-generation';
 
@@ -77,6 +78,11 @@ export interface OwnedBlobbi {
   seed: string | null;
   /** A V1/V2 Blobbi's three colours (the kit's trait reading), for an honest swatch; else null. */
   colors: { base: string; secondary: string; eye: string } | null;
+  /**
+   * M11D.2: a V1/V2 Blobbi's look as its event states it (colours, pattern, special mark), from which its temporary
+   * pixel world form is made (`src/blobbi/world-form.ts`); null for V3 and for V1/V2 events without usable colours.
+   */
+  worldForm?: { base: string; secondary: string; eye: string; pattern: string; mark: string } | null;
   /** The event's created_at (seconds). */
   updatedAt: number;
 }

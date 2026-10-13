@@ -19,7 +19,9 @@ import { PixelBuffer } from '../../core/pixel';
 import { hex } from '../../core/color';
 import { Gfx, UI } from '../gfx';
 import { isConfirm, moveSelection, type GameUI, type Screen } from '../game-ui';
-import { stagedIdentity } from '../../blobbi/identity';
+import { identityOfSource, stagedIdentity } from '../../blobbi/identity';
+import { worldFormSource, type BlobbiSource } from '../../blobbi/source';
+import { cleanWorldFormTraits } from '../../blobbi/world-form';
 import type { BlobbiStage } from '../../blobbi/canonical';
 import { generateGenome } from '@blobbi-kit/renderer/procedural';
 import { buildBlobbiSprite, REST_POSE } from '../../blobbi/sprite';
@@ -38,6 +40,27 @@ export interface BlobbiChooser {
   useVisitor(): void;
 }
 
+/**
+ * M11D.2: which V1/V2 Blobbis' world forms the player has already been shown and accepted on this device, so the
+ * explanation appears when it is new, not on every choice. A small per-browser record (`main.ts`), never in a save.
+ */
+export interface WorldFormMemory {
+  seen(address: string): boolean;
+  accept(address: string): void;
+}
+
+/** A V1/V2 Blobbi that visits in its temporary world form (M11D.2). */
+export function isWorldForm(b: OwnedBlobbi): boolean {
+  return (b.generation === 'v1' || b.generation === 'v2') && b.availability === 'available' && !!b.worldForm;
+}
+
+/** The world form's source for a listed Blobbi, or null when its event's look cannot make one. */
+export function worldFormOf(b: OwnedBlobbi): BlobbiSource | null {
+  if (!isWorldForm(b) || (b.generation !== 'v1' && b.generation !== 'v2')) return null;
+  const traits = cleanWorldFormTraits(b.worldForm!);
+  return traits ? worldFormSource(b.pubkey, b.d, b.generation, traits) : null;
+}
+
 const ROWS = 7;
 const ROW_H = 18;
 
@@ -46,6 +69,10 @@ export class BlobbisScreen implements Screen {
   index = 0;
   collection: BlobbiCollectionPort | null = null;
   chooser: BlobbiChooser | null = null;
+  /** M11D.2: the world forms already explained (none: explained every time). */
+  forms: WorldFormMemory | null = null;
+  /** M11D.2: the V1/V2 Blobbi whose new form is being explained (TRY THIS FORM / NOT NOW), or null. */
+  confirming: OwnedBlobbi | null = null;
   /** Previews by seed and size (drawing a Blobbi costs a few milliseconds: once per Blobbi, never per frame). */
   private readonly previews = new Map<string, PixelBuffer>();
 
@@ -55,6 +82,7 @@ export class BlobbisScreen implements Screen {
 
   opened(): void {
     this.index = 0;
+    this.confirming = null;
     void this.collection?.loadBlobbis();
   }
 
@@ -63,6 +91,12 @@ export class BlobbisScreen implements Screen {
   }
 
   key(code: string, _shift: boolean, ui: GameUI): boolean {
+    // The world-form explanation answers first: Enter tries the form, Backspace or N says not now (Escape closes).
+    if (this.confirming) {
+      if (isConfirm(code) || code === 'KeyE') this.tryForm(ui);
+      else if (code === 'Backspace' || code === 'KeyN') this.confirming = null;
+      return true;
+    }
     const items = this.items();
     const moved = moveSelection(code, this.index, items.length, 1);
     if (moved !== null) {
@@ -91,8 +125,42 @@ export class BlobbisScreen implements Screen {
       ui.say(t('blobbis.alreadyHere', { name: b.name }));
       return;
     }
+    // A V1/V2 Blobbi's new form is explained (with both pictures) the first time it is chosen on this device.
+    if (isWorldForm(b) && !this.forms?.seen(b.address)) {
+      this.confirming = b;
+      return;
+    }
     if (this.chooser.choose(b)) ui.say(t('blobbis.chosen', { name: b.name }));
     else ui.say(t('blobbis.couldNotChoose'), false);
+  }
+
+  /** TRY THIS FORM: remember the explanation was seen for this Blobbi, then bring it as for any other. */
+  tryForm(ui: GameUI): void {
+    const b = this.confirming;
+    this.confirming = null;
+    if (!b || !this.chooser) return;
+    this.forms?.accept(b.address);
+    if (this.chooser.choose(b)) ui.say(t('blobbis.chosen', { name: b.name }));
+    else ui.say(t('blobbis.couldNotChoose'), false);
+  }
+
+  /** The world form's own picture (the sprite that will walk), as large as fits `box`, cached. */
+  formPreview(b: OwnedBlobbi, box: number): PixelBuffer | null {
+    const source = worldFormOf(b);
+    if (!source) return null;
+    const stage: BlobbiStage = b.stage === 'baby' ? 'baby' : 'adult';
+    const key = `${source.seed}|${box}|${stage}|form`;
+    let p = this.previews.get(key);
+    if (!p) {
+      const id = identityOfSource(source, stage);
+      for (let size = Math.round(box * (stage === 'baby' ? 1.8 : 1.3)); size >= 6; size -= 1) {
+        p = buildBlobbiSprite(id, REST_POSE, size).buffer.trimmed().buffer;
+        if (p.height <= box && p.width <= box) break;
+      }
+      if (this.previews.size > 40) this.previews.clear();
+      this.previews.set(key, p!);
+    }
+    return p!;
   }
 
   /** The pixel game's own picture of a V3 Blobbi at its stage (the sprite that will walk), as large as fits `box`, cached. */
@@ -102,8 +170,9 @@ export class BlobbisScreen implements Screen {
     if (!p) {
       // The sprite's buffer is taller than its standing size (antennae, outline): step down until it fits the box.
       // A Baby is drawn for an adult size up to 1.5 times the box (it stands about two thirds as tall).
-      for (let size = stage === 'baby' ? Math.round(box * 1.5) : box; size >= 6; size -= 2) {
-        p = buildBlobbiSprite(stagedIdentity(seed, stage), REST_POSE, size).buffer;
+      // Fitted by the Blobbi's own pixels (trimmed), not its canvas: a Baby fills the box like an adult (M11D.2).
+      for (let size = Math.round(box * (stage === 'baby' ? 1.8 : 1.3)); size >= 6; size -= 1) {
+        p = buildBlobbiSprite(stagedIdentity(seed, stage), REST_POSE, size).buffer.trimmed().buffer;
         if (p.height <= box && p.width <= box) break;
       }
       if (this.previews.size > 40) this.previews.clear();
@@ -138,8 +207,8 @@ export class BlobbisScreen implements Screen {
       }
       const { buildV1BabySprite } = this.v1;
       try {
-        for (let size = Math.round(box * 1.5); size >= 6; size -= 2) {
-          p = buildV1BabySprite(b.colors!, REST_POSE, size, b.generation === 'v2' ? 'v2' : 'v1').buffer;
+        for (let size = Math.round(box * 1.8); size >= 6; size -= 1) {
+          p = buildV1BabySprite(b.colors!, REST_POSE, size, b.generation === 'v2' ? 'v2' : 'v1').buffer.trimmed().buffer;
           if (p.height <= box && p.width <= box) break;
         }
       } catch {
@@ -205,6 +274,11 @@ export class BlobbisScreen implements Screen {
     const dx = x + listW + 8;
     const dw = w - listW - 8;
     let cy = y;
+    // M11D.2: a new form being explained takes the detail's place.
+    if (this.confirming) {
+      this.drawConfirm(g, ui, this.confirming, dx, y, dw);
+      return;
+    }
     g.box(dx, cy, 52, 52, UI.slot, UI.line);
     this.thumb(g, b, dx + 2, cy + 2, 48);
     g.heading(upper(clip(g, b.name, dw - 58, 'title')), dx + 58, cy + 2, UI.accent);
@@ -213,7 +287,14 @@ export class BlobbisScreen implements Screen {
     if (selected === b.address) g.text(t('blobbis.withYou'), dx + 58, cy + 30, UI.good);
     cy += 56;
     if (b.availability === 'available') {
-      cy += g.para(t(b.stage === 'baby' ? 'blobbis.readyBaby' : 'blobbis.ready'), dx, cy, dw, UI.muted, 3) + 3;
+      cy += g.para(t(isWorldForm(b) ? 'blobbis.readyWorldForm' : b.stage === 'baby' ? 'blobbis.readyBaby' : 'blobbis.ready'), dx, cy, dw, UI.muted, 3) + 3;
+      if (isWorldForm(b)) {
+        // Its original look, small, beside the form it takes here.
+        g.box(dx, cy, 22, 22, UI.slot, UI.line);
+        this.originalThumb(g, b, dx + 1, cy + 1, 20);
+        g.text(t('worldForm.original'), dx + 26, cy + 8, UI.muted);
+        cy += 25;
+      }
       if (selected === b.address) g.button(t('blobbis.walkingWithYou'), dx, cy, () => {}, { w: Math.min(dw, 150), enabled: false });
       else g.button(t('blobbis.bring'), dx, cy, () => this.choose(b, ui), { w: Math.min(dw, 150), primary: true });
       cy += 14;
@@ -230,8 +311,47 @@ export class BlobbisScreen implements Screen {
     if (notes.length) g.text(clip(g, notes.join('  '), w), x, y + h - 8, UI.muted);
   }
 
-  /** A V3 adult's own pixel picture; anything else only as its colours (an honest swatch, not a guess). */
+  /** M11D.2: the explanation of a V1/V2 Blobbi's new form: both pictures, TRY THIS FORM and NOT NOW. */
+  private drawConfirm(g: Gfx, ui: GameUI, b: OwnedBlobbi, dx: number, y: number, dw: number): void {
+    let cy = y;
+    cy += g.para(t('worldForm.title'), dx, cy, dw, UI.accent, 2) + 3;
+    cy += g.para(t('worldForm.body'), dx, cy, dw, UI.ink, 4) + 4;
+    const box = 44;
+    for (const [i, label] of [t('worldForm.original'), t('worldForm.here')].entries()) {
+      const bx = dx + i * (box + 14);
+      g.box(bx, cy, box + 4, box + 4, UI.slot, i ? UI.accent : UI.line);
+      if (i) {
+        const p = this.formPreview(b, box);
+        if (p) g.buf.blit(p, bx + 2 + Math.floor((box - p.width) / 2), cy + 2 + box - p.height);
+      } else this.originalThumb(g, b, bx + 2, cy + 2, box);
+      g.text(clip(g, label, box + 12), bx, cy + box + 6, i ? UI.ink : UI.muted);
+    }
+    cy += box + 16;
+    g.button(t('worldForm.try'), dx, cy, () => this.tryForm(ui), { w: Math.min(dw, 150), primary: true });
+    g.button(t('worldForm.notNow'), dx, cy + 14, () => (this.confirming = null), { w: Math.min(dw, 150) });
+  }
+
+  /** A V1/V2 Blobbi's own look: the kit's baby drawing for a Baby (once loaded), else its colours. */
+  private originalThumb(g: Gfx, b: OwnedBlobbi, x: number, y: number, size: number): void {
+    if (b.stage === 'baby' && b.colors) {
+      const p = this.olderPreview(b, size);
+      if (p) {
+        g.buf.blit(p, x + Math.floor((size - p.width) / 2), y + size - p.height);
+        return;
+      }
+    }
+    this.swatch(g, b, x, y, size);
+  }
+
+  /** A V3 Blobbi's own pixel picture, a V1/V2 Blobbi's world form; anything else only as its colours (never a guess). */
   private thumb(g: Gfx, b: OwnedBlobbi, x: number, y: number, size: number): void {
+    if (isWorldForm(b)) {
+      const p = this.formPreview(b, size);
+      if (p) {
+        g.buf.blit(p, x + Math.floor((size - p.width) / 2), y + size - p.height);
+        return;
+      }
+    }
     if (b.availability === 'available' && b.seed) {
       const p = this.preview(b.seed, size, b.stage === 'baby' ? 'baby' : 'adult');
       g.buf.blit(p, x + Math.floor((size - p.width) / 2), y + size - p.height);
@@ -245,6 +365,11 @@ export class BlobbisScreen implements Screen {
         return;
       }
     }
+    this.swatch(g, b, x, y, size);
+  }
+
+  /** Three stripes of the Blobbi's real colours in a framed tile, or a question mark. */
+  private swatch(g: Gfx, b: OwnedBlobbi, x: number, y: number, size: number): void {
     const cs = colorsOf(b);
     if (!cs) {
       g.text('?', x + Math.floor(size / 2) - 2, y + Math.floor(size / 2) - 3, UI.muted, 'title');
@@ -270,7 +395,7 @@ function colorsOf(b: OwnedBlobbi): string[] | null {
 
 /** A V1 or V2 Baby with its three colours: the kit draws it with its one authored baby art. */
 function olderBaby(b: OwnedBlobbi): boolean {
-  return b.stage === 'baby' && (b.generation === 'v1' || b.generation === 'v2') && !!b.colors;
+  return b.availability !== 'available' && b.stage === 'baby' && (b.generation === 'v1' || b.generation === 'v2') && !!b.colors;
 }
 
 export function reasonKey(b: OwnedBlobbi): MessageKey {

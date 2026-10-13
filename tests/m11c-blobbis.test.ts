@@ -23,7 +23,6 @@ import { BlobbisScreen, reasonKey, type BlobbiChooser } from '../src/ui/screens/
 import { en } from '../src/i18n/messages/en';
 import { ptBR } from '../src/i18n/messages/pt-BR';
 import { es } from '../src/i18n/messages/es';
-import { t } from '../src/i18n';
 import { vi } from 'vitest';
 
 const PK = '7e7e9c42a91bfef19fa929e5fda1b72e0ebc1a4c1141673e2794234d86addf4e';
@@ -47,15 +46,15 @@ describe('reading the events (pickBlobbis)', () => {
     expect(items).toEqual([expect.objectContaining({ name: 'Mochi', stage: 'adult', generation: 'v3', availability: 'available', d, address: `31124:${PK}:${d}`, seed: deriveBlobbiV3Seed(PK, d), colors: null })]);
   });
 
-  it('V1 and V2 are listed but not available, with their real colours; V3 eggs wait (M11D.1: a V3 Baby may visit)', () => {
+  it('V1 and V2 are listed with their real colours (M11D.2: they visit in a world form); V3 eggs wait (M11D.1: a V3 Baby may visit)', () => {
     const { items } = pickBlobbis([blobbiEvent({ pet: '0000000001', gen: 'v1' }), blobbiEvent({ pet: '0000000002', gen: 'v2' }), blobbiEvent({ pet: '0000000003', stage: 'egg' }), blobbiEvent({ pet: '0000000004', stage: 'baby' })], PK);
     const by = (pet: string) => items.find((b) => b.d.endsWith(pet))!;
-    expect(by('0000000001')).toMatchObject({ generation: 'v1', availability: 'older-generation', seed: null });
-    expect(by('0000000002')).toMatchObject({ generation: 'v2', availability: 'older-generation', seed: null });
+    expect(by('0000000001')).toMatchObject({ generation: 'v1', availability: 'available', seed: null });
+    expect(by('0000000002')).toMatchObject({ generation: 'v2', availability: 'available', seed: null });
     for (const c of Object.values(by('0000000002').colors!)) expect(c).toMatch(/^#[0-9a-f]{6}$/);
     expect(by('0000000003').availability).toBe('egg');
     expect(by('0000000004').availability).toBe('available');
-    expect(items.filter((b) => b.availability === 'available').map((b) => b.stage)).toEqual(['baby']);
+    expect(items.filter((b) => b.availability === 'available' && b.generation === 'v3').map((b) => b.stage)).toEqual(['baby']);
   });
 
   it('an unknown future generation is "unknown", never treated as V1 or drawn', () => {
@@ -346,7 +345,7 @@ describe('MY BLOBBIS', () => {
   }
   const all = pickBlobbis([blobbiEvent({ pet: '0000000001', name: 'Adult', at: 50 }), blobbiEvent({ pet: '0000000002', gen: 'v2', name: 'Old', at: 40 }), blobbiEvent({ pet: '0000000003', stage: 'egg', name: 'Eggy', at: 30 })], PK).items;
 
-  it('opening reads the list (once per open); Enter brings an available V3 adult; V1/V2 and eggs are refused with the reason', () => {
+  it('opening reads the list (once per open); Enter brings an available V3 adult; a V2 first explains its world form (M11D.2); eggs are refused with the reason', () => {
     const { ui, chosen, draw, loads, selected } = screenWith([...all]);
     expect(loads()).toBe(1);
     draw();
@@ -355,8 +354,9 @@ describe('MY BLOBBIS', () => {
     expect(selected()).toBe(all[0].address);
     ui.handleKey('ArrowDown');
     ui.handleKey('Enter');
-    expect(chosen.length).toBe(1);
-    expect(ui.message?.text).toBe(t('blobbis.reason.older', { g: 'V2' }));
+    expect(chosen.length).toBe(1); // the V2's world form is explained first (no memory here: every time)
+    ui.handleKey('Backspace'); // NOT NOW
+    expect(reasonKey({ ...all[1], availability: 'older-generation' })).toBe('blobbis.reason.older');
     ui.handleKey('ArrowDown');
     ui.handleKey('Enter');
     expect(chosen.length).toBe(1);

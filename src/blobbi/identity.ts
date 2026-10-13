@@ -10,6 +10,8 @@ import { hex, type Color } from '../core/color';
 import { ramp, type Ramp } from '../core/palette';
 import { clamp } from '../core/math';
 import type { BlobbiStage } from './canonical';
+import type { BlobbiSource } from './source';
+import { worldFormGenome } from './world-form';
 
 export type AntennaCount = 0 | 1 | 2;
 export type HornKind = 'none' | 'forehead' | 'top' | 'side';
@@ -124,6 +126,15 @@ export function identityFromGenome(genome: BlobbiGenome, stage: BlobbiStage = 'a
 /** The identity of a seed: the kit's genome, read into pixel terms. */
 export function blobbiIdentity(seed: string): PixelBlobbiIdentity {
   return identityFromGenome(generateGenome(seed));
+}
+
+/**
+ * M11D.2: the pixel identity of any source at a stage. A world form's genome is built from its event's look and its
+ * address-derived seed (`world-form.ts`); every other source draws from its seed, as before.
+ */
+export function identityOfSource(source: BlobbiSource, stage: BlobbiStage = 'adult'): PixelBlobbiIdentity {
+  if (source.kind === 'world-form') return identityFromGenome(worldFormGenome(source.pubkey, source.d, source.traits), stage);
+  return stage === 'adult' ? blobbiIdentity(source.seed) : stagedIdentity(source.seed, stage);
 }
 
 /** M11D.1: the identity of a seed drawn at a life stage (the same genes; only the drawing's stage differs). */

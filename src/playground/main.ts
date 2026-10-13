@@ -23,7 +23,9 @@ import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
 import { effectiveSelection, loadSelection, loadSelectionRecord, storeSelection } from '../game/blobbi-selection';
-import { resolveBlobbi, describeSource, sourceFromSeed, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
+import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
+import { cleanWorldFormTraits } from '../blobbi/world-form';
+import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
 import { RECIPES, canCraft, recipeById } from '../game/crafting';
@@ -73,7 +75,7 @@ import type { CarrierKind } from '../game/carrier';
 import { activeWorld, listWorlds, newWorldSeeds, resolveFrame, readIndex, touchIndex, worldName, ACTIVE_WORLD_KEY, WORLD_INDEX_KEY, hasSave, type WorldEntry } from '../game/worlds';
 import { worldIdentity } from '../game/persistence';
 import { ConfirmGate, CONFIRM_ARM_SECONDS, deleteWorld } from '../game/world-delete';
-import { blobbiIdentity } from '../blobbi/identity';
+import { blobbiIdentity, identityOfSource } from '../blobbi/identity';
 import { buildCanonicalSprite, stateForPose, WALK_FRAMES, CANONICAL_STANDING_HEIGHT, type BlobbiStage } from '../blobbi/canonical';
 import { buildNativeSprite } from '../blobbi/native-sprite';
 import { DOCUMENT_TRANSFORM, MOTION_STYLESHEET, buildBlobbiGeometry, deriveMorphology, normalizeState, renderBlobbiSvg } from '@blobbi-kit/renderer/procedural';
@@ -610,11 +612,16 @@ const identityNow = (): 'guest' | 'connected' => identity;
 const blobbisScreen = new BlobbisScreen();
 gameUI.register(blobbisScreen);
 blobbisScreen.collection = account;
+// M11D.2: a V1/V2 Blobbi's world form is explained once per Blobbi on this device.
+blobbisScreen.forms = {
+  seen: (address) => storeOrNull((st) => worldFormSeen(st, address)) ?? false,
+  accept: (address) => void storeOrNull((st) => acceptWorldForm(st, address)),
+};
 settingsScreen.onMyBlobbis = () => gameUI.open('blobbis');
 /** The canonical Blobbi walking now (chosen from MY BLOBBIS with the connected account), or null. */
 function walkingCanonical(): { address: string; name: string; stage: BlobbiStage } | null {
   const rec = effectiveSelection(storeOrNull(loadSelectionRecord), connectedPubkey);
-  if (!rec?.account || rec.source.kind !== 'v3-address' || rec.source.seed !== state.blobbi.seed) return null;
+  if (!rec?.account || (rec.source.kind !== 'v3-address' && rec.source.kind !== 'world-form') || rec.source.seed !== state.blobbi.seed) return null;
   return { address: `31124:${rec.source.pubkey}:${rec.source.d}`, name: rec.name ?? 'Blobbi', stage: rec.stage ?? 'adult' };
 }
 function storeOrNull<T>(f: (store: NonNullable<ReturnType<typeof localStore>>) => T): T | null {
@@ -628,6 +635,14 @@ blobbisScreen.chooser = {
     // Only the connected account's own V3 adult or Baby, and only if the kit derives the same seed from its address.
     if (b.availability !== 'available' || !connectedPubkey || b.pubkey !== connectedPubkey) return false;
     if (b.stage !== 'adult' && b.stage !== 'baby') return false;
+    // M11D.2: a V1/V2 Blobbi visits in its world form, made from its own event (never typed, never another's).
+    if (b.generation === 'v1' || b.generation === 'v2') {
+      const form = b.worldForm ? cleanWorldFormTraits(b.worldForm) : null;
+      const source = form ? worldFormSource(b.pubkey, b.d, b.generation, form) : null;
+      if (!source) return false;
+      selectBlobbi(source, { name: b.name, account: b.pubkey, stage: b.stage });
+      return true;
+    }
     const r = resolveBlobbi({ pubkey: b.pubkey, d: b.d });
     if (!r.ok || r.source.kind !== 'v3-address' || r.source.seed !== b.seed) return false;
     selectBlobbi(r.source, { name: b.name, account: b.pubkey, stage: b.stage });
@@ -1788,7 +1803,10 @@ function applyBlobbi(source: BlobbiSource, stage: BlobbiStage = 'adult'): void {
   shownName = blobbiDisplayName();
   syncControls();
   // Only the Blobbi changes: the world's inventory, equipment and buildings stay (they are the world's).
-  live?.setBlobbi(source, state.blobbiSize, stage);
+  // M11D.2: in play the change is seen (the outgoing Blobbi leaves, the new one arrives at its spot); before play,
+  // on the title or during the intro it is immediate.
+  if (live && playStarted && !intro) live.swapBlobbi(source, state.blobbiSize, stage);
+  else live?.setBlobbi(source, state.blobbiSize, stage);
   saveHash();
   renderBlobbiView();
 }
@@ -1814,7 +1832,7 @@ function renderBlobbiView(): void {
   const host = $('blobbi-view');
   host.innerHTML = '';
   previewSize = Number($<HTMLSelectElement>('blobbi-size-2').value);
-  const id = blobbiIdentity(state.blobbiSeed);
+  const id = identityOfSource(state.blobbi, state.blobbiStage);
   // Direction preview: four animated canvases.
   const preview = document.createElement('div');
   preview.className = 'preview-row';
@@ -1897,7 +1915,7 @@ function previewFrame(now: number): void {
   const dt = previewLast ? Math.min(0.05, (now - previewLast) / 1000) : 1 / 60;
   previewLast = now;
   previewTime += dt;
-  const id = blobbiIdentity(state.blobbiSeed);
+  const id = identityOfSource(state.blobbi, state.blobbiStage);
   for (const p of previewAnimators) {
     p.animator.step(dt, previewTime, { moving: state.previewMoving, direction: p.dir });
     const pose: BlobbiPose = { ...p.animator.pose(previewTime), expression: state.previewExpression === 'neutral' ? p.animator.pose(previewTime).expression : state.previewExpression };
