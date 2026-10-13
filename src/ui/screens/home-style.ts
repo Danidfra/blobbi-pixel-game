@@ -205,7 +205,7 @@ export function installCustomisation(home: HomeScreen): void {
 }
 
 /** A padlock in the UI's colours (7×8 pixels, times `k`). */
-function padlock(buf: PixelBuffer, x: number, y: number, k = 1): void {
+function padlock(buf: Pick<PixelBuffer, 'fillRect'>, x: number, y: number, k = 1): void {
   const rows = ['..###..', '.#...#.', '.#...#.', '#######', '#######', '###.###', '###.###', '#######'];
   rows.forEach((row, j) => [...row].forEach((ch, i) => ch === '#' && buf.fillRect(x + (i + 1) * k, y + (j + 2) * k, k, k, j < 3 ? UI.muted : UI.accent)));
 }

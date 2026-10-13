@@ -36,7 +36,9 @@ import { ViewCamera, CAMERA_CYCLE, CAMERA_MODES, DEFAULT_CAMERA_MODE, isCameraMo
 import { ViewRenderer, DEFAULT_VIEW_UI } from '../render/view-renderer';
 import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
-import { GameUI } from '../ui/game-ui';
+import { GameUI, hudScale, readSettings } from '../ui/game-ui';
+import { textPreference } from '../ui/surface';
+import { getLocale, initialLocale, LOCALE_KEY, onLocaleChange, setLocale } from '../i18n';
 import { InventoryScreen } from '../ui/screens/inventory';
 import { StorageScreen } from '../ui/screens/storage';
 import { CraftingScreen } from '../ui/screens/crafting';
@@ -515,13 +517,33 @@ const worldsScreen = new WorldsScreen();
 gameUI.register(worldsScreen);
 const settingsScreen = new SettingsScreen();
 gameUI.register(settingsScreen);
+// The language (M11B): the player's explicit choice, else the browser's languages (pt-* Portuguese, es-* Spanish,
+// else English). Only an explicit choice is stored. Presentation only: no island, save or identity depends on it.
+{
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(LOCALE_KEY);
+  } catch {
+    /* private mode: detect each time */
+  }
+  setLocale(initialLocale(stored, typeof navigator === 'undefined' ? [] : navigator.languages));
+  document.documentElement.lang = getLocale();
+  onLocaleChange((l) => {
+    document.documentElement.lang = l;
+    try {
+      localStorage.setItem(LOCALE_KEY, l);
+    } catch {
+      /* not stored: fine */
+    }
+  });
+}
 // Settings are viewer preferences in this browser, never part of a save.
 const SETTINGS_KEY = 'blobbi-pixel-lab:settings';
 // The system's reduced-motion preference is the default until the player chooses.
 gameUI.settings.reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 try {
   const raw = localStorage.getItem(SETTINGS_KEY);
-  if (raw) Object.assign(gameUI.settings, JSON.parse(raw));
+  if (raw) gameUI.settings = readSettings(JSON.parse(raw), gameUI.settings);
 } catch {
   /* private mode or bad JSON: defaults */
 }
@@ -783,7 +805,7 @@ function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
 }
 const titleCamera = new ViewCamera('exploration');
 // Touch: a floating stick on the world and a big USE button (shown once a touch is seen).
-const touch = new TouchControls(() => (gameUI.settings.largeText ? 3 : 2));
+const touch = new TouchControls(() => hudScale(gameUI.settings));
 /** The screen's safe-area insets (notches, rounded corners) in canvas pixels, read from CSS. */
 function readSafeArea(): void {
   const probe = document.createElement('div');
@@ -981,7 +1003,7 @@ function startWorldIntro(): void {
         reducedMotion: gameUI.settings.reducedMotion,
         audio: gameUI.settings.sound ? audioEngine : null,
         renderOptions: state.live,
-        uiScale: gameUI.settings.largeText ? 3 : 2,
+        uiScale: hudScale(gameUI.settings),
         onComplete: (r) => finishWorldIntro(target, r),
       },
     );
@@ -1030,7 +1052,7 @@ function startIntroPreview(kind: CarrierKind, reduced = gameUI.settings.reducedM
       reducedMotion: reduced,
       audio: gameUI.settings.sound ? audioEngine : null,
       renderOptions: state.live,
-      uiScale: gameUI.settings.largeText ? 3 : 2,
+      uiScale: hudScale(gameUI.settings),
       onComplete: (r) => {
         introResult = r;
         if (import.meta.env.DEV) console.info('[intro] complete', r);
@@ -1129,6 +1151,8 @@ function titleFrame(now: number, real: number): void {
 
 function playFrame(now: number): void {
   rafId = requestAnimationFrame(playFrame);
+  // The text size is a drawing preference (M11B): read each frame, so a change shows at once.
+  textPreference.smaller = gameUI.settings.textSize === 'small';
   if (state.mode !== 'play' || !live || !liveRenderer || !world) return;
   const real = lastFrameTime ? (now - lastFrameTime) / 1000 : 1 / 60;
   lastFrameTime = now;
@@ -1163,7 +1187,7 @@ function playFrame(now: number): void {
   viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
   const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
-  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: gameUI.settings.largeText ? 3 : 2, bottom: gameUI.menuBarHeight });
+  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;

@@ -877,11 +877,58 @@ const GLYPHS: Record<string, string[]> = {
   '=': ['...', '###', '...', '###', '...'],
 };
 
+/** Letters with no decomposed form (Spanish and Portuguese punctuation, typography). */
+const EXTRA_GLYPHS: Record<string, string[]> = {
+  '¡': ['.#.', '...', '.#.', '.#.', '.#.'],
+  '¿': ['.#.', '...', '.#.', '#..', '.##'],
+  'º': ['.#.', '#.#', '.#.', '...', '###'],
+  'ª': ['.#.', '#.#', '.##', '...', '###'],
+  '…': ['...', '...', '...', '...', '#.#'],
+  '·': ['...', '...', '.#.', '...', '...'],
+  '&': ['.#.', '#.#', '.#.', '#.#', '.##'],
+  '–': ['...', '...', '###', '...', '...'],
+  '—': ['...', '...', '###', '...', '...'],
+  '’': ['.#.', '.#.', '...', '...', '...'],
+  '‘': ['.#.', '.#.', '...', '...', '...'],
+  '“': ['#.#', '#.#', '...', '...', '...'],
+  '”': ['#.#', '#.#', '...', '...', '...'],
+  '#': ['#.#', '###', '#.#', '###', '#.#'],
+};
+
+/**
+ * Accents (M11B): the base letter, then the mark in the two free rows above it (or the row below, for a cedilla).
+ * Text lines are 7 pixels apart, so a mark never touches the line above.
+ */
+const MARKS: Record<string, { rows: string[]; dy: number }> = {
+  '\u0301': { rows: ['..#', '.#.'], dy: -2 }, // acute
+  '\u0300': { rows: ['#..', '.#.'], dy: -2 }, // grave
+  '\u0302': { rows: ['.#.', '#.#'], dy: -2 }, // circumflex
+  '\u0303': { rows: ['.##', '##.'], dy: -2 }, // tilde
+  '\u0308': { rows: ['#.#'], dy: -1 }, // diaeresis
+  '\u0327': { rows: ['.#.', '##.'], dy: 5 }, // cedilla
+};
+
+/** Whether the 3×5 font can draw a character (after upper-casing): the coverage check of `tests/i18n.test.ts`. */
+export function tinyFontHas(ch: string): boolean {
+  const c = ch.toUpperCase();
+  if (GLYPHS[c] || EXTRA_GLYPHS[c]) return true;
+  const [base, ...marks] = c.normalize('NFD');
+  return !!GLYPHS[base] && marks.length > 0 && marks.every((m) => MARKS[m]);
+}
+
 export function drawTinyText(buf: PixelBuffer, text: string, x: number, y: number, color: Color): void {
   let cx = x;
-  for (const ch of text.toUpperCase()) {
-    const glyph = GLYPHS[ch] ?? GLYPHS[' '];
-    for (let j = 0; j < 5; j++) for (let i = 0; i < 3; i++) if (glyph[j][i] === '#') buf.set(cx + i, y + j, color);
+  const paint = (rows: string[], dy: number) => {
+    for (let j = 0; j < rows.length; j++) for (let i = 0; i < 3; i++) if (rows[j][i] === '#') buf.set(cx + i, y + dy + j, color);
+  };
+  for (const ch of text.normalize('NFC').toUpperCase()) {
+    const direct = GLYPHS[ch] ?? EXTRA_GLYPHS[ch];
+    if (direct) paint(direct, 0);
+    else {
+      const [base, ...marks] = ch.normalize('NFD');
+      paint(GLYPHS[base] ?? GLYPHS[' '], 0);
+      for (const m of marks) if (MARKS[m]) paint(MARKS[m].rows, MARKS[m].dy);
+    }
     cx += 4;
   }
 }

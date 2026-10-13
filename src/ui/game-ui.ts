@@ -14,7 +14,7 @@ import { PixelBuffer } from '../core/pixel';
 import type { WorldPalette } from '../core/palette';
 import type { LiveWorld } from '../sim/live-world';
 import type { Building } from '../game/buildings';
-import { Gfx, UI, textWidth, wrap as wrapLines, type Hit } from './gfx';
+import { Gfx, UI, textWidth, type Hit } from './gfx';
 import { card } from './hud';
 
 export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide';
@@ -50,11 +50,37 @@ export interface UiSettings {
   scale: number;
   /** Calmer motion: shorter teleports with fewer pixels, no camera choreography, softer effects. */
   reducedMotion: boolean;
-  /** A larger HUD (3× instead of 2×) for readability. */
+  /** Before M11B: a larger HUD (3× instead of 2×). Read once into `textSize` ('large'), then kept false. */
   largeText: boolean;
+  /** Text size (M11B): how large menus, the HUD and tips may be drawn. Presentation only. */
+  textSize: TextSize;
 }
 
-export const DEFAULT_SETTINGS: UiSettings = { daylight: true, goals: true, sound: true, scale: 0, reducedMotion: false, largeText: false };
+export type TextSize = 'small' | 'normal' | 'large';
+export const TEXT_SIZES: readonly TextSize[] = ['small', 'normal', 'large'];
+
+export const DEFAULT_SETTINGS: UiSettings = { daylight: true, goals: true, sound: true, scale: 0, reducedMotion: false, largeText: false, textSize: 'normal' };
+
+/**
+ * Settings read from a browser (any older shape): unknown fields dropped, bad values replaced by defaults, and the
+ * pre-M11B "large HUD text" carried over as the large text size.
+ */
+export function readSettings(raw: unknown, base: UiSettings = DEFAULT_SETTINGS): UiSettings {
+  const out: UiSettings = { ...base };
+  if (!raw || typeof raw !== 'object') return out;
+  const v = raw as Record<string, unknown>;
+  for (const k of ['daylight', 'goals', 'sound', 'reducedMotion'] as const) if (typeof v[k] === 'boolean') out[k] = v[k] as boolean;
+  if (typeof v.scale === 'number' && [0, 1, 2, 3].includes(v.scale)) out.scale = v.scale;
+  if (TEXT_SIZES.includes(v.textSize as TextSize)) out.textSize = v.textSize as TextSize;
+  else if (v.largeText === true) out.textSize = 'large';
+  out.largeText = false;
+  return out;
+}
+
+/** The HUD's scale for a text size (the HUD is not a fixed panel: it can always grow). */
+export const hudScale = (s: Pick<UiSettings, 'textSize'>): number => (s.textSize === 'large' ? 3 : 2);
+/** The largest menu scale a text size allows (menus use less when the screen is smaller). */
+export const MENU_SCALE_CAP: Readonly<Record<TextSize, number>> = { small: 2, normal: 3, large: 4 };
 
 export class GameUI {
   screen: Screen | null = null;
@@ -178,10 +204,14 @@ export class GameUI {
     return false;
   }
 
-  /** The whole-number scale the panel uses on a screen of this size. */
+  /**
+   * The whole-number scale the panel uses on a screen of this size: as large as fits (with a 2 pixel margin each side),
+   * up to the text size's cap. A manual menu scale (older settings) still wins.
+   */
   scaleFor(w: number, h: number): number {
     if (this.settings.scale > 0) return this.settings.scale;
-    return Math.max(1, Math.min(3, Math.floor(Math.min((w - 8) / PANEL_W, (h - 8) / PANEL_H))));
+    const cap = MENU_SCALE_CAP[this.settings.textSize] ?? 3;
+    return Math.max(1, Math.min(cap, Math.floor(Math.min((w - 4) / PANEL_W, (h - 4) / PANEL_H))));
   }
 
   /** Open what the world asked for (E on a chest, a stove, a workbench). */
@@ -205,7 +235,7 @@ export class GameUI {
     const scale = (this.lastScale = this.scaleFor(screen.width, screen.height));
     if (!this.screen) {
       this.drawMenuBar(screen, Math.max(1, Math.min(2, scale)));
-      this.drawTip(screen, this.settings.largeText ? 3 : 2);
+      this.drawTip(screen, hudScale(this.settings));
       return;
     }
     // Dim the world behind the panel.
@@ -218,7 +248,7 @@ export class GameUI {
     const opening = this.settings.reducedMotion ? 0 : Math.max(0, 1 - (realTime - this.openedAt) / 0.14);
     const ox0 = Math.floor((screen.width - PANEL_W * scale) / 2);
     const oy0 = Math.floor((screen.height - PANEL_H * scale) / 2) + Math.round(opening * 6) * scale;
-    const g = new Gfx(PANEL_W, PANEL_H);
+    const g = new Gfx(PANEL_W, PANEL_H, scale);
     if (this.pointerAt) g.hover = { x: Math.floor((this.pointerAt.x - ox0) / scale), y: Math.floor((this.pointerAt.y - oy0) / scale) };
     g.buf.blit(card(PANEL_W, PANEL_H), 0, 0);
     // The panel's own background takes presses first-registered (so lowest priority): a press inside the panel that
@@ -226,12 +256,11 @@ export class GameUI {
     g.hits.push({ x: 0, y: 0, w: PANEL_W, h: PANEL_H, action: () => {}, inert: true });
     g.box(1, 1, PANEL_W - 2, 11, UI.title, null);
     g.buf.fillRect(1, 12, PANEL_W - 2, 1, UI.line);
-    const title = this.screen.title(this).toUpperCase();
-    g.text(title, 5, 4, UI.accent);
+    g.heading(this.screen.title(this), 5, 4, UI.accent);
     g.button('X', PANEL_W - 13, 1, () => this.close(), { w: 12 });
     this.screen.draw(g, this, 4, 15, PANEL_W - 8, PANEL_H - 27);
     // Footer: the last answer, or the keys.
-    if (this.message) g.text(this.message.text.toUpperCase().slice(0, 74), 5, PANEL_H - 9, this.message.good ? UI.good : UI.bad);
+    if (this.message) g.text(g.lines(this.message.text, PANEL_W - 10)[0] ?? '', 5, PANEL_H - 9, this.message.good ? UI.good : UI.bad);
     // A tooltip for the hit under a resting pointer.
     const over = g.hover ? [...g.hits].reverse().find((h) => g.hovered(h.x, h.y, h.w, h.h)) ?? null : null;
     if (over !== this.hoverHit) {
@@ -239,19 +268,18 @@ export class GameUI {
       this.hoverSince = realTime;
     }
     if (over?.tip && realTime - this.hoverSince > 0.35 && g.hover) {
-      const tip = over.tip.toUpperCase();
-      const tw = textWidth(tip) + 6;
+      const tip = over.tip;
+      const tw = g.measure(tip) + 6;
       const tx = Math.max(1, Math.min(PANEL_W - tw - 1, g.hover.x + 4));
       const ty = Math.max(1, Math.min(PANEL_H - 12, g.hover.y + 8));
       g.buf.blit(card(tw, 11, UI.accent), tx, ty);
       g.text(tip, tx + 3, ty + 3, UI.ink);
     }
-    const big = g.buf.scaled(scale);
     const ox = ox0;
     const oy = oy0;
     this.panelOrigin = { x: ox, y: oy, scale };
-    screen.blit(big, ox, oy);
-    this.hits = g.hits.map((h) => ({ ...h, x: ox + h.x * scale, y: oy + h.y * scale, w: h.w * scale, h: h.h * scale }));
+    screen.blit(g.out, ox, oy);
+    this.hits = g.screenHits(ox, oy);
   }
 
   /** Touch is in use (tips say "tap" instead of naming keys). */
@@ -269,20 +297,21 @@ export class GameUI {
     if (!tip && !justDone) return;
     const text = tip ? (this.touchMode ? tip.touch : tip.keys) : 'Nice!';
     const maxW = Math.min(220, Math.floor(screen.width / scale) - 16);
-    const lines = tip ? wrapLines(text.toUpperCase(), Math.floor((maxW - 62) / 4)) : ['NICE!'];
-    const w = tip ? maxW : 30;
+    const measure = new Gfx(1, 1, scale);
+    const lines = tip ? measure.lines(text, maxW - 62) : [text];
+    const w = tip ? maxW : Math.max(30, measure.measure(text) + 12);
     const h = 6 + lines.length * 7 + 1;
-    const g = new Gfx(w, h);
+    const g = new Gfx(w, h, scale);
     g.buf.blit(card(w, h, tip ? UI.accent : UI.good), 0, 0);
-    g.text(tip ? 'TIP' : '', 4, 3, UI.accent);
+    if (tip) g.heading('TIP', 4, 3, UI.accent);
     lines.forEach((l, i) => g.text(l, tip ? 20 : 6, 3 + i * 7, tip ? UI.ink : UI.good));
     if (tip) g.button('SKIP TIPS', w - 36, Math.floor((h - 11) / 2), () => live.setTips(false), { w: 34 });
-    const big = g.buf.scaled(scale);
+    const big = g.out;
     const ox = Math.round(screen.width / 2 - big.width / 2);
     // Above the action prompt and clear of the menu bar (which may be two rows on a phone).
     const oy = Math.max(0, Math.min(screen.height - big.height - 30 * scale, screen.height - this.menuBarHeight - big.height - 18 * scale));
     screen.blit(big, ox, oy);
-    this.hits.push(...g.hits.map((hh) => ({ ...hh, x: ox + hh.x * scale, y: oy + hh.y * scale, w: hh.w * scale, h: hh.h * scale })));
+    this.hits.push(...g.screenHits(ox, oy));
     if (justDone && live.clock.time - live.tipDoneAt > 1.6) live.tipJustDone = null;
   }
 
@@ -317,7 +346,7 @@ export class GameUI {
     while (s > 1 && !fits(s, rows)) s--;
     const rowH = 11;
     const w = Math.max(...rows.map((row, i) => rowW(row) + (i === rows.length - 1 ? textWidth(use) + 9 : 0)));
-    const g = new Gfx(w, rows.length * (rowH + 1));
+    const g = new Gfx(w, rows.length * (rowH + 1), s);
     rows.forEach((row, r) => {
       const y = r * (rowH + 1);
       let x = w - rowW(row) - (r === rows.length - 1 ? textWidth(use) + 9 : 0);
@@ -325,11 +354,11 @@ export class GameUI {
       if (r === rows.length - 1) x += g.button(use, x, y, () => this.onUse?.(), { w: textWidth(use) + 6, primary: true }) + 3;
       for (const [l, id] of row) x += g.button(label(l), x, y, () => this.open(id), { w: widthOf(l) }) + 1;
     });
-    const big = g.buf.scaled(s);
+    const big = g.out;
     const ox = screen.width - big.width - 2 * s;
     const oy = screen.height - big.height - 2 * s;
     screen.blit(big, ox, oy);
-    this.hits = g.hits.map((h) => ({ ...h, x: ox + h.x * s, y: oy + h.y * s, w: h.w * s, h: h.h * s }));
+    this.hits = g.screenHits(ox, oy);
     this.menuBarHeight = big.height + 2 * s;
     this.drawModeBar(screen, s, oy);
   }
@@ -350,15 +379,15 @@ export class GameUI {
     const head = live.moving ? 'USE PUTS IT DOWN' : live.placing ? 'USE PLACES' : live.manage ? 'USE PICKS UP' : 'USE BUILDS';
     const bw = buttons.reduce((n, [l]) => n + textWidth(l) + 7, 0);
     const w = Math.max(bw, textWidth(head) + 4);
-    const g = new Gfx(w, 19);
+    const g = new Gfx(w, 19, s);
     g.text(head, 1, 0, UI.accent);
     let x = 0;
     for (const [l, run] of buttons) x += g.button(l, x, 7, run, { w: textWidth(l) + 6, primary: l === 'DONE' }) + 1;
-    const big = g.buf.scaled(s);
+    const big = g.out;
     const ox = 2 * s;
     const oy = Math.max(0, menuTop - big.height - 2 * s);
     screen.blit(big, ox, oy);
-    this.hits.push(...g.hits.map((h) => ({ ...h, x: ox + h.x * s, y: oy + h.y * s, w: h.w * s, h: h.h * s })));
+    this.hits.push(...g.screenHits(ox, oy));
   }
 
   /** The current scale (tests and the playground). */

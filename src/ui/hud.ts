@@ -1,6 +1,7 @@
 /**
  * THE HUD: what the player sees around the island while playing, drawn in the menus' design language (see
- * DESIGN below): small dark cards with a light rim and clipped corners, the 3×5 font, one accent colour.
+ * DESIGN below): small dark cards with a light rim and clipped corners, one accent colour; headings in the 3×5
+ * capitals, words in the readable body font (M11B; cards are drawn at screen resolution, see `ui/surface.ts`).
  *
  *   ┌ status ───────────┐                       ┌ time and weather ┐
  *   │ [face] NAME  title│                       └──────────────────┘
@@ -17,8 +18,9 @@
  */
 import { hex, type Color } from '../core/color';
 import { PixelBuffer } from '../core/pixel';
-import { drawTinyText } from '../render/live-render';
 import type { Inventory } from '../game/inventory';
+import { getLocale, sentence, t, upper } from '../i18n';
+import { UiSurface, bodyChoice, textPreference } from './surface';
 
 /** The design system: colours, spacing and the card frame shared by the HUD and the menus. */
 export const DESIGN = {
@@ -64,18 +66,33 @@ const GLYPHS: Record<string, string[]> = {
   dusk: ['.....', '..#..', '.###.', '#####', '-----'],
 };
 
-export function glyph(b: PixelBuffer, name: keyof typeof GLYPHS | string, x: number, y: number, c: Color): void {
+/** Anything with `set` in UI pixels (a buffer or a UI surface). */
+type Paintable = Pick<PixelBuffer, 'set'>;
+
+export function glyph(b: Paintable, name: keyof typeof GLYPHS | string, x: number, y: number, c: Color): void {
   const rows = GLYPHS[name];
   if (!rows) return;
   rows.forEach((row, j) => [...row].forEach((ch, i) => (ch === '#' || ch === '-') && b.set(x + i, y + j, c)));
 }
 
+/**
+ * Text widths for HUD layouts at a scale (M11B): cards are sized by the text as drawn (the body font where the scale
+ * allows it), so a card is never wider than its words.
+ */
+const probes = new Map<number, UiSurface>();
+function textAt(scale: number): (t: string, style?: 'body' | 'title') => number {
+  let p = probes.get(scale);
+  if (!p || p.body !== bodyChoice(scale, textPreference.smaller)) probes.set(scale, (p = new UiSurface(1, 1, scale)));
+  const probe = p;
+  return (t, style = 'body') => probe.measure(t, style);
+}
+
 /** A meter: an icon, a segmented bar (10 segments, so the value reads by length too) and a "!" when low. */
-function meter(b: PixelBuffer, icon: string, value: number, colour: Color, x: number, y: number): void {
+function meter(b: UiSurface, icon: string, value: number, colour: Color, x: number, y: number): void {
   glyph(b, icon, x, y, colour);
   const segs = Math.round(Math.max(0, Math.min(100, value)) / 10);
   for (let i = 0; i < 10; i++) b.fillRect(x + 7 + i * 3, y + 1, 2, 3, i < segs ? colour : DESIGN.cardHi);
-  if (value < 25) drawTinyText(b, '!', x + 38, y, DESIGN.warn);
+  if (value < 25) b.text('!', x + 38, y, DESIGN.warn, 'title');
 }
 
 export interface StatusInfo {
@@ -93,15 +110,18 @@ export interface StatusInfo {
   away: boolean;
 }
 
-export function statusCard(s: StatusInfo): PixelBuffer {
+/** HUD builders draw at `scale` (screen pixels per UI pixel) and return the card at screen resolution. */
+export function statusCard(s: StatusInfo, scale = 1): PixelBuffer {
+  const w0 = textAt(scale);
   const portrait = 18;
-  const name = s.name.toUpperCase().slice(0, 14);
-  const title = s.away ? 'AWAY' : s.title.toUpperCase();
+  const name = [...s.name].slice(0, 14).join('');
+  const title = s.away ? t('hud.away') : sentence(s.title);
   const carried = s.carried.join('  ');
-  const textW = Math.max(tw(name) + 4 + tw(title), 42, tw(carried));
+  const textW = Math.max(w0(name) + 4 + w0(title), 42, w0(carried));
   const w = DESIGN.pad * 2 + portrait + 3 + textW + 1;
   const h = carried ? 34 : 27;
-  const b = card(w, h);
+  const b = new UiSurface(w, h, scale);
+  b.blit(card(w, h), 0, 0);
   // Portrait: a framed square with the Blobbi in it.
   const px = DESIGN.pad;
   const py = DESIGN.pad;
@@ -112,96 +132,110 @@ export function statusCard(s: StatusInfo): PixelBuffer {
     b.blit(f, px + Math.floor((portrait - f.width) / 2), py + portrait - 1 - f.height);
   }
   const tx = px + portrait + 3;
-  drawTinyText(b, name, tx, py, DESIGN.ink);
-  drawTinyText(b, title, tx + tw(name) + 4, py, s.away ? DESIGN.energy : DESIGN.muted);
+  b.text(name, tx, py, DESIGN.ink);
+  b.text(title, tx + w0(name) + 4, py, s.away ? DESIGN.energy : DESIGN.muted);
   meter(b, 'fed', s.fed, DESIGN.fed, tx, py + 7);
   meter(b, 'energy', s.energy, DESIGN.energy, tx, py + 13);
   meter(b, 'joy', s.joy, DESIGN.joy, tx, py + 19);
-  if (carried) drawTinyText(b, carried, DESIGN.pad, h - 8, DESIGN.muted);
-  return b;
+  if (carried) b.text(carried, DESIGN.pad, h - 8, DESIGN.muted);
+  return b.out;
 }
 
-/** "DAY 3  7:30 AM" with a sun, moon, dusk or rain icon. */
-export function timeChip(day: number, hour: number, rain: number): PixelBuffer {
+/** "Day 3  7:30 AM" with a sun, moon, dusk or rain icon. */
+export function timeChip(day: number, hour: number, rain: number, scale = 1): PixelBuffer {
   const hh = Math.floor(hour);
   const mm = Math.floor((hour - hh) * 6) * 10;
-  const text = `DAY ${day}  ${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'AM' : 'PM'}`;
+  const text = `${t('hud.day', { day })}  ${clock(hh, mm)}`;
   const icon = rain > 0.45 ? 'rain' : rain > 0.2 ? 'cloud' : hour >= 18 && hour < 20.5 ? 'dusk' : hour >= 20.5 || hour < 5.5 ? 'moon' : 'sun';
-  const w = tw(text) + 2 * DESIGN.pad + 8;
-  const b = card(w, 11);
+  const w = textAt(scale)(text) + 2 * DESIGN.pad + 8;
+  const b = new UiSurface(w, 11, scale);
+  b.blit(card(w, 11), 0, 0);
   glyph(b, icon, DESIGN.pad, 3, icon === 'sun' || icon === 'dusk' ? DESIGN.accent : icon === 'moon' ? DESIGN.ink : DESIGN.energy);
-  drawTinyText(b, text, DESIGN.pad + 8, 3, DESIGN.ink);
-  return b;
+  b.text(text, DESIGN.pad + 8, 3, DESIGN.ink);
+  return b.out;
+}
+
+/** A clock time as the language writes it: "7:30 AM" in English, "7:30" (24 hours) in Portuguese and Spanish. */
+export function clock(hh: number, mm: number): string {
+  const m2 = String(mm).padStart(2, '0');
+  return getLocale() === 'en' ? `${((hh + 11) % 12) + 1}:${m2} ${hh < 12 ? 'AM' : 'PM'}` : `${hh}:${m2}`;
 }
 
 /** The current goal: number, title, and a progress bar when the progress reads "n/m". */
-export function goalCard(n: number, total: number, title: string, progress: string): PixelBuffer {
-  const head = `GOAL ${n}/${total}`;
-  const name = title.toUpperCase().slice(0, 30);
+export function goalCard(n: number, total: number, title: string, progress: string, scale = 1): PixelBuffer {
+  const w0 = textAt(scale);
+  const head = upper(t('hud.goal', { n, total }));
+  const name = [...title].slice(0, 30).join('');
   const m = /(\d+)\s*\/\s*(\d+)/.exec(progress);
-  const w = Math.max(tw(head) + 4 + tw(name), 60) + 2 * DESIGN.pad + 2;
+  const w = Math.max(w0(head, 'title') + 4 + w0(name), 60) + 2 * DESIGN.pad + 2;
   const h = m ? 18 : 11;
-  const b = card(w, h, DESIGN.accent);
-  drawTinyText(b, head, DESIGN.pad + 1, 3, DESIGN.accent);
-  drawTinyText(b, name, DESIGN.pad + 1 + tw(head) + 4, 3, DESIGN.ink);
+  const b = new UiSurface(w, h, scale);
+  b.blit(card(w, h, DESIGN.accent), 0, 0);
+  b.text(head, DESIGN.pad + 1, 3, DESIGN.accent, 'title');
+  b.text(name, DESIGN.pad + 1 + w0(head, 'title') + 4, 3, DESIGN.ink);
   if (m) {
     const have = Math.min(Number(m[1]), Number(m[2]));
     const need = Math.max(1, Number(m[2]));
     const label = `${have}/${need}`;
-    const barW = w - 2 * DESIGN.pad - tw(label) - 5;
+    const lw = w0(label);
+    const barW = w - 2 * DESIGN.pad - lw - 5;
     b.fillRect(DESIGN.pad + 1, 11, barW, 3, DESIGN.cardHi);
     b.fillRect(DESIGN.pad + 1, 11, Math.round((barW * have) / need), 3, have >= need ? DESIGN.good : DESIGN.accent);
-    drawTinyText(b, label, w - DESIGN.pad - tw(label), 10, DESIGN.muted);
+    b.text(label, w - DESIGN.pad - lw, 10, DESIGN.muted);
   }
-  return b;
+  return b.out;
 }
 
 /**
  * The pinned side quest (M10 phase C): a slimmer card than the main goal's, "SIDE" and the title, a thin progress
  * bar when it counts something. J opens the journal, where it is pinned and unpinned.
  */
-export function pinnedCard(title: string, progress: string): PixelBuffer {
-  const head = 'SIDE';
-  const name = title.toUpperCase().slice(0, 26);
+export function pinnedCard(title: string, progress: string, scale = 1): PixelBuffer {
+  const w0 = textAt(scale);
+  const head = upper(t('hud.side'));
+  const name = [...title].slice(0, 26).join('');
   const m = /(\d+)\s*\/\s*(\d+)/.exec(progress);
   const label = m ? `${Math.min(Number(m[1]), Number(m[2]))}/${Math.max(1, Number(m[2]))}` : '';
-  const w = tw(head) + 4 + tw(name) + (label ? 4 + tw(label) : 0) + 2 * DESIGN.pad + 2;
+  const w = w0(head, 'title') + 4 + w0(name) + (label ? 4 + w0(label) : 0) + 2 * DESIGN.pad + 2;
   const h = m ? 13 : 11;
-  const b = card(w, h);
-  drawTinyText(b, head, DESIGN.pad + 1, 3, DESIGN.muted);
-  drawTinyText(b, name, DESIGN.pad + 1 + tw(head) + 4, 3, DESIGN.ink);
+  const b = new UiSurface(w, h, scale);
+  b.blit(card(w, h), 0, 0);
+  b.text(head, DESIGN.pad + 1, 3, DESIGN.muted, 'title');
+  b.text(name, DESIGN.pad + 1 + w0(head, 'title') + 4, 3, DESIGN.ink);
   if (m) {
     const have = Math.min(Number(m[1]), Number(m[2]));
     const need = Math.max(1, Number(m[2]));
-    drawTinyText(b, label, w - DESIGN.pad - tw(label), 3, DESIGN.muted);
+    b.text(label, w - DESIGN.pad - w0(label), 3, DESIGN.muted);
     const barW = w - 2 * DESIGN.pad - 2;
     b.fillRect(DESIGN.pad + 1, 9, barW, 2, DESIGN.cardHi);
     b.fillRect(DESIGN.pad + 1, 9, Math.round((barW * have) / need), 2, have >= need ? DESIGN.good : DESIGN.accent);
   }
-  return b;
+  return b.out;
 }
 
 /** The tool in hand: its icon, name and the key that changes it. */
-export function toolChip(icon: PixelBuffer | null, name: string): PixelBuffer {
-  const text = `${name.toUpperCase()}  Q`;
-  const w = (icon ? icon.width + 3 : 0) + tw(text) + 2 * DESIGN.pad;
+export function toolChip(icon: PixelBuffer | null, name: string, scale = 1): PixelBuffer {
+  const w0 = textAt(scale);
+  const text = name;
+  const w = (icon ? icon.width + 3 : 0) + w0(text) + 6 + 3 + 2 * DESIGN.pad;
   const h = Math.max(11, (icon?.height ?? 0) + 4);
-  const b = card(w, h);
+  const b = new UiSurface(w, h, scale);
+  b.blit(card(w, h), 0, 0);
   if (icon) b.blit(icon, DESIGN.pad, Math.floor((h - icon.height) / 2));
-  drawTinyText(b, text, DESIGN.pad + (icon ? icon.width + 3 : 0), Math.floor((h - 5) / 2), DESIGN.ink);
-  drawTinyText(b, 'Q', w - DESIGN.pad - 3, Math.floor((h - 5) / 2), DESIGN.accent);
-  return b;
+  b.text(text, DESIGN.pad + (icon ? icon.width + 3 : 0), Math.floor((h - 5) / 2), DESIGN.ink);
+  b.text('Q', w - DESIGN.pad - 3, Math.floor((h - 5) / 2), DESIGN.accent, 'title');
+  return b.out;
 }
 
-/** An item-gained toast: "+3 WOOD" with the item's icon. */
-export function toastCard(icon: PixelBuffer | null, text: string): PixelBuffer {
-  const t = text.toUpperCase();
-  const w = (icon ? icon.width + 3 : 0) + tw(t) + 2 * DESIGN.pad;
+/** An item-gained toast: "+3 wood" with the item's icon. */
+export function toastCard(icon: PixelBuffer | null, text: string, scale = 1): PixelBuffer {
+  const w = (icon ? icon.width + 3 : 0) + textAt(scale)(text) + 2 * DESIGN.pad;
   const h = Math.max(11, (icon?.height ?? 0) + 2);
-  const b = card(w, h, DESIGN.good);
+  const b = new UiSurface(w, h, scale);
+  b.blit(card(w, h, DESIGN.good), 0, 0);
   if (icon) b.blit(icon, DESIGN.pad, Math.floor((h - icon.height) / 2));
-  drawTinyText(b, t, DESIGN.pad + (icon ? icon.width + 3 : 0), Math.floor((h - 5) / 2), DESIGN.ink);
-  return b;
+  b.text(text, DESIGN.pad + (icon ? icon.width + 3 : 0), Math.floor((h - 5) / 2), DESIGN.ink);
+  return b.out;
 }
 
 export interface Toast {

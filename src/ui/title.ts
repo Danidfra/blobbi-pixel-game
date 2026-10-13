@@ -28,6 +28,8 @@ import type { WorldEntry } from '../game/worlds';
 import type { CarrierKind } from '../game/carrier';
 import { ConfirmGate } from '../game/world-delete';
 import { MAX_NAME, sanitizeIslandName, suggestIslandName, typingIslandName } from '../game/island-name';
+import { getLocale, LOCALES, t, upper } from '../i18n';
+import { nextLocale } from './screens/settings';
 
 export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete';
 
@@ -56,15 +58,22 @@ export interface TitleActions {
   requestTextInput?(current: string): void;
 }
 
-/** What each Carrier is like: the same game on each, a different look and mood. */
-export const CARRIER_CARDS: readonly { kind: CarrierKind; name: string; mood: string }[] = [
-  { kind: 'turtle', name: 'SEA TURTLE', mood: 'OLD AND PATIENT. A ROUND, SHELTERED ISLAND ON A MOSSY SHELL.' },
-  { kind: 'manta', name: 'MANTA RAY', mood: 'GRACEFUL AND CURIOUS. A WIDE, SUNNY ISLAND THAT GLIDES.' },
-  { kind: 'whale', name: 'GREAT WHALE', mood: 'GENTLE AND DREAMY. A LONG ISLAND THAT HUMS AND SINGS.' },
-];
+/** What each Carrier is like: the same game on each, a different look and mood (in the current language). */
+const carrierCard = (kind: CarrierKind) => ({
+  kind,
+  get name(): string {
+    return upper(t(`carrier.${kind}.name`));
+  },
+  get mood(): string {
+    return t(`carrier.${kind}.mood`);
+  },
+});
+export const CARRIER_CARDS: readonly { readonly kind: CarrierKind; readonly name: string; readonly mood: string }[] = [carrierCard('turtle'), carrierCard('manta'), carrierCard('whale')];
 
 const W = 320;
 const H = 180;
+/** The dark under text drawn straight on the island scene (M11B readability). */
+const SHADE = DESIGN.card;
 /** The Carrier pictures on the cards. */
 export const CARD_PIC = { w: 92, h: 56 } as const;
 
@@ -122,50 +131,50 @@ export class TitleScreen {
     const a = this.actions;
     if (this.page === 'welcome')
       return [
-        { label: 'BEGIN', detail: 'CHOOSE YOUR WORLD CARRIER', run: () => this.go('carrier') },
-        { label: 'SETTINGS', run: () => a.settings() },
-        { label: 'ABOUT', minor: true, run: () => this.go('about') },
+        { label: upper(t('title.begin')), detail: upper(t('title.begin.detail')), run: () => this.go('carrier') },
+        { label: upper(t('title.settings')), run: () => a.settings() },
+        { label: upper(t('title.about')), minor: true, run: () => this.go('about') },
       ];
     if (this.page === 'main') {
       const worlds = a.worlds();
       const active = this.activeEntry(worlds);
       const cur = a.current();
       const out: Item[] = [];
-      if (active) out.push({ label: 'CONTINUE', detail: `${active.name.toUpperCase()}  ${speciesName(active)}  DAY ${active.day}`, run: () => a.continueGame() });
-      if (cur.linked && !worlds.some((w) => w.identity === cur.identity) && a.playCurrent) out.push({ label: 'PLAY THIS ISLAND', detail: `${cur.name.toUpperCase()} (FROM THE LINK)`, run: () => a.playCurrent!() });
-      out.push({ label: 'SETTINGS', run: () => a.settings() });
+      if (active) out.push({ label: upper(t('title.continue')), detail: upper(t('title.continue.detail', { name: active.name, species: speciesName(active), day: active.day })), run: () => a.continueGame() });
+      if (cur.linked && !worlds.some((w) => w.identity === cur.identity) && a.playCurrent) out.push({ label: upper(t('title.playLinked')), detail: upper(t('title.playLinked.detail', { name: cur.name })), run: () => a.playCurrent!() });
+      out.push({ label: upper(t('title.settings')), run: () => a.settings() });
       // The islands page is always reachable (a quiet row): every saved island stays recoverable.
-      out.push({ label: worlds.length > 1 ? `ISLANDS (${worlds.length})` : 'ISLANDS', minor: true, run: () => this.go('islands') });
-      out.push({ label: 'ABOUT', minor: true, run: () => this.go('about') });
+      out.push({ label: upper(worlds.length > 1 ? t('title.islandsCount', { count: worlds.length }) : t('title.islands')), minor: true, run: () => this.go('islands') });
+      out.push({ label: upper(t('title.about')), minor: true, run: () => this.go('about') });
       return out;
     }
     if (this.page === 'islands') {
       const worlds = a.worlds();
       const active = this.activeEntry(worlds);
-      const list = worlds.map((w) => ({ label: w.name.toUpperCase(), detail: (w === active ? 'ACTIVE  ' : '') + worldDetail(w), world: w, run: () => a.openWorld(w) }));
-      const more: Item[] = a.allowNewIsland ? [{ label: 'NEW ISLAND', detail: 'A NEW WORLD CARRIER', run: () => this.go('carrier') }] : [];
-      return [...list, ...more, { label: 'BACK', run: () => this.back() }];
+      const list = worlds.map((w) => ({ label: upper(w.name), detail: (w === active ? `${upper(t('title.active'))}  ` : '') + worldDetail(w), world: w, run: () => a.openWorld(w) }));
+      const more: Item[] = a.allowNewIsland ? [{ label: upper(t('title.newIsland')), detail: upper(t('title.newIsland.detail')), run: () => this.go('carrier') }] : [];
+      return [...list, ...more, { label: upper(t('title.back')), run: () => this.back() }];
     }
     if (this.page === 'delete') {
       const w = this.confirm.subject;
       return [
-        { label: 'KEEP IT', detail: 'GO BACK TO YOUR ISLANDS', run: () => this.cancelDelete() },
-        { label: 'DELETE FOREVER', detail: w ? `ERASE ${w.name.toUpperCase()}` : '', danger: true, run: () => this.confirmDelete() },
+        { label: upper(t('title.keepIt')), detail: upper(t('title.keepIt.detail')), run: () => this.cancelDelete() },
+        { label: upper(t('title.deleteForever')), detail: w ? upper(t('title.deleteForever.detail', { name: w.name })) : '', danger: true, run: () => this.confirmDelete() },
       ];
     }
     if (this.page === 'name') {
       const out: Item[] = [
-        { label: 'CREATE ISLAND', detail: this.name.trim() ? `"${sanitizeIslandName(this.name).toUpperCase()}"` : 'IT WILL NAME ITSELF', run: () => this.create() },
-        { label: 'SURPRISE ME', detail: 'SUGGEST A NAME', run: () => this.suggest() },
+        { label: upper(t('title.createIsland')), detail: this.name.trim() ? `"${upper(sanitizeIslandName(this.name))}"` : upper(t('title.createIsland.unnamed')), run: () => this.create() },
+        { label: upper(t('title.surprise')), detail: upper(t('title.surprise.detail')), run: () => this.suggest() },
       ];
-      if (a.requestTextInput) out.push({ label: 'TYPE A NAME', detail: 'OPENS THE KEYBOARD', run: () => a.requestTextInput!(this.name) });
-      out.push({ label: 'BACK', run: () => this.back() });
+      if (a.requestTextInput) out.push({ label: upper(t('title.typeName')), detail: upper(t('title.typeName.detail')), run: () => a.requestTextInput!(this.name) });
+      out.push({ label: upper(t('title.back')), run: () => this.back() });
       return out;
     }
-    if (this.page === 'error') return [{ label: 'BACK', detail: 'TRY AGAIN', run: () => this.go('carrier') }];
+    if (this.page === 'error') return [{ label: upper(t('title.back')), detail: upper(t('title.tryAgain')), run: () => this.go('carrier') }];
     if (this.page === 'about') {
-      const watch: Item[] = a.watchIntro ? CARRIER_CARDS.map((c) => ({ label: `WATCH THE ${c.name} INTRO`, detail: 'A PREVIEW: NO ISLAND IS MADE OR CHANGED', run: () => a.watchIntro!(c.kind) })) : [];
-      return [...watch, { label: 'BACK', run: () => this.back() }];
+      const watch: Item[] = a.watchIntro ? CARRIER_CARDS.map((c) => ({ label: upper(t('title.watchIntro', { carrier: t(`carrier.${c.kind}.name`) })), detail: upper(t('title.watchIntro.detail')), run: () => a.watchIntro!(c.kind) })) : [];
+      return [...watch, { label: upper(t('title.back')), run: () => this.back() }];
     }
     return [];
   }
@@ -273,6 +282,12 @@ export class TitleScreen {
       this.name = this.name.slice(0, -1);
       return true;
     }
+    // L changes the language on every page but the name page (where it types).
+    if (!naming && code === 'KeyL') {
+      nextLocale(1);
+      this.onSound?.('ui-select');
+      return true;
+    }
     if (naming && char.length === 1 && /[A-Za-z0-9 .!-]/.test(char) && code !== 'Enter' && code !== 'NumpadEnter') {
       if (code === 'Space' && this.name === '') return true;
       this.typeChar(char);
@@ -362,13 +377,13 @@ export class TitleScreen {
       d[i] = 0xff000000 | (((b * 0.45 + 0x40 * 0.55) & 0xff) << 16) | (((g * 0.45 + 0x24 * 0.55) & 0xff) << 8) | ((r * 0.45 + 0x1b * 0.55) & 0xff);
     }
     const scale = TitleScreen.scaleFor(screen.width, screen.height);
-    const g = new Gfx(W, H);
+    const g = new Gfx(W, H, scale);
     this.draw(g, time);
-    const big = g.buf.scaled(scale);
+    const big = g.out;
     const ox = Math.floor((screen.width - big.width) / 2);
     const oy = Math.floor((screen.height - big.height) / 2);
     screen.blit(big, ox, oy);
-    this.hits = g.hits.map((h) => ({ ...h, x: ox + h.x * scale, y: oy + h.y * scale, w: h.w * scale, h: h.h * scale }));
+    this.hits = g.screenHits(ox, oy);
   }
 
   draw(g: Gfx, time: number): void {
@@ -392,9 +407,10 @@ export class TitleScreen {
       drawTinyText(pixel, 'PIXEL', 0, 0, UI.ink);
       const p2 = pixel.scaled(2);
       g.buf.blit(p2, Math.floor((W - p2.width) / 2), ty + 27 + bob);
-      const sub = this.page === 'welcome' ? 'A LITTLE WORLD AWAITS YOU.' : this.page === 'main' ? 'WELCOME BACK!' : '';
-      if (sub) g.text(sub, Math.floor((W - textWidth(sub)) / 2), 52, this.page === 'main' ? UI.accent : UI.ink);
+      const sub = this.page === 'welcome' ? upper(t('title.tagline')) : this.page === 'main' ? upper(t('title.welcomeBack')) : '';
+      if (sub) g.text(sub, Math.floor((W - g.measure(sub)) / 2), 52, this.page === 'main' ? UI.accent : UI.ink, 'body', SHADE);
     }
+    this.drawLanguage(g);
     if (this.page === 'carrier') return this.drawCarriers(g, time);
     if (this.page === 'creating') return this.drawCreating(g, time);
 
@@ -408,29 +424,27 @@ export class TitleScreen {
     const px = named ? 18 : Math.floor((W - panelW) / 2);
     const menu = this.page === 'welcome' || this.page === 'main';
     let y = named ? 24 : menu ? 64 : 56;
-    const heading = { islands: 'YOUR ISLANDS', about: 'ABOUT', delete: 'DELETE THIS ISLAND?', name: 'NAME YOUR ISLAND', error: 'THE SEA IS TOO ROUGH', welcome: '', main: '', carrier: '', creating: '' }[this.page];
+    const headings: Partial<Record<TitlePage, string>> = { islands: t('title.heading.islands'), about: t('title.heading.about'), delete: t('title.heading.delete'), name: t('title.heading.name'), error: t('title.heading.error') };
+    const heading = headings[this.page];
     if (heading) {
-      g.text(heading, px, y, UI.accent);
+      g.heading(heading, px, y, UI.accent, SHADE);
       y += 9;
     }
     if (this.page === 'islands' && items.length > 2) {
-      y += g.para('CONTINUE plays your ACTIVE island. Opening another makes it the active one; nothing is lost.', px, y, panelW, UI.muted, 5) + 3;
+      y += g.para(t('title.islandsNote'), px, y, panelW, UI.muted, 5, SHADE) + 3;
     }
-    if (this.page === 'about') {
-      const para = 'A cozy procedural game. Your Blobbi lives on an island carried by a great sea creature: gather, farm, build a home, cook, discover the island\'s secrets and become friends. Everything is made from seeds; saves stay in this browser.';
-      y += g.para(para, px, y, panelW, UI.ink, 5) + 4;
-    }
-    if (this.page === 'error') y += g.para(this.error || 'The island could not be made. Nothing was saved.', px, y, panelW, UI.bad) + 6;
+    if (this.page === 'about') y += g.para(t('title.aboutText'), px, y, panelW, UI.ink, 5, SHADE) + 4;
+    if (this.page === 'error') y += g.para(this.error || t('title.createError'), px, y, panelW, UI.bad, 99, SHADE) + 6;
     if (this.page === 'name') y = this.drawNameField(g, px, y, panelW, time);
     if (this.page === 'delete' && this.confirm.subject) {
       const w = this.confirm.subject;
-      g.text(w.name.toUpperCase(), px, y, UI.ink);
-      g.text(worldDetail(w), px, y + 8, UI.muted);
+      g.text(upper(w.name), px, y, UI.ink, 'body', SHADE);
+      g.text(worldDetail(w), px, y + 8, UI.muted, 'body', SHADE);
       y += 17;
-      y += g.para('Its island, buildings, bag and progress are erased from this browser. This cannot be undone.', px, y, panelW, UI.bad) + 5;
+      y += g.para(t('title.deleteWarning'), px, y, panelW, UI.bad, 99, SHADE) + 5;
     }
     if (this.page === 'islands' && items.length === 1) {
-      y += g.para('No saved islands yet. NEW ISLAND makes one.', px, y, panelW, UI.muted) + 6;
+      y += g.para(t('title.noIslands'), px, y, panelW, UI.muted, 99, SHADE) + 6;
     }
     items.slice(this.scroll, this.scroll + rows).forEach((it, k2) => {
       const i = k2 + this.scroll;
@@ -445,7 +459,7 @@ export class TitleScreen {
       if (selected) for (let m = 0; m < 3; m++) g.buf.fillRect(px + 4 + m, y + 3 + m, 1, 5 - 2 * m, UI.accent);
       g.text(it.label, px + 11, y + (it.minor ? 2 : 3), waiting ? UI.line : it.danger ? UI.bad : selected ? UI.accent : it.minor ? UI.muted : UI.ink);
       // (A saved island's row keeps room for its DELETE button.)
-      if (it.detail) g.text(it.detail.slice(0, it.world && this.actions.deleteWorld ? 34 : 43), px + 11, y + 10, UI.muted);
+      if (it.detail) g.text(fit(g, it.detail, panelW - 14 - (it.world && this.actions.deleteWorld ? 36 : 0)), px + 11, y + 10, UI.muted);
       g.hit(px, y, panelW, h, () => {
         this.index = i;
         it.run();
@@ -453,22 +467,34 @@ export class TitleScreen {
       // Each saved island has its own small DELETE button (it only asks).
       const w = it.world;
       if (w && this.actions.deleteWorld) {
-        const bw = textWidth('DELETE') + 6;
-        g.button('DELETE', px + panelW - bw - 3, y + 3, () => this.askDelete(w), { w: bw });
+        const del = upper(t('title.delete'));
+        const bw = Math.max(textWidth('DELETE'), g.measure(del)) + 6;
+        g.button(del, px + panelW - bw - 3, y + 3, () => this.askDelete(w), { w: bw });
       }
       y += h + (it.minor ? 1 : 2);
     });
     if (named) this.drawChosen(g, px + panelW + 10, 40, time);
-    if (this.scroll > 0) g.text('MORE', px + panelW + 3, 66, UI.muted);
-    if (this.scroll + rows < items.length) g.text('MORE', px + panelW + 3, y - 8, UI.muted);
-    const foot = named ? 'TYPE A NAME, OR LEAVE IT EMPTY. ENTER CREATES.' : this.page === 'islands' ? 'ENTER OPENS. X DELETES (IT ASKS FIRST). ESC GOES BACK.' : 'ARROWS AND ENTER, OR CLICK OR TAP. ESC GOES BACK.';
-    g.text(foot, Math.floor((W - textWidth(foot)) / 2), H - 9, UI.muted);
+    if (this.scroll > 0) g.text(upper(t('title.more')), px + panelW + 3, 66, UI.muted, 'body', SHADE);
+    if (this.scroll + rows < items.length) g.text(upper(t('title.more')), px + panelW + 3, y - 8, UI.muted, 'body', SHADE);
+    const foot = upper(t(named ? 'title.foot.name' : this.page === 'islands' ? 'title.foot.islands' : 'title.foot.menu'));
+    g.text(foot, Math.floor((W - g.measure(foot)) / 2), H - 9, UI.ink, 'body', SHADE);
+  }
+
+  /**
+   * The language, in a small button at the top right of every page (M11B): a press (or L) moves to the next one.
+   * It names the language in itself, so a player can find their own.
+   */
+  private drawLanguage(g: Gfx): void {
+    const name = LOCALES.find((l) => l.id === getLocale())!.name;
+    const label = t('title.language', { language: name });
+    const w = Math.min(120, g.measure(label) + 10);
+    g.button(label, W - w - 4, 4, () => nextLocale(1), { w, case: 'as-is' });
   }
 
   /** The three Carrier cards: animated pictures, names and moods; the chosen one raised with an accent frame. */
   private drawCarriers(g: Gfx, time: number): void {
-    const head = 'CHOOSE YOUR WORLD CARRIER';
-    g.text(head, Math.floor((W - textWidth(head)) / 2), 22, UI.accent);
+    const head = upper(t('title.chooseCarrier'));
+    g.text(head, Math.floor((W - g.measure(head)) / 2), 22, UI.accent, 'body', SHADE);
     const cw = CARD_PIC.w + 6;
     const gap = 5;
     const x0 = Math.floor((W - (cw * 3 + gap * 2)) / 2);
@@ -490,31 +516,31 @@ export class TitleScreen {
       if (pic) g.buf.blit(pic, x + 3, y + 3);
       else g.box(x + 3, y + 3, CARD_PIC.w, CARD_PIC.h, UI.slot, UI.line);
       g.text(c.name, x + 10, y + CARD_PIC.h + 7, chosen ? UI.accent : UI.ink);
-      g.para(c.mood, x + 4, y + CARD_PIC.h + 16, cw - 7, chosen ? UI.ink : UI.muted, 5);
+      g.para(c.mood, x + 4, y + CARD_PIC.h + 16, cw - 7, chosen ? UI.ink : UI.muted, 4);
       g.hit(x, y, cw, ch, () => {
         if (this.carrier === i) this.chooseCarrier(i);
         else this.carrier = i;
       });
     });
-    const note = 'EVERY CARRIER HAS THE SAME ADVENTURE. ONLY ITS LOOK AND MOOD DIFFER.';
-    g.text(note, Math.floor((W - textWidth(note)) / 2), top + ch + 7, UI.muted);
+    const note = upper(t('title.carrierNote'));
+    g.text(fit(g, note, W - 8), Math.floor((W - Math.min(W - 8, g.measure(note))) / 2), top + ch + 7, UI.ink, 'body', SHADE);
     const by = H - 22;
-    g.button('BACK', x0, by, () => this.back(), { w: 50 });
-    const next = `NEXT: ${CARRIER_CARDS[this.carrier].name}`;
-    const nw = textWidth(next) + 12;
+    g.button(t('title.back'), x0, by, () => this.back(), { w: 50 });
+    const next = t('title.next', { carrier: CARRIER_CARDS[this.carrier].name });
+    const nw = Math.min(150, Math.max(textWidth('NEXT: GREAT WHALE'), g.measure(upper(next))) + 12);
     g.button(next, x0 + cw * 3 + gap * 2 - nw, by, () => this.chooseCarrier(this.carrier), { w: nw, primary: true });
-    const foot = 'LEFT AND RIGHT CHOOSE. ENTER OR TAP AGAIN TO GO ON.';
-    g.text(foot, Math.floor((W - textWidth(foot)) / 2), H - 9, UI.muted);
+    const foot = upper(t('title.foot.carrier'));
+    g.text(fit(g, foot, W - 8), Math.floor((W - Math.min(W - 8, g.measure(foot))) / 2), H - 9, UI.ink, 'body', SHADE);
   }
 
   /** The name being typed, in a field with a caret; returns the next free y. */
   private drawNameField(g: Gfx, x: number, y: number, w: number, time: number): number {
-    y += g.para('Optional. Leave it empty and the island names itself.', x, y, w, UI.muted) + 3;
+    y += g.para(t('title.nameOptional'), x, y, w, UI.ink, 99, SHADE) + 3;
     g.box(x, y, w, 13, UI.bg, UI.accent);
-    const shown = this.name.toUpperCase();
+    const shown = upper(this.name);
     g.text(shown, x + 4, y + 4, UI.ink);
     const caretOn = this.reducedMotion || Math.floor(time * 2) % 2 === 0;
-    if (caretOn) g.buf.fillRect(x + 4 + (shown ? textWidth(shown) + 1 : 0), y + 3, 1, 7, UI.accent);
+    if (caretOn) g.buf.fillRect(x + 4 + (shown ? g.measure(shown) + 1 : 0), y + 3, 1, 7, UI.accent);
     g.text(`${this.name.length}/${MAX_NAME}`, x + w - 22, y + 4, UI.line);
     if (this.actions.requestTextInput) g.hit(x, y, w, 13, () => this.actions.requestTextInput!(this.name));
     return y + 17;
@@ -531,16 +557,24 @@ export class TitleScreen {
   }
 
   private drawCreating(g: Gfx, time: number): void {
-    const lines = ['THE SEA STIRS...', 'A WORLD CARRIER IS RISING.'];
-    lines.forEach((l, i) => g.text(l, Math.floor((W - textWidth(l)) / 2), 80 + i * 10, i ? UI.muted : UI.accent));
+    const lines = [upper(t('title.creating1')), upper(t('title.creating2'))];
+    lines.forEach((l, i) => g.text(l, Math.floor((W - g.measure(l)) / 2), 80 + i * 10, i ? UI.ink : UI.accent, 'body', SHADE));
     const dots = this.reducedMotion ? 3 : 1 + (Math.floor(time * 3) % 3);
     for (let i = 0; i < dots; i++) g.buf.fillRect(W / 2 - 6 + i * 5, 104, 2, 2, UI.accent);
   }
 }
 
-const speciesName = (w: WorldEntry) => (w.params.kind === 'manta' ? 'MANTA' : w.params.kind === 'whale' ? 'WHALE' : 'TURTLE');
+const speciesName = (w: WorldEntry) => t(w.params.kind === 'manta' ? 'carrier.manta.short' : w.params.kind === 'whale' ? 'carrier.whale.short' : 'carrier.turtle.short');
 
-/** One line about a saved island: its Carrier, its day, quests and buildings. */
+/** One line about a saved island: its Carrier, its day, quests and buildings (upper case, like the title's rows). */
 export function worldDetail(w: WorldEntry): string {
-  return `${speciesName(w)}  DAY ${w.day}  ${w.quests} QUESTS  ${w.buildings} BUILT`;
+  return upper(t('title.worldDetail', { species: speciesName(w), day: w.day, quests: t('title.quests', { count: w.quests }), buildings: t('title.built', { count: w.buildings }) }));
+}
+
+/** A line cut (with "…") to fit `maxW` UI pixels as drawn. */
+function fit(g: Gfx, text: string, maxW: number): string {
+  if (g.measure(text) <= maxW) return text;
+  const chars = [...text];
+  while (chars.length > 1 && g.measure(chars.join('') + '…') > maxW) chars.pop();
+  return chars.join('').trimEnd() + '…';
 }

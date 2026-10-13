@@ -28,6 +28,8 @@ import { InteriorRenderer } from './interior-render';
 import { drawTeleportParticles, drawTeleportShadow, teleportSprite } from './teleport-render';
 import { applyLight, dayAt, hourAt } from '../game/daylight';
 import { goalCard, pinnedCard, statusCard, timeChip, toastCard, toolChip, ToastFeed, type StatusInfo } from '../ui/hud';
+import { UiSurface, textPreference } from '../ui/surface';
+import { getLocale, sentence } from '../i18n';
 import { itemIcon } from '../ui/icons';
 import { FRIEND_TITLES, friendLevel } from '../game/friendship';
 import { REST_POSE } from '../blobbi/pose';
@@ -44,7 +46,7 @@ function skyColour(t: number): number {
   if (h >= 17 && h < 20.5) return h < 18.8 ? mixColour(day, gold, (h - 17) / 1.8) : mixColour(gold, night, (h - 18.8) / 1.7);
   return night;
 }
-import { drawTinyText, type LiveRenderer, type LiveRenderOptions, type SplitLayers, type FrameText } from './live-render';
+import { type LiveRenderer, type LiveRenderOptions, type SplitLayers, type FrameText } from './live-render';
 import { CAMERA_MODES, CAMERA_CYCLE, blobbiScreenSize, type CameraModeId, type ViewRect } from './view-camera';
 
 /** Native sprites kept per size; poses beyond this are evicted oldest first. */
@@ -355,11 +357,15 @@ export class ViewRenderer {
     return screen;
   }
 
-  private cachedText(key: string, make: () => PixelBuffer, scale: number): PixelBuffer {
-    const k = `${scale}|${key}`;
+  /**
+   * HUD pieces are built at the UI scale (screen resolution, M11B) and kept until their text or the language changes.
+   * The key carries the language and the text size, so switching either redraws them.
+   */
+  private cachedText(key: string, make: (scale: number) => PixelBuffer, scale: number): PixelBuffer {
+    const k = `${scale}|${getLocale()}|${textPreference.smaller ? 's' : 'n'}|${key}`;
     let hit = this.textCache.get(k);
     if (!hit) {
-      hit = make().scaled(scale);
+      hit = make(scale);
       if (this.textCache.size > 64) this.textCache.clear();
       this.textCache.set(k, hit);
     }
@@ -367,10 +373,11 @@ export class ViewRenderer {
   }
 
   private drawText(screen: PixelBuffer, t: FrameText, sx: number, sy: number, ui: number): void {
-    const w = t.text.length * 4 + (t.kind === 'bubble' ? 4 : 3);
-    const h = 9;
-    const buf = this.cachedText(`${t.kind}|${t.text}|${t.color}|${t.background}`, () => {
-      const b = new PixelBuffer(w + 2, h + 4);
+    const buf = this.cachedText(`${t.kind}|${t.text}|${t.color}|${t.background}`, (scale) => {
+      const tw = new UiSurface(1, 1, scale).measure(t.text);
+      const w = tw + (t.kind === 'bubble' ? 5 : 4);
+      const h = 9;
+      const b = new UiSurface(w + 2, h + 4, scale);
       b.fillRect(1, 1, w, h, t.background);
       if (t.kind === 'bubble') {
         b.strokeRect(0, 0, w + 2, h + 2, t.color);
@@ -378,8 +385,8 @@ export class ViewRenderer {
         b.set(tail, h + 1, t.color);
         b.set(tail, h + 2, t.color);
       }
-      drawTinyText(b, t.text, 3, 3, t.color);
-      return b;
+      b.text(t.text, 3, 3, t.color);
+      return b.out;
     }, ui);
     // A bubble's tail points at (sx, sy); a label hangs from its top-centre.
     const x = Math.round(sx - buf.width / 2);
@@ -403,7 +410,7 @@ export class ViewRenderer {
     const away = live.getPresenceState() !== 'present';
     const level = friendLevel(live.companion.friendship);
     const info: StatusInfo = { name: live.blobbi.seed.length > 14 ? 'BLOBBI' : live.blobbi.seed, title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
-    const status = this.cachedText(`status|${JSON.stringify(info)}`, () => statusCard({ ...info, face: this.portrait() }), ui);
+    const status = this.cachedText(`status|${JSON.stringify(info)}`, (k) => statusCard({ ...info, face: this.portrait() }, k), ui);
     screen.blit(status, 2 * ui, 2 * ui);
     let bottom = 2 * ui + status.height;
     // Item toasts under the card, newest last; they slide in (unless motion is reduced) and leave on time. Sim
@@ -412,7 +419,7 @@ export class ViewRenderer {
     this.toasts.update(live.inventory, now);
     for (const t of this.toasts.toasts) {
       const text = `+${t.quantity} ${t.quantity > 1 ? itemPlural(t.item) : itemLabel(t.item)}`;
-      const card = this.cachedText(`toast|${t.item}|${text}`, () => toastCard(itemIcon(t.item, palette), text), ui);
+      const card = this.cachedText(`toast|${t.item}|${text}`, (k) => toastCard(itemIcon(t.item, palette), text, k), ui);
       const age = now - t.at;
       const slide = this.reducedMotion ? 0 : Math.round(Math.max(0, 1 - age / 0.18) * -card.width);
       screen.blit(card, 2 * ui + slide, bottom + ui);
@@ -421,7 +428,7 @@ export class ViewRenderer {
     // The tool in hand, bottom left above the camera indicator.
     const tool = live.equipped && EQUIPMENT[live.equipped] ? live.equipped : null;
     if (tool) {
-      const chip = this.cachedText(`tool|${tool}`, () => toolChip(itemIcon(tool, palette), itemLabel(tool)), ui);
+      const chip = this.cachedText(`tool|${tool}`, (k) => toolChip(itemIcon(tool, palette), itemLabel(tool), k), ui);
       screen.blit(chip, 2 * ui, screen.height - chip.height - 13 * ui);
     }
     this.hudBox = { right: 2 * ui + status.width, bottom: 2 * ui + status.height };
@@ -451,7 +458,7 @@ export class ViewRenderer {
     const t = live.worldTime;
     const hour = hourAt(t);
     const rain = live.rainNow();
-    const chip = this.cachedText(`time|${dayAt(t)}|${Math.floor(hour * 6)}|${rain > 0.45 ? 2 : rain > 0.2 ? 1 : 0}`, () => timeChip(dayAt(t), hour, rain), ui);
+    const chip = this.cachedText(`time|${dayAt(t)}|${Math.floor(hour * 6)}|${rain > 0.45 ? 2 : rain > 0.2 ? 1 : 0}`, (k) => timeChip(dayAt(t), hour, rain, k), ui);
     const hud = this.hudBox;
     const narrow = (w: number) => !!hud && screen.width - w - 2 * ui < hud.right + 4 * ui;
     let y = 2 * ui;
@@ -462,7 +469,7 @@ export class ViewRenderer {
     // A visitor sees where it is and how to go home, not the host's story.
     if (live.visitor) {
       const text = `VISITING ${live.visitLabel || 'AN ISLAND'}  LOOK, DON'T TOUCH  Y: GO HOME`.toUpperCase();
-      const chipV = this.cachedText(`visit|${text}`, () => toastCard(null, text), ui);
+      const chipV = this.cachedText(`visit|${text}`, (k) => toastCard(null, text, k), ui);
       if (narrow(chipV.width)) screen.blit(chipV, 2 * ui, (hud?.bottom ?? 0) + ui);
       else screen.blit(chipV, screen.width - chipV.width - 2 * ui, y);
       return;
@@ -472,7 +479,7 @@ export class ViewRenderer {
     if (goal) {
       const n = OBJECTIVES.indexOf(goal) + 1;
       const progress = live.questProgress(goal);
-      const buf = this.cachedText(`goal|${n}|${goal.title}|${progress}`, () => goalCard(n, OBJECTIVES.length, goal.title, progress), ui);
+      const buf = this.cachedText(`goal|${n}|${goal.title}|${progress}`, (k) => goalCard(n, OBJECTIVES.length, goal.title, progress, k), ui);
       const gx = narrow(buf.width) ? 2 * ui : screen.width - buf.width - 2 * ui;
       const gy = narrow(buf.width) ? (hud?.bottom ?? 0) + ui : y;
       screen.blit(buf, gx, gy);
@@ -482,7 +489,7 @@ export class ViewRenderer {
     const pinned = live.pinnedObjective();
     if (!pinned) return;
     const progress = live.questProgress(pinned);
-    const card = this.cachedText(`pinned|${pinned.title}|${progress}`, () => pinnedCard(pinned.title, progress), ui);
+    const card = this.cachedText(`pinned|${pinned.title}|${progress}`, (k) => pinnedCard(pinned.title, progress, k), ui);
     const px = narrow(card.width) ? 2 * ui : screen.width - card.width - 2 * ui;
     const py = goal ? below : narrow(card.width) ? (hud?.bottom ?? 0) + ui : y;
     screen.blit(card, px, py);
@@ -492,16 +499,19 @@ export class ViewRenderer {
   private drawPrompt(screen: PixelBuffer, ui: number, bottom = 0): void {
     const text = this.live.prompt();
     if (!text) return;
-    const buf = this.cachedText(`prompt|${text}`, () => {
-      const w = text.length * 4 + 5;
-      const b = new PixelBuffer(w, 11);
+    const buf = this.cachedText(`prompt|${text}`, (scale) => {
+      // The key, in yellow and in the 3×5 capitals, when the prompt starts with one; then the words.
+      const key = /^(\S) {2}/.exec(text);
+      const words = sentence(key ? text.slice(key[0].length) : text);
+      const probe = new UiSurface(1, 1, scale);
+      const kw = key ? probe.measure(key[1], 'title') + 6 : 0;
+      const w = kw + probe.measure(words) + 7;
+      const b = new UiSurface(w, 11, scale);
       b.fillRect(0, 0, w, 11, hex('#1b1f2a'));
       b.strokeRect(0, 0, w, 11, hex('#4a5068'));
-      drawTinyText(b, text, 3, 3, hex('#fffaf0'));
-      // The key, in yellow, when the prompt starts with one.
-      const key = /^[A-Z] {2}/i.exec(text);
-      if (key) drawTinyText(b, key[0].trim(), 3, 3, hex('#ffe07a'));
-      return b;
+      if (key) b.text(key[1], 3, 3, hex('#ffe07a'), 'title');
+      b.text(words, 3 + kw, 3, hex('#fffaf0'));
+      return b.out;
     }, ui);
     screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), screen.height - buf.height - Math.max(14 * ui, bottom + 3 * ui));
   }
@@ -510,16 +520,19 @@ export class ViewRenderer {
   private drawNotice(screen: PixelBuffer, ui: number): void {
     const notice = this.live.notices[0];
     if (!notice) return;
-    const line1 = `${notice.heading}: ${notice.title}`.toUpperCase();
-    const line2 = notice.text.toUpperCase();
-    const buf = this.cachedText(`notice|${line1}|${line2}`, () => {
-      const w = Math.max(line1.length, line2.length) * 4 + 7;
-      const b = new PixelBuffer(w, 17);
+    const line1 = `${sentence(notice.heading)}: ${notice.title}`;
+    const line2 = sentence(notice.text);
+    const buf = this.cachedText(`notice|${line1}|${line2}`, (scale) => {
+      const probe = new UiSurface(1, 1, scale);
+      const w1 = probe.measure(line1);
+      const w2 = probe.measure(line2);
+      const w = Math.max(w1, w2) + 9;
+      const b = new UiSurface(w, 17, scale);
       b.fillRect(0, 0, w, 17, hex('#2b2340'));
       b.strokeRect(0, 0, w, 17, hex('#ffe07a'));
-      drawTinyText(b, line1, Math.round((w - line1.length * 4) / 2), 3, hex('#ffe07a'));
-      drawTinyText(b, line2, Math.round((w - line2.length * 4) / 2), 10, hex('#f4efe4'));
-      return b;
+      b.text(line1, Math.round((w - w1) / 2), 3, hex('#ffe07a'));
+      b.text(line2, Math.round((w - w2) / 2), 10, hex('#f4efe4'));
+      return b.out;
     }, ui);
     screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), 16 * ui);
   }
@@ -529,14 +542,14 @@ export class ViewRenderer {
     const mode = CAMERA_MODES[view.mode];
     const scaleText = Number.isInteger(view.scale) ? `${view.scale}X` : '';
     const text = `Z CAMERA  ${mode.label} ${scaleText}`.trimEnd();
-    const buf = this.cachedText(`cam|${text}`, () => {
+    const buf = this.cachedText(`cam|${text}`, (scale) => {
       const pips = CAMERA_CYCLE.length * 4 + 2;
-      const w = text.length * 4 + 3 + pips;
-      const b = new PixelBuffer(w, 9);
+      const w = new UiSurface(1, 1, scale).measure(text) + 3 + pips;
+      const b = new UiSurface(w, 9, scale);
       b.fillRect(0, 0, w, 9, hex('#1b1f2a'));
       CAMERA_CYCLE.forEach((id, i) => b.fillRect(2 + i * 4, 3, 3, 3, id === view.mode ? hex('#ffe07a') : hex('#4a5068')));
-      drawTinyText(b, text, pips + 1, 2, hex('#f4efe4'));
-      return b;
+      b.text(text, pips + 1, 2, hex('#f4efe4'));
+      return b.out;
     }, ui);
     screen.blit(buf, 2 * ui, screen.height - buf.height - 2 * ui);
     this.indicatorBox = { x: 2 * ui, y: screen.height - buf.height - 2 * ui, w: buf.width, h: buf.height };
