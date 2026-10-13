@@ -63,3 +63,42 @@ work). Prerequisites before implementing: (1) the owner and the kit maintainer a
 (2) the original V1/V2 appearance is shown alongside (kit renderer, a static card is enough); (3) test vectors pin
 the mapping; (4) no write path exists (enforced by the M11B boundary tests). Until then, M11C should import V3 Blobbis
 only and list V1/V2 ones as "not here yet". Nothing of this is implemented.
+
+## 4. What M11C ships (IMPLEMENTED)
+
+MY BLOBBIS ([M11C](../milestones/M11C.md)) reads the connected player's kind 31124 events and lets only a **V3
+adult** walk the island. Every other Blobbi is listed, never drawn as something else:
+
+| Blobbi | In MY BLOBBIS | Why |
+|---|---|---|
+| V3 adult | its pixel picture; can be brought to the island | the pixel game draws the V3 adult gene for gene (seed from the address, `deriveBlobbiV3Seed`) |
+| V3 egg, V3 baby | its V3 colours, "only grown-up Blobbis can visit this world" | the pixel rig is adult only (`stateForPose` fixes `stage: 'adult'`; KI-69) |
+| V1, V2 | its colours (the kit's `visualTraits`), "earlier generation, its form for this pixel world is not ready yet" | other artwork, another seed (§1); drawing V3 from it would show an unrelated creature |
+| unknown `visual_generation` | "a style this version does not know yet" | the kit would fall back to V1 (and then call it legacy); this game refuses to guess |
+
+## 5. Plan: a local world form for V1/V2 (PROPOSED, not implemented)
+
+New evidence (renderer 0.6.0 types, `node_modules/@blobbi-kit/renderer/dist/procedural/genome.d.ts`): `generateGenome(input)` accepts a **semantic
+identity** besides the seed (`colors`, `pattern`, `mark`, `antenna`, `horns`, `ears`, `tail`, `belly`, `freckles`),
+and `canonicalGenome()` is "the individual the procedural renderer is tuned against the current Adult V2 drawing
+with". So a deterministic pixel form that a V1/V2 owner can recognise is feasible without new art:
+
+1. **Input**: the newest valid 31124 event (already checked by `pickBlobbis`), its `seed` tag (64 hex, V1/V2 rule,
+   §1) and the kit's `parseBlobbiEvent(...).visualTraits` (base, secondary, eye colour; pattern; special mark; size).
+2. **Mapping v1 (versioned, `WORLD_FORM_VERSION = 1`)**: morphology = the canonical genome's (all genes 0, the V2
+   adult body); colours = `{ base, secondary, eye }` from the traits (`mapping: 'kit'` keeps the V2 RGB rule); pattern
+   = the same word (solid/spotted/striped/gradient exist in both); mark = star/heart/sparkle kept, blush → freckles
+   (to agree); antenna/horns/ears/tail = none; size small/medium/large → the pixel standing height ±1 px (to agree).
+   The genome's own random parts keyed by a **domain-separated** hash `sha256("blobbi-pixel:world-form:v1|" + seed)`
+   so a world form can never collide with a real V3 seed.
+3. **Where it lives**: a pure function in a new module, world-form.ts under src/blobbi (no network), pinned by test vectors (seed +
+   traits → genome hash → sprite hash), never stored as identity: the selection keeps the `31124:pubkey:d` address
+   and a new source kind `world-form` derived on load.
+4. **What the player sees**: "Your Blobbi found a form for this little world" with the original V1/V2 picture next
+   to it (the kit's `renderBlobbiSvg({ visualGeneration })` rasterized once, static; needs the rasterizer allow-list
+   to accept `id`/`title`/`desc`, `line`, and drop `animateTransform`/`text`, §2). Never called an upgrade or an
+   evolution; nothing published; other apps never see it.
+5. **Before building**: the owner approves the wording and the look on real V1/V2 Blobbis (side-by-side sheet from a
+   script), and the kit maintainer agrees that the mapping may later move into the kit as a shared spec.
+
+Estimated size: one module + tests + one screen change + the rasterizer additions; no save or event change.

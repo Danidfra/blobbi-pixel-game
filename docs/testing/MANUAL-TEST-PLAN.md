@@ -403,8 +403,8 @@ extension and blocked relays) are listed in Notes and do not count as passes.
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
 |---|---|---|---|---|---|
-| ACCT-01 | A browser without a Nostr extension | SETTINGS → ACCOUNT; press CONNECT. | The pitch and "playing never needs an account"; CONNECT says no extension was found; nothing else changes. | NOT TESTED | `tests/nostr-identity.test.ts`; `browser-*-account-guest-no-signer.png` |
-| ACCT-02 | A real NIP-07 extension (Alby, nos2x...) with an account that has a profile | CONNECT; approve in the extension. | CONNECTED, the profile name, the short npub; "your islands are still saved only in this browser". The extension was asked only for the public key (it never shows a signing request). | NOT TESTED | mocked only: `browser-*-account-connected*.png` |
+| ACCT-01 | A browser without a Nostr extension | SETTINGS → ACCOUNT; press CONNECT. | "Play freely without an account. Connect to discover your Blobbis from other worlds." (M11C copy); CONNECT says no extension was found; nothing else changes. | NOT TESTED | `tests/nostr-identity.test.ts`; `browser-*-account-guest-no-signer.png` |
+| ACCT-02 | A real NIP-07 extension (Alby, nos2x...) with an account that has a profile | CONNECT; approve in the extension. | CONNECTED, the profile name, the short npub; "Your island is still saved only on this device." (M11C copy). The extension was asked only for the public key (it never shows a signing request). | NOT TESTED | mocked only: `browser-*-account-connected*.png` |
 | ACCT-03 | ACCT-02 | Reject the extension's prompt instead. | "The extension said no. Nothing changed." | NOT TESTED | `tests/nostr-identity.test.ts` |
 | ACCT-04 | ACCT-02 | Reload the page; open ACCOUNT. | Still connected, no new prompt. | NOT TESTED | |
 | ACCT-05 | ACCT-02 | Switch accounts in the extension; CHECK THE ACCOUNT AGAIN. | The new account's name and npub. | NOT TESTED | |
@@ -419,6 +419,39 @@ extension and blocked relays) are listed in Notes and do not count as passes.
 | READ-01 | A laptop and a phone in landscape | Read the journal, crafting, bag, tips and the HUD at every camera zoom. | Comfortable to read; the pixel look kept. | NOT TESTED | `browser-*-journal-*.png`, `browser-*-hud-*.png` |
 | READ-02 | READ-01 | TEXT SIZE small, normal, large. | Small: smaller menus and text; large: a larger HUD, larger menus where the window has room; nothing clipped; the world camera unchanged. | NOT TESTED | `tests/readability.test.ts`; `browser-*-large-*.png` |
 | READ-03 | A small phone (about 667×375) | Open every menu. | Menus at 2× with the readable font (they were 1× before). | NOT TESTED | |
+
+## M11C: who is playing, the tool hotbar, MY BLOBBIS (WHO, BAR, MINE)
+
+Every test in this section is **NOT TESTED**. The automated tests (`tests/m11c-hud-hotbar.test.ts`,
+`tests/m11c-blobbis.test.ts`) and the images in `examples/m11c/` (headless Chrome, a mocked extension, a fake relay
+inside the page) are evidence for development only and do not count as passes.
+
+| ID | Prerequisites | Steps | Expected result | Status | Notes |
+|---|---|---|---|---|---|
+| WHO-01 | Any island, no account | Play on a laptop. | A small "Guest" chip under the status card; it never covers the goal, the toasts' reading, the prompt or menus. | NOT TESTED | `browser-desktop-guest-hotbar-empty-hands.png` |
+| WHO-02 | WHO-01 on a phone in landscape | Play. | The chip is readable and does not cover the stick area, USE, the menu bar or the goal. | NOT TESTED | `browser-phone-*-guest-*.png` |
+| WHO-03 | WHO-01 | Click or tap the chip. | SETTINGS opens on ACCOUNT: "Play freely without an account. Connect to discover your Blobbis from other worlds." No cloud save is promised. | NOT TESTED | `browser-*-account-from-chip-guest.png` |
+| WHO-04 | A real NIP-07 extension (Brave, Alby, nos2x...) | CONNECT from the chip's page. | The chip says "Connected"; ACCOUNT says "Your island is still saved only on this device." Nothing is signed; no island is claimed. | NOT TESTED | the owner connected once in Brave before M11C and saw no prompt; see "Verifying the npub" in M11C |
+| WHO-05 | WHO-04 | ADVANCED DETAILS; compare the npub with the extension's own (Brave Wallet / extension popup → account → copy npub or public key). | Both lines of the npub (and the hex key) match the extension's account exactly. | NOT TESTED | |
+| WHO-06 | WHO-04 | Switch the account in the extension; CHECK THE ACCOUNT AGAIN. | The other account's npub; MY BLOBBIS shows that account's Blobbis only; a Blobbi chosen with the first account stops walking (the visiting Blobbi returns). | NOT TESTED | `tests/m11c-blobbis.test.ts` (switching) |
+| WHO-07 | WHO-04 | Disable the extension; reload. | Still "Connected" (the public key is remembered), and ACCOUNT says the extension is not here right now. | NOT TESTED | |
+| WHO-08 | Portuguese and Spanish | WHO-01..04 in each. | "Convidado"/"Invitado", "Conectado"; texts fit on a 667×375 phone. | NOT TESTED | `browser-phone-narrow-*-pt-BR.png`, `*-es.png` |
+| BAR-01 | An island with the simple axe | Look at the bottom left. | One slot with the axe and "1"; "Empty hands" and "Q next tool" above it. No empty slots. | NOT TESTED | `browser-desktop-connected-hotbar-3-tools.png` |
+| BAR-02 | Axe, pickaxe, hoe, watering can, rod | Press 1..5. | Each number takes that tool in hand (the Blobbi holds it); the same number again puts it away. Number pad digits work too. | NOT TESTED | `browser-desktop-hotbar-key-*.png` |
+| BAR-03 | BAR-02 | Press Q repeatedly. | As before M11C: empty, each tool in turn, empty. The hotbar highlight follows. | NOT TESTED | `browser-desktop-hotbar-q.png` |
+| BAR-04 | BAR-02 | Click slots with the mouse. | Same as the keys; clicks between slots never walk the Blobbi. | NOT TESTED | |
+| BAR-05 | A phone, touch | Tap slots; walk with the stick; tap USE. | Comfortable 44 px slots; selection by tap; the stick, USE, the menu bar, the prompt and tips are never covered. | NOT TESTED | `browser-phone-*-hotbar-*.png` |
+| BAR-06 | BAR-02 | Open the bag (I), the naming page of a new island, crafting; press 1..5. | The menu uses the keys (as before); the tool in hand never changes. | NOT TESTED | |
+| BAR-07 | Any island | Press 0 (and Home). | HOME opens (it was key 1 before M11C); key 1 no longer opens HOME. | NOT TESTED | |
+| BAR-08 | BAR-02 | Build mode (B), placing furniture, visiting another island. | The hotbar hides while the mode's own buttons show, and for a visitor. | NOT TESTED | |
+| MINE-01 | WHO-04 with an account that owns V3 adult Blobbis (nostr-pet, Blobbi Island) | ACCOUNT → MY BLOBBIS. | "Looking for your Blobbis...", then the list: name, stage, generation, the pixel picture. | NOT TESTED | fake relay: `browser-*-my-blobbis.png` |
+| MINE-02 | MINE-01 | Choose a V3 adult; close; play; reload. | It walks the island with its own name on the status card; the island, bag, buildings, quests and Carrier are unchanged; still there after a reload. Compare its look with nostr-pet. | NOT TESTED | `browser-*-hud-with-canonical-blobbi.png` |
+| MINE-03 | An account with V1 or V2 Blobbis | Select one. | Listed with its colours and the notice "earlier generation... not ready yet"; it cannot be brought; nothing else is drawn in its place. | NOT TESTED | `browser-*-my-blobbis-v2-notice.png`, `-v1-notice.png` |
+| MINE-04 | An account with a V3 egg or baby | Select it. | Listed with its colours; "only grown-up Blobbis can visit this world" for now. | NOT TESTED | `browser-*-my-blobbis-baby.png` |
+| MINE-05 | An account with no Blobbis | MY BLOBBIS. | "No Blobbis were found for this account." Nothing is created; no redirect. | NOT TESTED | `browser-*-my-blobbis-empty*.png` |
+| MINE-06 | Network offline | MY BLOBBIS. | "The Blobbi relays could not be reached right now..." within about 8 s, TRY AGAIN; play never waits. | NOT TESTED | `browser-desktop-my-blobbis-relays-down.png` |
+| MINE-07 | MINE-02 | USE THE VISITING BLOBBI; then DISCONNECT with the canonical one chosen. | The visiting Blobbi returns each time; reconnecting the same account brings the chosen one back. | NOT TESTED | |
+| MINE-08 | MINE-01 with a second device/app | Check the Blobbi in nostr-pet after playing. | Unchanged: Blobbi Pixel never published or edited anything (the extension never asked to sign). | NOT TESTED | the fake relay saw only REQ and CLOSE |
 
 ## Camera and regressions M1–M3 (CAM, REG)
 

@@ -19,7 +19,7 @@ upgrades (Cottage, Dream Home) earned through play, rooms to furnish, and a look
   | 3 | Dream Home | two storeys, tiled roof with a dormer and chimney, five windows with flower boxes, arched double door, wide porch with railing and lanterns, a vine | 240 × 144: bedroom, study (any use), kitchen above; living room below, through three openings | 22 × 7 |
 
   Each level is its own drawing at the world's native scale; nothing is a scaled-up smaller house.
-- **Upgrading** (HOME panel, key 1 or the menu bar's HOME): the panel shows now/next pictures and every requirement
+- **Upgrading** (HOME panel, key 0 or Home since M11C (was 1), or the menu bar's HOME): the panel shows now/next pictures and every requirement
   with OK/-- and have/need. UPGRADE asks first (CONFIRM is greyed for 0.35 s, so a double press never confirms) and
   says the cost and what happens to the furniture. Then the materials leave the bag, the house is rebuilt over a
   short construction (scaffold, walls, roof) in world time, and a burst of sparkles and a chime mark the end.

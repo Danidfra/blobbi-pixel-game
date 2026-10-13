@@ -1,6 +1,6 @@
 # Nostr identity: players, canonical Blobbis, guests
 
-**Status: AUDIT + DESIGN (M11A).** Nothing here is implemented in Blobbi Pixel. Facts are labelled **VERIFIED**
+**Status: AUDIT + DESIGN (M11A); partly IMPLEMENTED since.** M11B implemented read-only NIP-07 identity; M11C implemented read-only discovery of the player's canonical Blobbis and V3-adult selection (see §5). The rest is design. Facts are labelled **VERIFIED**
 (read in source at the commit given), **DOCUMENTED ONLY**, **PROPOSED** or **UNKNOWN**. Repositories read
 (2026-10-13): `blobbi-kit` `main` `1e2d348` (`@blobbi-kit/core` 0.9.0, renderer 0.6.0, react 0.9.0), `nostr-pet`
 `feat/blobbi-v3` `b7916dc`, `ditto` `feat/blobbi-v3` `b2e65945`, `blobbi-island` `production` `1a6c3b6`,
@@ -101,3 +101,18 @@ needs its own small login record.
 **Must be validated experimentally (M11B):** NIP-07 and NIP-46 from the canvas app with those classes, signer support
 for `nip44.encrypt` to the player's own pubkey (optional in NIP-07: `~/Developer/nips/07.md:22`), signer behaviour
 when the tab is backgrounded.
+
+## 5. Implemented in M11C (read-only canonical Blobbis)
+
+- **Query**: `{kinds:[31124], authors:[pk], "#b":["blobbi:ecosystem:v1"], limit:200}` to the two Blobbi relays, one
+  REQ each, closed after; only when MY BLOBBIS opens; 5-minute memory cache; 8 s deadline (`src/nostr/relays.ts`,
+  `src/nostr/account.ts`).
+- **Ownership gap closed for Blobbi Pixel**: `event.pubkey === owner` is checked for every event (`src/nostr/blobbis.ts`).
+- **Newest per `d`**, then the kit's `classifyBlobbiEvent === 'modern'` (same as `useBlobbisCollection`); legacy
+  and invalid never shown.
+- **Which Blobbi walks**: the player's own choice on this device (MY BLOBBIS); the profile's `current_companion`
+  (kind 11125) is **not read yet** (the choice is explicit, so no surprise swap; reading it is a later nicety).
+  Only V3 adults may visit (see [generations](BLOBBI-GENERATION-COMPATIBILITY.md) §4).
+- **Identity**: the address `31124:pk:d` stays the identity (the selection stores a `v3-address`); the seed is derived
+  by the kit on every load and never stored as identity. Guests keep the visiting demo Blobbi.
+- **Never**: publishing, editing a 31124, claiming an island, syncing saves, reading or making secret keys.

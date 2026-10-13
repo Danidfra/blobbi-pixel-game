@@ -43,7 +43,8 @@ plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M1
 - [Save and persistence](architecture/SAVE-AND-PERSISTENCE.md): schema 1–12, migrations, and what happens to a save
   that cannot be read.
 - [Languages and readable text](architecture/I18N.md) (M11B): catalogues, content overlay, fonts, text size.
-- [Blobbi generations V1/V2/V3](architecture/BLOBBI-GENERATION-COMPATIBILITY.md) (M11B investigation).
+- [Blobbi generations V1/V2/V3](architecture/BLOBBI-GENERATION-COMPATIBILITY.md) (M11B investigation; M11C support and the V1/V2 world-form plan).
+- [M11C](milestones/M11C.md): the Guest/Connected chip, the tool hotbar, MY BLOBBIS (read-only canonical Blobbi discovery).
 - Nostr: identity is IMPLEMENTED read-only in M11B (`src/nostr/`, [M11B](milestones/M11B.md)); the rest is the M11A design: [identity](architecture/NOSTR-IDENTITY.md),
   [world persistence](architecture/NOSTR-WORLD-PERSISTENCE.md), [inventory interop](architecture/NOSTR-INVENTORY-INTEROP.md),
   [implementation plan](architecture/NOSTR-IMPLEMENTATION-PLAN.md).

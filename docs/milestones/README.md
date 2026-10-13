@@ -21,5 +21,6 @@ One summary per milestone; the full reports and development logs are archived, u
 | [M10 phase C](M10C.md) | The road to the ocean: one-island onboarding, growth in the story, guaranteed ocean access (the landing), clearing at every stage, prepared land, planted trees saved, side-quest pinning, locked-recipe hints, canoe and sea polish, save safety | `develop` `4e0b4f5` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
 | [M11A](M11A.md) | Nostr architecture and interoperability audit: verified Blobbi and inventory kinds, identity, world persistence, inventory interop, implementation plan | `develop` (docs only) | **AUDIT COMPLETE** (documentation only) |
 | [M11B](M11B.md) | Read-only Nostr identity (NIP-07, profile name), languages (English, Portuguese, Spanish), readable text and text size, Blobbi generation investigation | `develop` `45da02f` … (see the page) | **IMPLEMENTED — AWAITING MANUAL VALIDATION** |
+| [M11C](M11C.md) | Guest/Connected indicator, tool hotbar (keys 1-5, taps), read-only discovery of the player's canonical Blobbis (MY BLOBBIS), V3 adults on the island | `develop` `7b4fe10` … (see the page) | **IMPLEMENTED, AWAITING MANUAL VALIDATION** |
 
 "Committed" means the work is in git history; it does not mean a person ran the [manual test plan](../testing/MANUAL-TEST-PLAN.md).
