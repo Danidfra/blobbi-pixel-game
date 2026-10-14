@@ -480,7 +480,13 @@ export class IdentityScreen implements Screen {
       case 'consent':
         head('identity.consent.title');
         cy = p('identity.consent.body', cy);
+        // M11D.7: a live build says plainly that this share is real, may last forever, and what never leaves the device.
         if (this.identity?.publishMode === 'rehearsal') cy = p('identity.consent.rehearsal', cy, UI.muted, 3);
+        else {
+          cy = p('identity.consent.live', cy, UI.accent, 3);
+          cy = p('identity.consent.liveLasting', cy, UI.bad, 3);
+          cy = p('identity.consent.livePrivate', cy, UI.good, 3);
+        }
         if (this.subjectBlobbi()?.ownerKind === 'account') cy = p('identity.consent.account', cy, UI.muted, 3);
         else if (this.subjectBlobbi() && this.host?.otherAccountConnected?.(this.subjectBlobbi()!.owner)) cy = p('identity.consent.keepAccount', cy, UI.muted, 3);
         break;
