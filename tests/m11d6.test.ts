@@ -454,7 +454,7 @@ describe('M11D.6: after a restore, one clear way on', () => {
     ui.handleKey('Enter');
     for (let i = 0; i < 100 && sc.page !== 'restorePreview'; i++) await new Promise((r) => setTimeout(r, 10));
     ui.handleKey('Enter'); // RESTORE
-    for (let i = 0; i < 100 && sc.page !== 'restoreDone'; i++) await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 100 && (sc.page !== 'restoreDone' || sc.search?.status === 'looking'); i++) await new Promise((r) => setTimeout(r, 10));
     expect(sc.page).toBe('restoreDone');
     const buf = new PixelBuffer(960, 540);
     ui.render(buf, 0);

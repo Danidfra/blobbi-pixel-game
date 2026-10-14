@@ -175,6 +175,17 @@ export interface BackupPreview {
 }
 
 /**
+ * M11D.7: what a look for a restored identity's shared Blobbis found (read only). `blobbis`: the V3 Babies kept here
+ * now as the same Blobbis (owner, d, name). `others`: its other Blobbis out there (adults, eggs, older generations),
+ * met from MY BLOBBIS. 'unavailable': the relays did not all answer, so the look can be tried again.
+ */
+export interface SharedSearch {
+  status: 'found' | 'none' | 'unavailable';
+  blobbis: { d: string; name: string; alreadyHere: boolean }[];
+  others: number;
+}
+
+/**
  * THE IDENTITY PORT (types only): what the UI may do with reserved identities. It never hands out a secret: backups
  * come back as finished files (encrypted with the player's password), and signing happens behind it.
  */
@@ -205,6 +216,8 @@ export interface IdentityPort {
   previewBackup(text: string, password: string): Promise<IdentityResult<BackupPreview>>;
   /** Restore an identity (and the Blobbis its backup names) from a backup; never overwrites, never publishes. */
   restoreBackup(text: string, password: string): Promise<IdentityResult<BackupPreview>>;
+  /** M11D.7: after a restore, this identity's Blobbis already shared with other worlds (read only, never publishes). */
+  findShared(owner: string): Promise<IdentityResult<SharedSearch>>;
   registration(d: string): RegistrationState;
   /** M11D.6: where the Blobbi stands with other worlds (for the player: backed up, practiced, pending, shared...). */
   shareStatus(d: string): Promise<ShareStatus>;

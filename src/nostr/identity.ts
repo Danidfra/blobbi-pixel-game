@@ -9,16 +9,19 @@
  *   backups           made, verified (loaded back and opened), previewed and restored; restoring never overwrites an
  *                     identity or a Blobbi already here and never publishes
  *   register          explicit consent, a verified backup (guest), then `activate` (resumable, idempotent)
+ *   findShared        M11D.7: after a restore, the identity's Blobbis already shared, read back from the relays (read only)
  */
 import { generatePetId10 } from '@blobbi-kit/core';
 import type { KeyValueStore } from '../game/persistence';
 import { addGuestBlobbi, chooseGuestName, guestBlobbi, readGuestBlobbis, suggestedName, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
 import { KeyVault, VaultError, askPersistentStorage } from './keystore';
 import { backupFileName, buildBackupFile, parseBackupFile, recoveryFileName } from './backup';
-import { activate, activationRun, ActivationError, finishActivation, ownerRuns } from './activation';
+import { activate, activationRun, ActivationError, adoptFoundBlobbi, finishActivation, ownerRuns } from './activation';
 import { canonicalD } from './canonical-events';
 import type { Publisher } from './publisher';
-import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, IdentityResult, RegistrationState, ReservedBlobbi, ShareStatus } from './port';
+import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, IdentityResult, RegistrationState, ReservedBlobbi, SharedSearch, ShareStatus } from './port';
+import { pickBlobbis } from './blobbis';
+import type { BlobbiReader, ProfileReadResult } from './relays';
 import { npubEncode, shortNpub } from './keys';
 import type { EventTemplate } from './canonical-events';
 import type { NostrEvent } from 'nostr-tools/pure';
@@ -43,6 +46,17 @@ export interface IdentityServiceOptions {
   currentAccount?: () => string | null;
   /** M11D.6: the wait before reading back again (tests: none). */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * M11D.7: called once an identity was restored (kept in the vault). The host decides what that means for the
+   * account (as for `onRegistered`: it never replaces another connected account).
+   */
+  onRestored?: (pubkey: string) => void;
+  /** M11D.7: reads an owner's kind 31124 Blobbis (read only); absent: shared Blobbis cannot be looked for. */
+  blobbiReader?: BlobbiReader;
+  /** M11D.7: the relays a restored identity's Blobbis are looked for on. */
+  readRelays?: readonly string[];
+  /** M11D.7: how long the relays get to answer that look (ms). */
+  findTimeoutMs?: number;
 }
 
 const fail = <T>(problem: IdentityProblem): IdentityResult<T> => ({ ok: false, problem });
@@ -173,12 +187,65 @@ export class IdentityService implements IdentityPort {
       for (const b of parsed.meta?.blobbis ?? [])
         if (preview.value.blobbis.some((p) => p.d === b.d) && !guestBlobbi(this.o.store, b.d))
           addGuestBlobbi(this.o.store, { owner: preview.value.pubkey, ownerKind: 'guest', petId: b.petId, d: b.d, name: b.name, createdAt: this.now(), bornAt: b.bornAt, island: null, born: true, activatedAt: null, named: b.named === true || b.name !== suggestedName(b.petId), namingLaterAt: null, practicedAt: null });
+      // M11D.7: the identity is kept: the host makes it the player's (a raw Recovery Key names no Blobbi, and the
+      // identity used to sit unused in the vault while a new adventure made another one).
+      this.o.onRestored?.(preview.value.pubkey);
       return preview;
     } catch (e) {
       return fail(problemOf(e));
     } finally {
       this.busy = false;
     }
+  }
+
+  /**
+   * M11D.7, AFTER A RESTORE: the identity's Blobbis already shared with other worlds, read back from the relays (a
+   * REQ only: nothing is signed or sent). A V3 Baby whose d is this owner's canonical d is kept here as the very same
+   * Blobbi (its owner, d and name; registered, since it is out there); one already here keeps its record and is only
+   * marked shared. Anything else (an adult, an egg, an older generation) is counted and left to MY BLOBBIS. Only for
+   * an identity this device keeps. When not every relay answers and nothing turned up: 'unavailable', never 'none'.
+   */
+  async findShared(owner: string): Promise<IdentityResult<SharedSearch>> {
+    const reader = this.o.blobbiReader;
+    const relays = this.o.readRelays ?? [];
+    const unavailable: IdentityResult<SharedSearch> = { ok: true, value: { status: 'unavailable', blobbis: [], others: 0 } };
+    try {
+      if (!(await this.o.vault.has(owner))) return fail('not-found');
+    } catch (e) {
+      return fail(problemOf(e));
+    }
+    if (!reader || !relays.length) return unavailable;
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let res: ProfileReadResult | null;
+    try {
+      const late = new Promise<null>((resolve) => (timer = setTimeout(() => (abort.abort(), resolve(null)), this.o.findTimeoutMs ?? 8000)));
+      res = await Promise.race([reader.readBlobbis(owner, relays, abort.signal), late]);
+    } catch {
+      res = null;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res || res.reachable === 0) return unavailable;
+    const blobbis: SharedSearch['blobbis'] = [];
+    let others = 0;
+    for (const item of pickBlobbis(res.events, owner).items) {
+      const petId = item.d.slice(item.d.lastIndexOf('-') + 1);
+      if (item.generation !== 'v3' || item.stage !== 'baby' || item.availability !== 'available' || canonicalD(owner, petId) !== item.d) {
+        others++;
+        continue;
+      }
+      // Shared for real: a finished live run adopting the event found (a share still under way here is left alone).
+      const shared = adoptFoundBlobbi(this.o.store, owner, item.d, res.events, this.now());
+      const here = guestBlobbi(this.o.store, item.d);
+      if (here) {
+        if (shared && here.owner === owner && !here.activatedAt) updateGuestBlobbi(this.o.store, item.d, { activatedAt: this.now(), born: true });
+      } else addGuestBlobbi(this.o.store, { owner, ownerKind: 'guest', petId, d: item.d, name: item.name, createdAt: this.now(), bornAt: item.updatedAt, island: null, born: true, activatedAt: shared ? this.now() : null, named: true, namingLaterAt: null, practicedAt: null });
+      blobbis.push({ d: item.d, name: here?.name ?? item.name, alreadyHere: !!here });
+    }
+    if (blobbis.length) this.o.onChanged?.();
+    if (!blobbis.length && !others && res.reachable < relays.length) return unavailable;
+    return { ok: true, value: { status: blobbis.length || others ? 'found' : 'none', blobbis, others } };
   }
 
   registration(d: string): RegistrationState {

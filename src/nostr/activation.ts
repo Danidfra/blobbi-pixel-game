@@ -127,6 +127,22 @@ export function finishActivation(store: KeyValueStore, d: string, now: number): 
   if (run && (run.stage === 'confirmed' || run.stage === 'done')) saveRun(store, { ...run, stage: 'done', updatedAt: now });
 }
 
+/**
+ * M11D.7: a Blobbi of a restored identity FOUND out there (read back after the restore, never sent from here) is
+ * recorded as a finished LIVE run that ADOPTED that event, as `activate` adopts one it finds: so it reads as shared,
+ * is never published again, and never passes for practice. Only the newest validly signed 31124 by its owner for that
+ * d counts. A live run already here is left as it is (a share under way finishes its own way). Returns whether a
+ * finished live run stands behind the Blobbi now.
+ */
+export function adoptFoundBlobbi(store: KeyValueStore, owner: string, d: string, events: readonly unknown[], now: number): boolean {
+  const known = activationRun(store, d, 'live');
+  if (known) return known.stage === 'done';
+  const found = newest(events.filter((e): e is NostrEvent => !!e && typeof e === 'object' && typeof (e as NostrEvent).id === 'string'), owner, 31124, d);
+  if (!found) return false;
+  saveRun(store, { owner, d, stage: 'done', mode: 'live', blobbi: found, profile: null, accepted: { blobbi: [], profile: [] }, seenOn: { blobbi: [], profile: [] }, adopted: true, lastProblem: null, consentAt: now, updatedAt: now });
+  return true;
+}
+
 const valid = (e: NostrEvent, owner: string, kind: number, d?: string) => e.kind === kind && e.pubkey === owner && (d === undefined || e.tags.some((t) => t[0] === 'd' && t[1] === d)) && verifyEvent(e);
 /** NIP-01 replaceable order: the newest created_at; on a tie, the lowest id. */
 const newest = (events: readonly NostrEvent[], owner: string, kind: number, d?: string) => events.filter((e) => valid(e, owner, kind, d)).sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1))[0] ?? null;

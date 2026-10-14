@@ -636,7 +636,7 @@ settingsScreen.onMyBlobbis = () => gameUI.open('blobbis');
 let identityTask: Promise<IdentityService> | null = null;
 function identityService(): Promise<IdentityService> {
   identityTask ??= (async () => {
-    const [{ IdentityService: Service }, keys, pub, signer, relayConfig] = await Promise.all([import('../nostr/identity'), import('../nostr/keystore'), import('../nostr/publisher'), import('../nostr/signer'), import('../nostr/relay-config')]);
+    const [{ IdentityService: Service }, keys, pub, signer, relayConfig, relays] = await Promise.all([import('../nostr/identity'), import('../nostr/keystore'), import('../nostr/publisher'), import('../nostr/signer'), import('../nostr/relay-config'), import('../nostr/relays')]);
     let backend: import('../nostr/keystore').VaultBackend;
     try {
       backend = keys.indexedDbVaultBackend();
@@ -662,6 +662,14 @@ function identityService(): Promise<IdentityService> {
         if (b.ownerKind === 'guest' && (acc.status !== 'connected' || acc.pubkey === b.owner)) account.adoptVaultIdentity(b.owner);
         shownName = blobbiDisplayName();
       },
+      // M11D.7: a restored identity is the player's from now on (a new adventure, MY BLOBBIS and SETTINGS > ACCOUNT use
+      // it, and a reload remembers it), unless ANOTHER account is connected: that one is never replaced unasked.
+      onRestored: (pubkey) => {
+        if (account.snapshot().status === 'guest') account.adoptVaultIdentity(pubkey);
+      },
+      // M11D.7: after a restore its Blobbis already shared are looked for (a read; nothing is sent).
+      blobbiReader: relays.relayBlobbiReader(),
+      readRelays: relayConfig.READ_RELAYS,
     });
   })();
   identityTask.catch(() => (identityTask = null));

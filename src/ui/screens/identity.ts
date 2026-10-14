@@ -18,6 +18,8 @@
  *   reveal     the little secret behind the worlds: Nostr, in a few warm words
  *   restore    "Bring a Blobbi back" from either backup or a pasted nsec (the kind is told by the text; a password only
  *              when it is a Protected Key): look inside first, then restore (never overwriting, never sharing)
+ *   restoreDone M11D.7: the restored identity's Blobbis already shared are looked for first (read only); CONTINUE waits
+ *              for that look, and when other worlds do not answer it says so (LOOK AGAIN, or go on without them)
  *   legacy     a Blobbi born before identities existed (M11D.3) stays on this device: said kindly, never changed
  *
  * The screen never sees a secret: it hands the password and the loaded backup text to the `IdentityPort` and keeps
@@ -32,7 +34,7 @@ import { Gfx, UI } from '../gfx';
 import { isConfirm, type GameUI, type Screen } from '../game-ui';
 import { t, upper, type MessageKey } from '../../i18n';
 import type { PixelBuffer } from '../../core/pixel';
-import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, ReservedBlobbi } from '../../nostr/port';
+import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, ReservedBlobbi, SharedSearch } from '../../nostr/port';
 import { KEY_ICON, LOCK_ICON, drawConnectedWorlds, drawPortrait, drawTwinkles } from '../portrait';
 import type { Expression } from '../../blobbi/sprite';
 import type { PixelBlobbiIdentity } from '../../blobbi/identity';
@@ -90,6 +92,8 @@ export class IdentityScreen implements Screen {
   private saved = false;
   private message: { key: MessageKey; good: boolean } | null = null;
   private preview: BackupPreview | null = null;
+  /** M11D.7: the look for the restored identity's shared Blobbis (null: none asked yet). */
+  search: { status: 'looking' | SharedSearch['status']; others: number } | null = null;
   private problem: IdentityProblem | null = null;
   private pending = false;
   /** M11D.5: the backup the player chose (a Recovery Key or a Protected Key). */
@@ -108,6 +112,7 @@ export class IdentityScreen implements Screen {
   start(page: 'activate' | 'restore'): void {
     const walking = this.host?.walking() ?? { reserved: null, legacyLocal: false };
     this.clear();
+    this.search = null;
     if (page === 'restore') return this.go('restore');
     if (walking.reserved) {
       this.subject = walking.reserved.d;
@@ -251,13 +256,22 @@ export class IdentityScreen implements Screen {
         ];
       case 'restoreDone': {
         // M11D.6: one clear way on. The host decides where (the islands, or a new adventure with this Blobbi).
+        // M11D.7: only once the look for its shared Blobbis is over (never a new Blobbi while one may be out there).
         const first = this.preview?.blobbis[0] ?? null;
         const on = () => {
           ui.close();
           if (this.host?.continueAfterRestore) this.host.continueAfterRestore(first?.d ?? null);
           else if (first) this.host?.bring(first.d);
         };
-        return [{ label: first ? t('identity.restore.continueWith', { name: first.name }) : t('identity.restore.continue'), primary: true, run: on }, { label: t('identity.restore.later'), run: () => ui.close() }];
+        const looking = this.search?.status === 'looking';
+        const go: Action = { label: first ? t('identity.restore.continueWith', { name: first.name }) : t('identity.restore.continue'), primary: true, enabled: !looking, run: on };
+        const later: Action = { label: t('identity.restore.later'), run: () => ui.close() };
+        if (this.search?.status === 'unavailable') {
+          // Other worlds did not answer: a Blobbi the backup named goes on as it is; else TRY AGAIN comes first.
+          const retry: Action = { label: t('identity.restore.retry'), run: () => void this.lookForShared() };
+          return first ? [go, retry, later] : [{ ...retry, primary: true }, { ...go, primary: false, label: t('identity.restore.continueAnyway') }, later];
+        }
+        return [go, later];
       }
       case 'legacy':
       case 'nothing':
@@ -384,6 +398,25 @@ export class IdentityScreen implements Screen {
     this.preview = r.value;
     this.go('restoreDone');
     this.celebrateAt = ui?.now ?? -1;
+    await this.lookForShared();
+  }
+
+  /**
+   * M11D.7: look for the restored identity's Blobbis already shared with other worlds (read only). The ones found are
+   * offered as the Blobbis that came back, after any the backup itself named.
+   */
+  async lookForShared(): Promise<void> {
+    const pv = this.preview;
+    if (!pv || !this.identity || this.search?.status === 'looking') return;
+    this.search = { status: 'looking', others: 0 };
+    const r = await this.identity.findShared(pv.pubkey);
+    if (this.preview !== pv) return; // another restore began meanwhile
+    if (!r.ok) {
+      this.search = { status: 'unavailable', others: 0 };
+      return;
+    }
+    for (const b of r.value.blobbis) if (!pv.blobbis.some((x) => x.d === b.d)) pv.blobbis.push(b);
+    this.search = { status: r.value.status, others: r.value.others };
   }
 
   key(code: string, _shift: boolean, ui: GameUI): boolean {
@@ -534,7 +567,15 @@ export class IdentityScreen implements Screen {
       case 'restoreDone': {
         const first = this.preview?.blobbis[0];
         head(first ? 'identity.restore.doneTitle' : 'identity.restore.welcome', { name: first?.name ?? '' });
-        cy = p(first ? 'identity.restore.doneBody' : 'identity.restore.doneIdentity', cy, UI.ink, 4, { name: first?.name ?? '' });
+        const status = this.search?.status ?? null;
+        // M11D.7: what the look for its shared Blobbis says (never "a new adventure can begin" before it is over).
+        if (first) cy = p('identity.restore.doneBody', cy, UI.ink, 4, { name: first.name });
+        else if (status === 'unavailable') cy = p('identity.restore.offline', cy, UI.ink, 4);
+        else if (status === 'looking') cy = p('identity.restore.identityBack', cy, UI.ink, 3);
+        else cy = p('identity.restore.noneFound', cy, UI.ink, 4);
+        if (status === 'looking') cy = p('identity.restore.looking', cy, UI.muted, 2);
+        else if (first && status === 'unavailable') cy = p('identity.restore.offlineMore', cy, UI.muted, 3);
+        if (this.search?.others) cy = p('identity.restore.others', cy, UI.muted, 3);
         break;
       }
       case 'legacy':
