@@ -1,0 +1,12 @@
+M11D.7 restore browser check (2026-10-14T20:26:21.471Z), offline stub relays, disposable key
+PASS  a fresh browser: welcome page, no account ({"title":"welcome","account":"guest"})
+PASS  Pudding was found in other worlds (read back from the stub relays)
+PASS  the restored identity is the account now
+PASS  one Blobbi here: Pudding, the same d, marked shared
+PASS  no nsec anywhere in localStorage
+PASS  CONTINUE leads into a new adventure for Pudding ({"active":true,"page":"carrier","restored":"Pudding"})
+PASS  the companion page: Pudding offered ({"page":"companion"})
+PASS  after a reload: still this identity, Pudding shared ({"status":"connected","method":"vault","mine":true,"share":"shared","reserved":1})
+PASS  no EVENT frame was ever sent
+PASS  relays down: honest offline page, identity kept, nothing made ({"search":{"status":"unavailable","others":0},"status":"connected","mine":true,"reserved":0})
+PASS  no EVENT frame was ever sent (relays down)
