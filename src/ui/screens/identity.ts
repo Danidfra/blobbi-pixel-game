@@ -401,6 +401,11 @@ export class IdentityScreen implements Screen {
     await this.lookForShared();
   }
 
+  /** M11D.8: the restored identity's Blobbis are being looked for right now (the loading page). */
+  searching(): boolean {
+    return this.page === 'restoreDone' && this.search?.status === 'looking';
+  }
+
   /**
    * M11D.7: look for the restored identity's Blobbis already shared with other worlds (read only). The ones found are
    * offered as the Blobbis that came back, after any the backup itself named.
@@ -435,8 +440,10 @@ export class IdentityScreen implements Screen {
     const fresh = this.celebrateAt >= 0 && ui.now - this.celebrateAt < 2.2;
     switch (this.page) {
       case 'reveal':
-      case 'restoreDone':
         return { expression: 'excited', party: true };
+      case 'restoreDone':
+        // M11D.8: no party while its Blobbis are still being looked for (the happy moment is when they are found).
+        return this.searching() ? { expression: 'happy', party: false } : { expression: 'excited', party: true };
       case 'consent':
         return { expression: 'happy', party: fresh };
       case 'failed':
@@ -566,15 +573,22 @@ export class IdentityScreen implements Screen {
       }
       case 'restoreDone': {
         const first = this.preview?.blobbis[0];
+        // M11D.8: while its Blobbis are looked for, a page of its own: what is happening, and lights travelling
+        // between little worlds (resting lights with reduced motion), so it never looks frozen.
+        if (this.searching()) {
+          head('identity.restore.searchTitle');
+          cy = p('identity.restore.searchBody', cy, UI.ink, 4);
+          drawConnectedWorlds(g, ui, tx, cy + 8, Math.min(tw, 150), { sparks: 3 });
+          cy += 14;
+          break;
+        }
         head(first ? 'identity.restore.doneTitle' : 'identity.restore.welcome', { name: first?.name ?? '' });
         const status = this.search?.status ?? null;
         // M11D.7: what the look for its shared Blobbis says (never "a new adventure can begin" before it is over).
         if (first) cy = p('identity.restore.doneBody', cy, UI.ink, 4, { name: first.name });
         else if (status === 'unavailable') cy = p('identity.restore.offline', cy, UI.ink, 4);
-        else if (status === 'looking') cy = p('identity.restore.identityBack', cy, UI.ink, 3);
         else cy = p('identity.restore.noneFound', cy, UI.ink, 4);
-        if (status === 'looking') cy = p('identity.restore.looking', cy, UI.muted, 2);
-        else if (first && status === 'unavailable') cy = p('identity.restore.offlineMore', cy, UI.muted, 3);
+        if (first && status === 'unavailable') cy = p('identity.restore.offlineMore', cy, UI.muted, 3);
         if (this.search?.others) cy = p('identity.restore.others', cy, UI.muted, 3);
         break;
       }
@@ -605,7 +619,9 @@ export class IdentityScreen implements Screen {
     // M11D.6: after a restore, the restored Blobbi itself (it may not walk anywhere yet).
     const restored = this.page === 'restoreDone' && this.preview?.blobbis[0] ? this.preview.blobbis[0] : null;
     const subject = restored ? (this.host?.portraitOf?.(restored.d) ?? undefined) : undefined;
-    if (ui.live || subject) {
+    // M11D.8: still looking and no Blobbi known yet: the identity (its key), never the island's visitor in its place.
+    if (this.searching() && !subject) g.buf.blit(KEY_ICON.scaled(3), lx - Math.floor((KEY_ICON.width * 3) / 2), ground - KEY_ICON.height * 3);
+    else if (ui.live || subject) {
       const shown = restored ? restored.name : name;
       drawPortrait(g, ui, lx, ground, { scale: k, expression: mood.expression, hop: mood.party, island: true, islandMax: Math.floor(left / 2) - 6, subject });
       g.text(shown, lx - Math.floor(g.measure(shown) / 2), ground + 12, mood.party ? UI.accent : UI.ink);

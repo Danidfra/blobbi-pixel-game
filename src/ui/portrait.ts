@@ -111,8 +111,10 @@ export const LOCK_ICON = fromTemplate(['..bbbbb..', '.b.....b.', '.b.....b.', 'a
  * Connected worlds: little islands in a row, joined by dotted paths with a light travelling along them (still with
  * reduced motion). The walking Blobbi is drawn by the caller on the middle one.
  */
-export function drawConnectedWorlds(g: Gfx, ui: GameUI, x: number, y: number, w: number): void {
+export function drawConnectedWorlds(g: Gfx, ui: GameUI, x: number, y: number, w: number, o: { sparks?: number } = {}): void {
   const still = ui.settings.reducedMotion;
+  // M11D.7: `sparks` lights per crossing (the restore's search sends several, both ways); 1 is the reveal's light.
+  const sparks = Math.max(1, o.sparks ?? 1);
   const centres = [x + 10, x + Math.round(w / 2), x + w - 10];
   const lands = [hex('#5fbf6a'), hex('#e0c26a'), hex('#8fb7ff')];
   centres.forEach((cx, i) => {
@@ -127,11 +129,16 @@ export function drawConnectedWorlds(g: Gfx, ui: GameUI, x: number, y: number, w:
       const f = (px - a) / Math.max(1, b - a);
       g.buf.set(px, y - 2 - Math.round(Math.sin(f * Math.PI) * 6), UI.muted);
     }
-    const f = still ? 0.5 : (ui.now * 0.35 + i * 0.5) % 1;
-    const lx = Math.round(a + (b - a) * f);
-    const ly = y - 2 - Math.round(Math.sin(f * Math.PI) * 6);
-    g.buf.set(lx, ly, UI.accent);
-    g.buf.set(lx + 1, ly, UI.accent);
-    g.buf.set(lx, ly - 1, UI.accent);
+    for (let s = 0; s < sparks; s++) {
+      // Reduced motion: the lights rest, evenly spaced on the arc (still saying "something travels here").
+      const phase = still ? (s + 0.5) / sparks : (ui.now * 0.35 + i * 0.5 + s / sparks) % 1;
+      // With several lights, every other one travels back (worlds answering each other).
+      const f = sparks > 1 && s % 2 === 1 ? 1 - phase : phase;
+      const lx = Math.round(a + (b - a) * f);
+      const ly = y - 2 - Math.round(Math.sin(f * Math.PI) * 6);
+      g.buf.set(lx, ly, UI.accent);
+      g.buf.set(lx + 1, ly, UI.accent);
+      g.buf.set(lx, ly - 1, UI.accent);
+    }
   }
 }

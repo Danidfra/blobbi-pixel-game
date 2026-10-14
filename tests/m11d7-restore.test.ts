@@ -307,7 +307,7 @@ describe('M11D.7: when other worlds do not answer', () => {
     const look = sc.lookForShared();
     expect(sc.search?.status).toBe('looking');
     const page = drawn(ui);
-    expect(page.paras).toContain(en['identity.restore.looking']);
+    expect(page.paras).toContain(en['identity.restore.searchBody']); // M11D.8: the loading page
     await look;
     expect(sc.search?.status).toBe('unavailable');
   }, 30_000);
@@ -391,7 +391,7 @@ describe('M11D.7: what is found, and what is never done', () => {
   });
 
   it('the new words exist in three languages, with no em dash and no protocol jargon', () => {
-    const keys = ['looking', 'identityBack', 'noneFound', 'offline', 'offlineMore', 'others', 'retry', 'continueAnyway'].map((k) => `identity.restore.${k}`);
+    const keys = ['searchTitle', 'searchBody', 'noneFound', 'offline', 'offlineMore', 'others', 'retry', 'continueAnyway'].map((k) => `identity.restore.${k}`);
     for (const cat of [en, ptBR, es] as Record<string, string>[])
       for (const k of keys) {
         expect(cat[k], k).toBeTruthy();
