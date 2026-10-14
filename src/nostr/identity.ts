@@ -12,12 +12,12 @@
  */
 import { generatePetId10 } from '@blobbi-kit/core';
 import type { KeyValueStore } from '../game/persistence';
-import { addGuestBlobbi, guestBlobbi, readGuestBlobbis, suggestedName, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
+import { addGuestBlobbi, chooseGuestName, guestBlobbi, readGuestBlobbis, suggestedName, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
 import { KeyVault, VaultError, askPersistentStorage } from './keystore';
-import { backupFileName, buildBackupFile, parseBackupFile } from './backup';
+import { backupFileName, buildBackupFile, parseBackupFile, recoveryFileName } from './backup';
 import { activate, activationRun, ActivationError, finishActivation } from './activation';
 import type { Publisher } from './publisher';
-import type { BackupPreview, IdentityPort, IdentityProblem, IdentityResult, RegistrationState, ReservedBlobbi } from './port';
+import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, IdentityResult, RegistrationState, ReservedBlobbi } from './port';
 import { npubEncode, shortNpub } from './keys';
 import type { EventTemplate } from './canonical-events';
 import type { NostrEvent } from 'nostr-tools/pure';
@@ -35,6 +35,8 @@ export interface IdentityServiceOptions {
   now?: () => number;
   /** Tests: a deterministic petId. */
   petId?: () => string;
+  /** M11D.5: the connected account's public key, if any (a restore of another identity says it keeps this one). */
+  currentAccount?: () => string | null;
 }
 
 const fail = <T>(problem: IdentityProblem): IdentityResult<T> => ({ ok: false, problem });
@@ -64,13 +66,12 @@ export class IdentityService implements IdentityPort {
   }
 
   rename(d: string, name: string): void {
-    const clean = name.normalize('NFC').replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯﻿]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
-    const b = guestBlobbi(this.o.store, d);
     // Once registered its name is part of its canonical state: renamed only in its home apps.
-    if (clean && b && !b.activatedAt) {
-      updateGuestBlobbi(this.o.store, d, { name: clean });
-      this.o.onChanged?.();
-    }
+    if (chooseGuestName(this.o.store, d, name)) this.o.onChanged?.();
+  }
+
+  namingLater(d: string): void {
+    if (updateGuestBlobbi(this.o.store, d, { namingLaterAt: this.now() })) this.o.onChanged?.();
   }
 
   /**
@@ -89,7 +90,7 @@ export class IdentityService implements IdentityPort {
         pubkey = owner.pubkey;
       } else pubkey = owner.pubkey;
       const petId = (this.o.petId ?? generatePetId10)();
-      const b: GuestBlobbi = { owner: pubkey, ownerKind: owner.kind === 'account' ? 'account' : 'guest', petId, d: `blobbi-${pubkey.slice(0, 12)}-${petId}`, name: suggestedName(petId), createdAt: this.now(), bornAt: Math.floor(this.now() / 1000), island, born: false, activatedAt: null };
+      const b: GuestBlobbi = { owner: pubkey, ownerKind: owner.kind === 'account' ? 'account' : 'guest', petId, d: `blobbi-${pubkey.slice(0, 12)}-${petId}`, name: suggestedName(petId), createdAt: this.now(), bornAt: Math.floor(this.now() / 1000), island, born: false, activatedAt: null, named: false, namingLaterAt: null };
       return { ok: true, value: addGuestBlobbi(this.o.store, b) };
     } catch (e) {
       return fail(problemOf(e));
@@ -114,11 +115,25 @@ export class IdentityService implements IdentityPort {
     }
   }
 
+  async makeRecoveryKey(owner: string, lines: readonly string[]): Promise<IdentityResult<{ fileName: string; text: string }>> {
+    try {
+      const nsec = await this.o.vault.exportSecretKey(owner);
+      const blobbis = readGuestBlobbis(this.o.store).filter((b) => b.owner === owner);
+      return { ok: true, value: { fileName: recoveryFileName(owner), text: buildBackupFile(nsec, owner, blobbis, lines) } };
+    } catch (e) {
+      return fail(problemOf(e));
+    }
+  }
+
+  backupKind(text: string): BackupKind | null {
+    return parseBackupFile(text)?.kind ?? null;
+  }
+
   async verifyBackup(owner: string, text: string, password: string): Promise<IdentityResult<true>> {
     const parsed = parseBackupFile(text);
     if (!parsed) return fail('corrupt-backup');
     try {
-      await this.o.vault.verifyBackup(owner, parsed.ncryptsec, password, this.now());
+      await this.o.vault.verifyBackup(owner, parsed.secret, parsed.kind === 'nsec' ? '' : password, this.now());
       return { ok: true, value: true };
     } catch (e) {
       return fail(problemOf(e));
@@ -129,10 +144,11 @@ export class IdentityService implements IdentityPort {
     const parsed = parseBackupFile(text);
     if (!parsed) return fail('corrupt-backup');
     try {
-      const { pubkey, alreadyHere } = await this.o.vault.inspectBackup(parsed.ncryptsec, password);
+      const { pubkey, alreadyHere } = await this.o.vault.inspectBackup(parsed.secret, parsed.kind === 'nsec' ? '' : password);
       // The public line counts only when it names the identity the backup really opens.
       const named = parsed.meta && parsed.meta.pubkey === pubkey ? parsed.meta.blobbis.filter((b) => b.d === `blobbi-${pubkey.slice(0, 12)}-${b.petId}`) : [];
-      return { ok: true, value: { pubkey, npubShort: shortNpub(npubEncode(pubkey)), alreadyHere, blobbis: named.map((b) => ({ d: b.d, name: b.name, alreadyHere: !!guestBlobbi(this.o.store, b.d) })) } };
+      const account = this.o.currentAccount?.() ?? null;
+      return { ok: true, value: { kind: parsed.kind, otherAccount: !!account && account !== pubkey, pubkey, npubShort: shortNpub(npubEncode(pubkey)), alreadyHere, blobbis: named.map((b) => ({ d: b.d, name: b.name, alreadyHere: !!guestBlobbi(this.o.store, b.d) })) } };
     } catch (e) {
       return fail(problemOf(e));
     }
@@ -145,12 +161,12 @@ export class IdentityService implements IdentityPort {
       const preview = await this.previewBackup(text, password);
       if (!preview.ok) return preview;
       const parsed = parseBackupFile(text)!;
-      await this.o.vault.restore(parsed.ncryptsec, password, this.now());
+      await this.o.vault.restore(parsed.secret, parsed.kind === 'nsec' ? '' : password, this.now());
       // The Blobbis its public line names come back as they were (born, as a registered or unregistered guest); one
       // already here is left exactly as it is (never duplicated).
       for (const b of parsed.meta?.blobbis ?? [])
         if (preview.value.blobbis.some((p) => p.d === b.d) && !guestBlobbi(this.o.store, b.d))
-          addGuestBlobbi(this.o.store, { owner: preview.value.pubkey, ownerKind: 'guest', petId: b.petId, d: b.d, name: b.name, createdAt: this.now(), bornAt: b.bornAt, island: null, born: true, activatedAt: null });
+          addGuestBlobbi(this.o.store, { owner: preview.value.pubkey, ownerKind: 'guest', petId: b.petId, d: b.d, name: b.name, createdAt: this.now(), bornAt: b.bornAt, island: null, born: true, activatedAt: null, named: b.named === true || b.name !== suggestedName(b.petId), namingLaterAt: null });
       return preview;
     } catch (e) {
       return fail(problemOf(e));
@@ -188,4 +204,4 @@ export class IdentityService implements IdentityPort {
   }
 }
 
-const publicOf = (b: GuestBlobbi): ReservedBlobbi => ({ owner: b.owner, ownerKind: b.ownerKind, petId: b.petId, d: b.d, name: b.name, born: b.born, activatedAt: b.activatedAt });
+const publicOf = (b: GuestBlobbi): ReservedBlobbi => ({ owner: b.owner, ownerKind: b.ownerKind, petId: b.petId, d: b.d, name: b.name, born: b.born, activatedAt: b.activatedAt, named: b.named, namingLaterAt: b.namingLaterAt });

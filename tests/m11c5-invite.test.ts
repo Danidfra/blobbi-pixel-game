@@ -284,16 +284,15 @@ describe('the card on screen', () => {
 });
 
 describe('copy', () => {
-  it('the briefed text in English, Portuguese and Spanish; no em dash; no claim that islands sync today', () => {
-    expect([en['invite.title'], en['invite.explore'], en['invite.later'], en['invite.never']]).toEqual(['Your little world can go further!', 'Explore accounts', 'Maybe later', "Don't show this again"]);
-    expect([ptBR['invite.title'], ptBR['invite.explore'], ptBR['invite.later'], ptBR['invite.never']]).toEqual(['Seu pequeno mundo pode ir mais longe!', 'Conhecer as contas', 'Agora não', 'Não mostrar novamente']);
-    expect([es['invite.title'], es['invite.explore'], es['invite.later'], es['invite.never']]).toEqual(['¡Tu pequeño mundo puede llegar más lejos!', 'Explorar cuentas', 'Ahora no', 'No volver a mostrar']);
+  it('M11D.5 replaced the copy: the Blobbi\'s own curiosity; no em dash; no promise of island sync or of every game', () => {
+    expect([en['invite.title'], en['invite.explore'], en['invite.later'], en['invite.never']]).toEqual(['{name} is curious about the world beyond the island!', 'Discover other worlds', 'Keep playing', "Don't show this again"]);
+    expect([ptBR['invite.title'], ptBR['invite.explore'], ptBR['invite.later'], ptBR['invite.never']]).toEqual(['{name} está curioso para conhecer outros mundos!', 'Descobrir outros mundos', 'Continuar jogando', 'Não mostrar novamente']);
+    expect([es['invite.title'], es['invite.explore'], es['invite.later'], es['invite.never']]).toEqual(['¡{name} tiene curiosidad por conocer otros mundos!', 'Descubrir otros mundos', 'Seguir jugando', 'No volver a mostrar']);
+    expect(en['invite.body']).toBe('Your Blobbi can visit other connected places and join you in new adventures.');
     for (const cat of [en, ptBR, es] as Record<string, unknown>[])
-      for (const k of ['invite.title', 'invite.question', 'invite.body', 'invite.explore', 'invite.later', 'invite.never']) {
+      for (const k of ['invite.title', 'invite.body', 'invite.explore', 'invite.later', 'invite.never']) {
         expect(String(cat[k]), k).not.toMatch(/—/);
-        expect(String(cat[k]), k).not.toMatch(/is saved to your account|already sync|já sincroniza|ya se sincroniza/i);
+        expect(String(cat[k]), k).not.toMatch(/sync|sincroniz|island along|ilha com você|isla contigo|every game|todos os jogos|todos los juegos/i);
       }
-    expect(en['invite.body']).toMatch(/Soon/);
-    expect([en['invite.question'], ptBR['invite.question'], es['invite.question']]).toEqual(['Enjoying your island?', 'Gostando da sua ilha?', '¿Te está gustando tu isla?']);
   });
 });

@@ -23,7 +23,9 @@ describe('cross-game and network boundaries', () => {
     // seals and uses keys, and makes NIP-49 backups), one asks a browser extension to sign (the signer, only for a
     // Blobbi of the player's existing account), one sends events (the publisher, only for a consented registration).
     const allowed: Record<string, RegExp> = {
-      [join('src', 'nostr', 'keystore.ts')]: /finalizeEvent|generateSecretKey|nip49/,
+      // M11D.5: and the Recovery Key (the plain nsec), made and read only here; backup.ts only FINDS its line in a file.
+      [join('src', 'nostr', 'keystore.ts')]: /finalizeEvent|generateSecretKey|nip49|nip19|nsecEncode|nsec1/,
+      [join('src', 'nostr', 'backup.ts')]: /nsec1/,
       [join('src', 'nostr', 'signer.ts')]: /signEvent/,
       [join('src', 'nostr', 'publisher.ts')]: /\.event\(/,
     };

@@ -12,8 +12,24 @@ const origin = `http://127.0.0.1:${port}`;
 // NIP-19's example public key: a mock account, never a real login.
 export const MOCK_PUBKEY = '7e7e9c42a91bfef19fa929e5fda1b72e0ebc1a4c1141673e2794234d86addf4e';
 
-export async function open(width, height, mobile, { nostr = false, storage = {} } = {}) {
+// M11D.5: every tab a check opens is remembered and closed when the check ends, even when it fails half way (a tab
+// left open kept the game's music playing in a headless Chrome with no window). Start Chrome with
+// `node scripts/lab-browser.mjs start` (headless and --mute-audio) and stop it with `... stop`.
+const openTabs = new Set();
+const closeTab = (id) => (openTabs.delete(id), fetch(`http://localhost:9333/json/close/${id}`).catch(() => {}));
+export const closeAllTabs = () => Promise.all([...openTabs].map(closeTab));
+for (const ev of ['uncaughtException', 'unhandledRejection'])
+  process.on(ev, async (e) => {
+    console.error(e);
+    await closeAllTabs();
+    process.exit(1);
+  });
+process.on('beforeExit', () => void closeAllTabs());
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => (await closeAllTabs(), process.exit(130)));
+
+export async function open(width, height, mobile, { nostr = false, storage = {}, sound = false } = {}) {
   const target = await (await fetch('http://localhost:9333/json/new?about:blank', { method: 'PUT' })).json();
+  openTabs.add(target.id);
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((r) => ws.addEventListener('open', r, { once: true }));
   let id = 0;
@@ -40,6 +56,9 @@ export async function open(width, height, mobile, { nostr = false, storage = {} 
   await send('Page.addScriptToEvaluateOnNewDocument', {
     source: `window.__wsUrls = []; window.__wsSent = []; window.WebSocket = class { constructor(url) { window.__wsUrls.push(String(url)); this.readyState = 3; setTimeout(() => { this.onerror?.(new Event('error')); this.onclose?.(new CloseEvent('close')); for (const l of this.l?.error ?? []) l(new Event('error')); for (const l of this.l?.close ?? []) l(new CloseEvent('close')); }, 10); } addEventListener(t, f) { (this.l ??= {})[t] = [...(this.l[t] ?? []), f]; } removeEventListener() {} send(d) { window.__wsSent.push(String(d)); } close() {} }; window.WebSocket.CONNECTING = 0; window.WebSocket.OPEN = 1; window.WebSocket.CLOSING = 2; window.WebSocket.CLOSED = 3;`,
   });
+  // M11D.5: the game's sound is OFF in checks (its own setting, stored before any page script runs), on top of the
+  // browser being started muted: nothing can play even in a Chrome started some other way.
+  if (!sound) await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('blobbi-pixel-lab:audio', JSON.stringify({ master: 0, music: 0, sfx: 0, ambient: 0, muted: true, musicOn: false, reduced: false })); } catch {}` });
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile });
   if (nostr)
     await send('Page.addScriptToEvaluateOnNewDocument', {
@@ -71,7 +90,7 @@ export async function open(width, height, mobile, { nostr = false, storage = {} 
     mkdirSync('examples/m11b', { recursive: true });
     writeFileSync(`examples/m11b/browser-${name}.png`, Buffer.from(r.data, 'base64'));
   };
-  return { send, evaluate, key, click, shot, close: async () => (ws.close(), fetch(`http://localhost:9333/json/close/${target.id}`)) };
+  return { send, evaluate, key, click, shot, close: async () => (ws.close(), closeTab(target.id)) };
 }
 
 const VIEWPORTS = [['desktop', 1280, 720, false], ['phone', 844, 390, true]];

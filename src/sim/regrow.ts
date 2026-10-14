@@ -18,8 +18,12 @@ import { LiveWorld } from './live-world';
 export interface RebuildOptions {
   /** The stage-0 world the old LiveWorld was built from (its `baseWorld`). */
   base: WorldDescription;
-  blobbi: string | BlobbiSource;
-  blobbiSize: number;
+  /**
+   * Ignored since M11D.5 (kept for callers): the rebuilt world keeps the OLD world's own Blobbi, its source, size and
+   * life stage. Growth is the Carrier's and the island's; it never changes who walks or their stage.
+   */
+  blobbi?: string | BlobbiSource;
+  blobbiSize?: number;
   store: KeyValueStore | null;
   /** Play the reveal when the rebuilt world has more land than the old one. */
   reveal: boolean;
@@ -31,7 +35,9 @@ export function rebuildFromSave(old: LiveWorld, o: RebuildOptions): LiveWorld {
   const inside = !!old.interior;
   const seen = old.world.growth?.stage ?? 0;
   old.save();
-  const live = new LiveWorld(o.base, o.blobbi, o.blobbiSize, { store: o.store });
+  // M11D.5: the Blobbi as it is (source, size, LIFE STAGE). Before, the stage was not passed and the rebuilt world
+  // defaulted to an adult: a Baby "grew up" whenever the island grew, until a reload read its stage back.
+  const live = new LiveWorld(o.base, old.blobbi.source, old.blobbi.size, { store: o.store, stage: old.blobbi.identity.stage });
   if (!inside && live.collision.canStand(at.x, at.y, live.blobbi.footRx, live.blobbi.footRy)) {
     live.blobbi.x = at.x;
     live.blobbi.y = at.y;

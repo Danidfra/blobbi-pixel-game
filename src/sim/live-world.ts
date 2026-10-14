@@ -106,6 +106,11 @@ export interface BlobbiEntity {
   size: number;
   footRx: number;
   footRy: number;
+  /**
+   * M11D.5: the ground shadow's half width as DRAWN: the footprint for an adult (unchanged), a Baby's own (from its
+   * sprite) for a Baby. The gameplay footprint (`footRx`, collision and pathfinding) stays the adult's.
+   */
+  shadowRx: number;
   /** Pixels per second. */
   speed: number;
 }
@@ -4839,7 +4844,10 @@ export class LiveWorld {
     // The footprint is the ADULT's of the same genome at every stage (M11D.1): a baby walks, collides, reaches and
     // pathfinds exactly as its adult self, so choosing a Baby never changes where the Blobbi can go.
     const sprite = buildBlobbiSprite(stage === 'adult' ? identity : identityOfSource(source, 'adult'), { view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 }, size);
-    return { seed, source, identity, animator: new BlobbiAnimator(seed), x: 0, y: 0, size, footRx: Math.max(2, sprite.footRx - 1), footRy: 2, speed: 42 };
+    const footRx = Math.max(2, sprite.footRx - 1);
+    const own = stage === 'adult' ? sprite : buildBlobbiSprite(identity, { view: 'front', facing: 1, breath: 0, lid: 0, expression: 'neutral', walk: -1, gazeX: 0, gazeY: 0 }, size);
+    const shadowRx = stage === 'adult' ? footRx : Math.max(2, Math.min(footRx, own.footRx - 1));
+    return { seed, source, identity, animator: new BlobbiAnimator(seed), x: 0, y: 0, size, footRx, footRy: 2, shadowRx, speed: 42 };
   }
 
   /** Start on the first island's hub, or the nearest free ground to it. */

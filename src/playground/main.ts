@@ -27,8 +27,9 @@ import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BL
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
 import { isLocalBlobbiSeed, localBlobbi, markBorn } from '../game/local-blobbis';
-import { forgetUnbornGuestBlobbi, guestBlobbi, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
+import { awaitsName, chooseGuestName, forgetUnbornGuestBlobbi, guestBlobbi, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
 import { IdentityScreen } from '../ui/screens/identity';
+import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
@@ -647,6 +648,7 @@ function identityService(): Promise<IdentityService> {
       vault: new keys.KeyVault(backend),
       publisher,
       accountSigner: (tpl) => signer.browserExtensionSignEvent(tpl),
+      currentAccount: () => connectedPubkey,
       onChanged: () => (shownName = blobbiDisplayName()),
       onRegistered: (b) => {
         // A guest identity becomes the player's account (an identity this game keeps); the same Blobbi stays, in
@@ -672,7 +674,11 @@ settingsScreen.reservedWalking = () => {
   const src = state.blobbi;
   if (src.kind !== 'v3-address') return null;
   const g = storeOrNull((st) => guestBlobbi(st, src.d));
-  return g && g.born ? { name: g.name, registered: !!g.activatedAt } : null;
+  return g && g.born ? { name: g.name, registered: !!g.activatedAt, awaitsName: awaitsName(g) } : null;
+};
+settingsScreen.onName = () => {
+  namingScreen.start();
+  gameUI.open('naming');
 };
 // The screen's host: hidden page inputs for text (passwords are type=password), a file picker, a paste area, a
 // download and the clipboard. Typed values go straight to the screen and are cleared with its page.
@@ -752,7 +758,7 @@ identityScreen.host = {
   walking: () => {
     const src = state.blobbi;
     const g = src.kind === 'v3-address' ? storeOrNull((st) => guestBlobbi(st, src.d)) : null;
-    const reserved = g && g.born ? { owner: g.owner, ownerKind: g.ownerKind, petId: g.petId, d: g.d, name: g.name, born: g.born, activatedAt: g.activatedAt } : null;
+    const reserved = g && g.born ? { owner: g.owner, ownerKind: g.ownerKind, petId: g.petId, d: g.d, name: g.name, born: g.born, activatedAt: g.activatedAt, named: g.named, namingLaterAt: g.namingLaterAt } : null;
     return { reserved, legacyLocal: isLocalBlobbiSeed(src.seed) };
   },
   bring: (d) => {
@@ -764,6 +770,62 @@ identityScreen.host = {
     applyBlobbi(r.source, 'baby');
   },
 };
+
+// ─── M11D.5: naming a new Blobbi (its first little quest, right after it hatches) ───────────────────────────
+const namingScreen = new NamingScreen();
+gameUI.register(namingScreen);
+/** The walking Blobbi's public record, when it is one met here (born). */
+function walkingGuest(): GuestBlobbi | null {
+  const src = state.blobbi;
+  const g = src.kind === 'v3-address' ? storeOrNull((st) => guestBlobbi(st, src.d)) : null;
+  return g && g.born ? g : null;
+}
+namingScreen.host = {
+  subject: () => {
+    const g = walkingGuest();
+    return g && !g.activatedAt ? { d: g.d, name: g.name } : null;
+  },
+  editName: (current, set) => {
+    secretInput.type = 'text';
+    secretInput.maxLength = 24;
+    secretInput.value = current;
+    secretSink = set;
+    secretInput.focus();
+  },
+  choose: (d, name) => {
+    const kept = storeOrNull((st) => chooseGuestName(st, d, name));
+    if (kept) shownName = blobbiDisplayName();
+    return !!kept;
+  },
+  later: (d) => void storeOrNull((st) => updateGuestBlobbi(st, d, { namingLaterAt: Date.now() })),
+  celebrate: () => {
+    if (!live) return;
+    live.blobbi.animator.react('excited', live.clock.time, 1.4, gameUI.settings.reducedMotion ? 0 : 3);
+    live.sound('happy');
+  },
+};
+/**
+ * When the naming question is asked: right after a birth (once the world is calm: no menu, the Blobbi present), and
+ * for a Blobbi whose naming was put off, once in a later session after a little calm play. Never twice in a session,
+ * never for a Blobbi already named or registered, never over a menu, a cinematic, a reveal or a teleport.
+ */
+let namingAskedThisSession = false;
+let namingAfterBirth = false;
+let namingCalm = 0;
+function updateNaming(dt: number): void {
+  const l = live;
+  if (!l || l.visitor || intro || title.active || gameUI.capturing || namingAskedThisSession) return (void (namingCalm = 0));
+  const g = walkingGuest();
+  if (!g || !awaitsName(g)) return;
+  const calm = !l.reveal && !l.boat?.aboard && !l.fishing && !l.restPlan && l.getPresenceState() === 'present' && !(l.bubble && l.bubble.until > l.clock.time);
+  namingCalm = calm ? namingCalm + dt : 0;
+  // After a birth: a breath after the Blobbi stands on its island. Put off before: some calm play first.
+  if (namingCalm < (namingAfterBirth || g.namingLaterAt === null ? 1.2 : 20)) return;
+  namingAskedThisSession = true;
+  namingAfterBirth = false;
+  namingScreen.start();
+  gameUI.open('naming');
+}
 
 /**
  * M11D.4, A NEW ADVENTURE: a new Blobbi gets its owner FIRST (a new identity sealed in the vault, or the connected
@@ -873,13 +935,23 @@ account.onChange(() => syncAccountBlobbi());
 // ─── M11C.5: the gentle account invitation (never asks the signer, never publishes) ───────
 const invite = new AccountInvite(localStore(), () => identity === 'connected');
 gameUI.invite = invite;
-gameUI.onInviteExplore = () => openAccountPage();
+// M11D.5: ONE invitation (the M11C.5 card, its timing, cooldown and "don't show again" kept): the walking Blobbi's own
+// curiosity about other worlds. A Blobbi met here goes straight to saving it for other worlds; any other opens ACCOUNT.
+gameUI.inviteName = () => shownName ?? blobbiDisplayName() ?? 'Blobbi';
+gameUI.onInviteExplore = () => {
+  const g = walkingGuest();
+  if (g && !g.activatedAt) void openIdentity('activate');
+  else openAccountPage();
+};
 /** When the player last pressed a key or touched the game (ms, performance clock): idle time is not active play. */
 let lastInputAt = -Infinity;
 /** The moment is not calm: the invitation waits (menus, speech, notices, timed actions, the first tips). */
 function inviteBusy(): boolean {
   const l = live;
   if (!l) return true;
+  // M11D.5: a newborn's name comes first (the invitation waits until it was chosen or put off).
+  const g = walkingGuest();
+  if (g && awaitsName(g) && g.namingLaterAt === null) return true;
   return isBusy({
     menuOpen: gameUI.capturing,
     bubble: !!l.bubble && l.bubble.until > l.clock.time,
@@ -1242,7 +1314,7 @@ queueMicrotask(readSafeArea);
  */
 function regrow(): boolean {
   if (!live || !world) return false;
-  const r = growLiveIsland(live, { base: live.baseWorld, blobbi: state.blobbi, blobbiSize: state.blobbiSize, store: localStore() });
+  const r = growLiveIsland(live, { base: live.baseWorld, store: localStore() });
   if (!r.grown) {
     gameUI.say(r.reason, false);
     return false;
@@ -1255,7 +1327,7 @@ function regrow(): boolean {
 function rebuildFromSave(reveal: boolean): void {
   if (!live || !world) return;
   const before = live.world.growth?.stage ?? 0;
-  adoptRebuilt(rebuildLive(live, { base: live.baseWorld, blobbi: state.blobbi, blobbiSize: state.blobbiSize, store: localStore(), reveal }));
+  adoptRebuilt(rebuildLive(live, { base: live.baseWorld, store: localStore(), reveal }));
   const after = live!.world.growth?.stage ?? 0;
   if (after < before) gameUI.say(`growth set back to stage ${after} (dev)`, true);
 }
@@ -1451,6 +1523,9 @@ function finishWorldIntro(target: LiveWorld, r: IntroResult): void {
   if (isLocalBlobbiSeed(target.blobbi.seed)) storeOrNull((st) => markBorn(st, target.blobbi.seed, Date.now()));
   const born = target.blobbi.source;
   if (born.kind === 'v3-address') storeOrNull((st) => updateGuestBlobbi(st, born.d, { born: true }));
+  // M11D.5: a newborn's first little quest is its name.
+  namingAfterBirth = true;
+  namingCalm = 0;
   noteVisit(target);
   setCameraMode(r.cameraMode);
   if (bounds) viewCamera.update(0, target.cameraTarget(), view.width, view.height, bounds, true);
@@ -1612,6 +1687,7 @@ function playFrame(now: number): void {
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;
   gameUI.hudBottom = viewRenderer!.hudBottom;
+  updateNaming(real);
   invite.update(real, { running: steps > 0 && !gameUI.capturing && document.visibilityState === 'visible', inputAge: (performance.now() - lastInputAt) / 1000, world: live, busy: inviteBusy() });
   gameUI.render(frame, now / 1000);
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
@@ -1898,7 +1974,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>

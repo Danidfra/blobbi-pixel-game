@@ -21,7 +21,7 @@ import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
 import type { AccountInvite } from './account-invite';
 import { REST_POSE } from '../blobbi/sprite';
 
-export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis' | 'identity';
+export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis' | 'identity' | 'naming';
 
 export interface Screen {
   readonly id: ScreenId;
@@ -419,6 +419,8 @@ export class GameUI {
   /** Where the HUD's top-left cards end (screen pixels; the playground sets it): the card stays below when it can. */
   hudBottom = 0;
   onInviteExplore: (() => void) | null = null;
+  /** M11D.5: the walking Blobbi's name for the invitation (the playground sets it). */
+  inviteName: () => string = () => 'Blobbi';
 
   /**
    * The account invitation card (M11C.5): the player's Blobbi, a title, two short lines, EXPLORE ACCOUNTS, MAYBE LATER
@@ -437,9 +439,9 @@ export class GameUI {
     const pic = 20;
     const textX = 4 + pic + 5;
     const textW = w - textX - 4;
-    const title = probe.lines(t('invite.title'), textW);
-    // The question on its own line, then the explanation (two catalogue entries: the fonts have no line break).
-    const body = [...probe.lines(t('invite.question'), textW), ...probe.lines(t('invite.body'), textW)];
+    // M11D.5: the Blobbi's own curiosity, by its real name, then one line of what an account brings.
+    const title = probe.lines(t('invite.title', { name: this.inviteName() }), textW);
+    const body = probe.lines(t('invite.body'), textW);
     const later = t('invite.later');
     const lw = probe.measure(later) + 10;
     const explore = t('invite.explore');

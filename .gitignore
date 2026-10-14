@@ -8,3 +8,5 @@ out
 *.pem
 *.key
 .vite/
+.lab-browser.json
+.lab-browser-profile/

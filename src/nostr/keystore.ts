@@ -16,13 +16,15 @@
  *
  * PLAINTEXT LIFETIME. A secret is decrypted only inside `withSecret` for one operation (sign, make a backup, verify
  * one), and the bytes are zeroed right after, whatever happens. The UI never sees a secret; the backup is an
- * encrypted NIP-49 `ncryptsec` made with the player's own password.
+ * encrypted NIP-49 `ncryptsec` made with the player's own password, or (M11D.5, only on the player's explicit request
+ * and acknowledgment) the plain NIP-19 `nsec` Recovery Key, handed out once for the file the player saves.
  *
  * Crypto is the browser's Web Crypto and nostr-tools (secp256k1 keys and Schnorr signatures, NIP-49 scrypt plus
  * XChaCha20-Poly1305): nothing is invented here.
  */
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate, type NostrEvent } from 'nostr-tools/pure';
 import { decrypt as nip49Decrypt, encrypt as nip49Encrypt } from 'nostr-tools/nip49';
+import { decode as nip19Decode, nsecEncode } from 'nostr-tools/nip19';
 
 /** One stored identity: public key, and its secret encrypted under the vault's wrapping key. */
 export interface VaultRecord {
@@ -34,7 +36,12 @@ export interface VaultRecord {
   origin: 'generated' | 'restored';
   /** When a backup of it was verified (the player loaded it back with the password), or null. */
   backupVerifiedAt: number | null;
+  /** M11D.5: which kind of backup was verified: a Recovery Key (`nsec`) or a Protected Key (`ncryptsec`). */
+  backupKind?: BackupKind;
 }
+
+/** M11D.5: the two backups. A Recovery Key is the plain `nsec1…`; a Protected Key is the NIP-49 `ncryptsec1…`. */
+export type BackupKind = 'nsec' | 'ncryptsec';
 
 /** What the rest of the game may know about an identity in the vault: never a secret. */
 export interface VaultIdentity {
@@ -42,6 +49,7 @@ export interface VaultIdentity {
   createdAt: number;
   origin: 'generated' | 'restored';
   backupVerifiedAt: number | null;
+  backupKind?: BackupKind;
 }
 
 /** Where records and the wrapping key live: IndexedDB in the browser, memory in tests. */
@@ -165,11 +173,22 @@ export class KeyVault {
   }
 
   /**
-   * VERIFY A BACKUP: decrypt it with the password and check it is this identity. Only a backup that was loaded back
-   * (from the saved file or pasted text) and opened counts; a started download never does. Marks the identity.
+   * M11D.5, THE RECOVERY KEY: the identity's secret as a standard NIP-19 `nsec1…`, which every Nostr app can import.
+   * Only for a direct request of the player (the UI asks for an explicit acknowledgment first). The string is handed
+   * to the caller for the file the player saves; it is never stored, logged or shown by this module. A JavaScript
+   * string cannot be zeroed: the caller drops its reference as soon as the file has been offered.
    */
-  async verifyBackup(pubkey: string, ncryptsec: string, password: string, now: number): Promise<void> {
-    const found = openBackup(ncryptsec, password);
+  exportSecretKey(pubkey: string): Promise<string> {
+    return this.withSecret(pubkey, (secret) => nsecEncode(secret));
+  }
+
+  /**
+   * VERIFY A BACKUP: open it (a Protected Key with its password; a Recovery Key needs none) and check it is this
+   * identity. Only a backup that was loaded back (from the saved file or pasted text) and opened counts; a started
+   * download never does. Marks the identity. The kind is told by the text itself (`ncryptsec1…` or `nsec1…`).
+   */
+  async verifyBackup(pubkey: string, backup: string, password: string, now: number): Promise<void> {
+    const found = openBackup(backup, password);
     try {
       if (getPublicKey(found) !== pubkey) throw new VaultError('mismatch', 'this backup belongs to another identity');
     } finally {
@@ -177,12 +196,12 @@ export class KeyVault {
     }
     const record = await this.backend.get(pubkey);
     if (!record) throw new VaultError('not-found');
-    await this.backend.put({ ...record, backupVerifiedAt: now });
+    await this.backend.put({ ...record, backupVerifiedAt: now, backupKind: backupKindOf(backup) ?? undefined });
   }
 
   /** What a backup would restore (its public key and whether it is already here), without storing anything. */
-  async inspectBackup(ncryptsec: string, password: string): Promise<{ pubkey: string; alreadyHere: boolean }> {
-    const secret = openBackup(ncryptsec, password);
+  async inspectBackup(backup: string, password: string): Promise<{ pubkey: string; alreadyHere: boolean }> {
+    const secret = openBackup(backup, password);
     try {
       const pubkey = getPublicKey(secret);
       return { pubkey, alreadyHere: await this.has(pubkey) };
@@ -192,17 +211,17 @@ export class KeyVault {
   }
 
   /**
-   * RESTORE an identity from its backup. An identity already here is left exactly as it is (never overwritten,
+   * RESTORE an identity from its backup (a Protected Key or a Recovery Key). An identity already here is left exactly as it is (never overwritten,
    * never duplicated); a new one is sealed and stored. Nothing is published.
    */
-  async restore(ncryptsec: string, password: string, now: number): Promise<{ identity: VaultIdentity; existed: boolean }> {
-    const secret = openBackup(ncryptsec, password);
+  async restore(backup: string, password: string, now: number): Promise<{ identity: VaultIdentity; existed: boolean }> {
+    const secret = openBackup(backup, password);
     try {
       const pubkey = getPublicKey(secret);
       const known = await this.backend.get(pubkey);
       if (known) return { identity: publicOf(known), existed: true };
       const { iv, data } = await this.seal(pubkey, secret);
-      const record: VaultRecord = { pubkey, iv, data, createdAt: now, origin: 'restored', backupVerifiedAt: now };
+      const record: VaultRecord = { pubkey, iv, data, createdAt: now, origin: 'restored', backupVerifiedAt: now, backupKind: backupKindOf(backup) ?? undefined };
       await this.backend.put(record);
       if (!(await this.backend.get(pubkey))) throw new VaultError('storage', 'the identity could not be kept');
       return { identity: publicOf(record), existed: false };
@@ -212,10 +231,32 @@ export class KeyVault {
   }
 }
 
-/** Decrypt a NIP-49 backup, telling a wrong password from a damaged backup. */
-function openBackup(ncryptsec: string, password: string): Uint8Array {
-  const text = ncryptsec.trim();
-  if (!/^ncryptsec1[02-9ac-hj-np-z]{40,}$/.test(text)) throw new VaultError('corrupt-backup', 'this is not a secret backup');
+const NCRYPTSEC = /^ncryptsec1[02-9ac-hj-np-z]{40,}$/;
+const NSEC = /^nsec1[02-9ac-hj-np-z]{58}$/;
+
+/** Which kind of backup this text is (`ncryptsec1…` or `nsec1…`), or null. */
+export function backupKindOf(backup: string): BackupKind | null {
+  const text = backup.trim();
+  return NCRYPTSEC.test(text) ? 'ncryptsec' : NSEC.test(text) ? 'nsec' : null;
+}
+
+/**
+ * Open a backup: decrypt a NIP-49 Protected Key (telling a wrong password from a damaged backup), or decode a
+ * Recovery Key (NIP-19, checksummed; the password is not used). Errors never contain the text they were given.
+ */
+function openBackup(backup: string, password: string): Uint8Array {
+  const text = backup.trim();
+  const kind = backupKindOf(text);
+  if (kind === 'nsec') {
+    try {
+      const d = nip19Decode(text);
+      if (d.type !== 'nsec' || d.data.length !== 32) throw new Error('not a key');
+      return new Uint8Array(d.data);
+    } catch {
+      throw new VaultError('corrupt-backup', 'this recovery key is damaged');
+    }
+  }
+  if (kind !== 'ncryptsec') throw new VaultError('corrupt-backup', 'this is not a secret backup');
   try {
     return nip49Decrypt(text, password.normalize('NFKC'));
   } catch (e) {
@@ -227,7 +268,7 @@ function openBackup(ncryptsec: string, password: string): Uint8Array {
   }
 }
 
-const publicOf = (r: VaultRecord): VaultIdentity => ({ pubkey: r.pubkey, createdAt: r.createdAt, origin: r.origin, backupVerifiedAt: r.backupVerifiedAt });
+const publicOf = (r: VaultRecord): VaultIdentity => ({ pubkey: r.pubkey, createdAt: r.createdAt, origin: r.origin, backupVerifiedAt: r.backupVerifiedAt, ...(r.backupKind ? { backupKind: r.backupKind } : {}) });
 
 // ─── Backends ──────────────────────────────────────────────────────────────────────────────────────────
 

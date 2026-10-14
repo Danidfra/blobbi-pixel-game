@@ -46,7 +46,9 @@ export class SettingsScreen implements Screen {
    * M11D.4: the reserved Blobbi walking now (its name, whether it is registered) and the account flow (activate or
    * restore). Without them the rows are not shown.
    */
-  reservedWalking: (() => { name: string; registered: boolean } | null) | null = null;
+  reservedWalking: (() => { name: string; registered: boolean; awaitsName?: boolean } | null) | null = null;
+  /** M11D.5: choose the walking Blobbi's name (shown while it waits for one). */
+  onName: (() => void) | null = null;
   onIdentity: ((page: 'activate' | 'restore') => void) | null = null;
   /** M11D.3: back to the main menu (the island is saved first; the playground sets it while playing). */
   onMainMenu: (() => void) | null = null;
@@ -126,6 +128,7 @@ export class SettingsScreen implements Screen {
     const mine = this.reservedWalking?.() ?? null;
     const identityRows: Row[] = this.onIdentity
       ? [
+          ...(mine?.awaitsName && this.onName ? [{ label: t('account.nameBlobbi'), run: () => this.onName?.() }] : []),
           ...(mine ? [{ label: t(mine.registered ? 'account.blobbiReady' : 'account.saveBlobbi', { name: mine.name }), run: () => this.onIdentity?.('activate') }] : []),
           { label: t('account.haveBackup'), run: () => this.onIdentity?.('restore') },
         ]

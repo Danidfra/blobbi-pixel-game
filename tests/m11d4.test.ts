@@ -114,7 +114,7 @@ describe('a reserved identity from birth', () => {
   it('the public records hold no secret; the vault holds it sealed only', async () => {
     const s = setup();
     const { b, file } = await readyGuest(s);
-    const secret = nip49Decrypt(parseBackupFile(file.text)!.ncryptsec, PASSWORD);
+    const secret = nip49Decrypt(parseBackupFile(file.text)!.secret, PASSWORD);
     const hex = Buffer.from(secret).toString('hex');
     expect(getPublicKey(secret)).toBe(b.owner);
     const stored = JSON.stringify([...s.store.data.entries()]);
@@ -333,6 +333,11 @@ describe('the account flow screen', () => {
     sc.setField('name', 'Mochi');
     sc.index = 1;
     ui.handleKey('Enter'); // CONTINUE
+    // M11D.5: the two backups are offered first; the Protected Key (NIP-49) is the M11D.4 path.
+    expect(sc.page).toBe('choose');
+    draw();
+    sc.index = 1;
+    ui.handleKey('Enter'); // PROTECTED KEY
     expect(sc.page).toBe('password');
     expect(guestBlobbi(s.store, r.value.d)!.name).toBe('Mochi');
     sc.setField('password', PASSWORD);

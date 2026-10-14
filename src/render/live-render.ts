@@ -521,7 +521,7 @@ export class LiveRenderer {
         if (Math.hypot(boat.vx, boat.vy) > 3 && !live.fishing) drawables.push({ y: by, x: bx + 0.8, sprite: paddleSprite(boat.heading, Math.floor(time * 2.2), palette), sway: 0, dy: 0, offset: { x: 0, y: -2 } });
       } else drawables.push({ y: hy, x: hx, sprite: c.whole, sway: 0, dy: 0 });
     }
-    if (o.shadows && !seated && !live.boarding) this.paintShadow(frame, bx, by - 1, b.footRx, 2, ox, oy);
+    if (o.shadows && !seated && !live.boarding) this.paintShadow(frame, bx, by - 1, b.shadowRx, 2, ox, oy);
     const hop = b.animator.hop(time);
     // Split: the view draws the Blobbi at its own size, so the gameplay-size sprite is not rasterized here.
     if (!split) {

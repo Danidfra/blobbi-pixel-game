@@ -122,7 +122,14 @@ export interface ReservedBlobbi {
   name: string;
   born: boolean;
   activatedAt: number | null;
+  /** M11D.5: the player chose its name (no naming question again). */
+  named: boolean;
+  /** M11D.5: when the player last said "later" to the naming question (ms), or null. */
+  namingLaterAt: number | null;
 }
+
+/** M11D.5: the two kinds of backup. A Recovery Key (plain `nsec`, no password) or a Protected Key (NIP-49). */
+export type BackupKind = 'nsec' | 'ncryptsec';
 
 /** Where a registration stands (resumable). */
 export interface RegistrationState {
@@ -138,10 +145,14 @@ export type IdentityResult<T> = { ok: true; value: T } | { ok: false; problem: I
 
 /** What a backup would restore, before anything is stored. */
 export interface BackupPreview {
+  /** M11D.5: which kind of backup it is. */
+  kind: BackupKind;
   pubkey: string;
   npubShort: string;
   alreadyHere: boolean;
   blobbis: { d: string; name: string; alreadyHere: boolean }[];
+  /** M11D.5: the player is connected with ANOTHER account: restoring keeps it (the restored one is only kept here). */
+  otherAccount: boolean;
 }
 
 /**
@@ -154,12 +165,22 @@ export interface IdentityPort {
   /** Whether the protected key vault works in this browser (IndexedDB and Web Crypto). */
   vaultAvailable(): Promise<boolean>;
   reserved(): readonly ReservedBlobbi[];
+  /** Choose a Blobbi's name (until it is registered): marks it named, so the naming question is not asked again. */
   rename(d: string, name: string): void;
+  /** M11D.5: the player said "later" to the naming question. */
+  namingLater(d: string): void;
   /** Whether this identity's backup has been verified (loaded back and opened). */
   backupVerified(owner: string): Promise<boolean>;
   /** Make the secret backup file (encrypted with `password`) for a guest identity and the Blobbis it owns. */
   makeBackup(owner: string, password: string, lines: readonly string[]): Promise<IdentityResult<{ fileName: string; text: string }>>;
-  /** Verify a backup the player loaded back (file or pasted text) with its password. */
+  /**
+   * M11D.5: make the Recovery Key file (the plain `nsec`, no password) for a guest identity. Only on the player's
+   * direct request, after the acknowledgment; the text is for the file the player saves and nothing else.
+   */
+  makeRecoveryKey(owner: string, lines: readonly string[]): Promise<IdentityResult<{ fileName: string; text: string }>>;
+  /** M11D.5: what kind of backup a loaded text is (a password is asked only for a Protected Key), or null. */
+  backupKind(text: string): BackupKind | null;
+  /** Verify a backup the player loaded back (file or pasted text); the password only for a Protected Key. */
   verifyBackup(owner: string, text: string, password: string): Promise<IdentityResult<true>>;
   /** What a backup would restore (nothing is stored). */
   previewBackup(text: string, password: string): Promise<IdentityResult<BackupPreview>>;
