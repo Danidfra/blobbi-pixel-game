@@ -154,7 +154,7 @@ describe('M11D.8: the loading page while its Blobbis are looked for', () => {
     for (const cat of Object.values(CATALOGS))
       for (const k of ['identity.restore.searchTitle', 'identity.restore.searchBody']) {
         expect(cat[k], k).toBeTruthy();
-        expect(cat[k], k).not.toMatch(/—/);
+        expect(cat[k], k).not.toMatch(/\u2014/);
         expect(cat[k], k).not.toMatch(/relay|nostr|nsec|npub|31124|11125/i);
       }
     expect(en['identity.restore.searchTitle']).toBe('Looking for your Blobbi...');

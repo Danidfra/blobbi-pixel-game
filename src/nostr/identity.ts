@@ -81,6 +81,15 @@ export class IdentityService implements IdentityPort {
     }
   }
 
+  /** M11D.8: whether this device keeps that identity (its key sealed in the vault). Nothing secret leaves the vault. */
+  async keeps(pubkey: string): Promise<boolean> {
+    try {
+      return await this.o.vault.has(pubkey);
+    } catch {
+      return false;
+    }
+  }
+
   reserved(): readonly ReservedBlobbi[] {
     return readGuestBlobbis(this.o.store).map(publicOf);
   }

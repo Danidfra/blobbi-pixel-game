@@ -31,7 +31,7 @@ import { MAX_NAME, sanitizeIslandName, suggestIslandName, typingIslandName } fro
 import { getLocale, LOCALES, t, upper } from '../i18n';
 import { nextLocale } from './screens/settings';
 
-export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login' | 'owner';
+export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login' | 'owner' | 'arrived' | 'switch';
 
 /** M11D.4: whose a new Blobbi is: a new identity of its own on this device, or the connected account. */
 export type NewOwner = 'guest' | 'account';
@@ -149,6 +149,10 @@ export class TitleScreen {
    * islands page greets it, and a new adventure offers CONTINUE WITH <name> first (MEET A NEW BLOBBI still there).
    */
   restoredName: string | null = null;
+  /** M11D.8: the player pressed a key or touched the title (an automatic entry then never takes over). */
+  touched = false;
+  /** M11D.8: the "who comes along?" question: the current Blobbi, the one that would come, the island, the answers. */
+  private switchOffer: { current: string; walking: string; island: string; bring: () => void; keep: () => void } | null = null;
 
   constructor(private readonly actions: TitleActions) {
     this.reset();
@@ -160,6 +164,34 @@ export class TitleScreen {
     this.go(first ? 'welcome' : 'main');
     this.pendingCreate = null;
     this.restoredName = null;
+    this.switchOffer = null;
+  }
+
+  /**
+   * M11D.8, A CONNECTED PLAYER WITH NO ISLAND ON THIS DEVICE: welcome back, with their current Blobbi (already chosen
+   * by the host). A new adventure offers it first as the companion (no new egg in its place).
+   */
+  arrived(name: string): void {
+    this.active = true;
+    this.restoredName = name;
+    this.pendingCreate = null;
+    this.go('arrived');
+  }
+
+  /**
+   * M11D.8, ANOTHER CURRENT BLOBBI: the player's current Blobbi in the other worlds is not the one that would come to
+   * this island. Asked once: BRING it, or CONTINUE with the one of this device (nothing about the island changes).
+   */
+  offerSwitch(o: { current: string; walking: string; island: string; bring: () => void; keep: () => void }): void {
+    this.active = true;
+    this.switchOffer = o;
+    this.go('switch');
+  }
+
+  /** M11D.8: several islands could be the player's: they choose (never one picked for them). */
+  showIslands(): void {
+    this.active = true;
+    this.go('islands');
   }
 
   get firstTime(): boolean {
@@ -228,6 +260,22 @@ export class TitleScreen {
         ...backup,
       ];
     }
+    if (this.page === 'arrived') {
+      const name = this.restoredName ?? 'Blobbi';
+      return [
+        { label: upper(t('title.arrived.go', { name })), detail: upper(t('title.arrived.goDetail', { name })), run: () => this.newAdventure() },
+        ...(a.myBlobbis ? [{ label: upper(t('title.login.mine')), detail: upper(t('title.login.mineDetail')), run: () => a.myBlobbis!() }] : []),
+        { label: upper(t('title.back')), run: () => this.back() },
+      ];
+    }
+    if (this.page === 'switch' && this.switchOffer) {
+      const o = this.switchOffer;
+      return [
+        { label: upper(t('title.switch.bring', { name: o.current })), detail: upper(t('title.switch.bringDetail', { island: o.island })), run: () => ((this.switchOffer = null), o.bring()) },
+        { label: upper(t('title.switch.keep', { name: o.walking })), detail: upper(t('title.switch.keepDetail')), run: () => ((this.switchOffer = null), o.keep()) },
+        { label: upper(t('title.back')), run: () => this.back() },
+      ];
+    }
     if (this.page === 'owner') {
       const acc = a.account?.();
       return [
@@ -291,7 +339,8 @@ export class TitleScreen {
     if (this.page === 'name') return this.go('carrier');
     if (this.page === 'companion') return this.go('name');
     if (this.page === 'owner') return this.go('name');
-    if (this.page === 'carrier' || this.page === 'about' || this.page === 'error' || this.page === 'islands' || this.page === 'newConfirm' || this.page === 'login') {
+    if (this.page === 'carrier' || this.page === 'about' || this.page === 'error' || this.page === 'islands' || this.page === 'newConfirm' || this.page === 'login' || this.page === 'arrived' || this.page === 'switch') {
+      this.switchOffer = null;
       if (this.page !== 'login') this.companionPreset = null;
       const first = this.actions.worlds().length === 0 && !this.actions.current().saved && !this.actions.current().linked;
       this.restoredName = null;
@@ -415,6 +464,7 @@ export class TitleScreen {
    */
   key(code: string, char = ''): boolean {
     if (!this.active) return false;
+    this.touched = true;
     if (this.page === 'creating') return true;
     if (this.page === 'carrier') return this.carrierKey(code);
     const items = this.items();
@@ -484,6 +534,7 @@ export class TitleScreen {
 
   pointer(sx: number, sy: number): boolean {
     if (!this.active) return false;
+    this.touched = true;
     for (let i = this.hits.length - 1; i >= 0; i--) {
       const h = this.hits[i];
       if (sx >= h.x && sy >= h.y && sx < h.x + h.w && sy < h.y + h.h) {
@@ -558,7 +609,7 @@ export class TitleScreen {
 
     const items = this.items();
     // The islands page explains the active island above its list: one row fewer fits under it.
-    const rows = this.page === 'islands' ? (items.some((i) => i.detail2) ? 3 : items.length > 2 ? 4 : 5) : this.page === 'newConfirm' || this.page === 'login' ? 3 : 5;
+    const rows = this.page === 'islands' ? (items.some((i) => i.detail2) ? 3 : items.length > 2 ? 4 : 5) : this.page === 'newConfirm' || this.page === 'login' || this.page === 'arrived' || this.page === 'switch' ? 3 : 5;
     if (this.index < this.scroll) this.scroll = this.index;
     if (this.index >= this.scroll + rows) this.scroll = this.index - rows + 1;
     const panelW = 184;
@@ -566,7 +617,7 @@ export class TitleScreen {
     const px = named ? 18 : Math.floor((W - panelW) / 2);
     const menu = this.page === 'welcome' || this.page === 'main';
     let y = named ? 24 : menu ? 64 : 56;
-    const headings: Partial<Record<TitlePage, string>> = { islands: t('title.heading.islands'), about: t('title.heading.about'), delete: t('title.heading.delete'), name: t('title.heading.name'), error: t('title.heading.error'), newConfirm: t('title.newConfirm.title'), companion: t('title.companion.title'), login: t('title.login.title'), owner: t('title.owner.title') };
+    const headings: Partial<Record<TitlePage, string>> = { islands: t('title.heading.islands'), about: t('title.heading.about'), delete: t('title.heading.delete'), name: t('title.heading.name'), error: t('title.heading.error'), newConfirm: t('title.newConfirm.title'), companion: t('title.companion.title'), login: t('title.login.title'), owner: t('title.owner.title'), arrived: t('title.arrived.title'), switch: t('title.switch.title') };
     const heading = headings[this.page];
     if (heading) {
       g.heading(heading, px, y, UI.accent, SHADE);
@@ -580,6 +631,8 @@ export class TitleScreen {
     if (this.page === 'newConfirm') y += g.para(t('title.newConfirm.body'), px, y, panelW, UI.ink, 6, SHADE) + 5;
     if (this.page === 'companion') y += g.para(t('title.companion.body'), px, y, panelW, UI.ink, 4, SHADE) + 4;
     if (this.page === 'owner') y += g.para(t('title.owner.body'), px, y, panelW, UI.ink, 5, SHADE) + 4;
+    if (this.page === 'arrived') y += g.para(t('title.arrived.body', { name: this.restoredName ?? 'Blobbi' }), px, y, panelW, UI.ink, 5, SHADE) + 4;
+    if (this.page === 'switch' && this.switchOffer) y += g.para(t('title.switch.body', { current: this.switchOffer.current, walking: this.switchOffer.walking, island: this.switchOffer.island }), px, y, panelW, UI.ink, 5, SHADE) + 4;
     if (this.page === 'login') {
       const acc = this.actions.account?.();
       const text = acc?.status === 'connected' ? (acc.name ? t('title.login.welcome', { name: acc.name }) : t('title.login.welcomeAnon')) : acc && !acc.signerAvailable ? `${t('title.login.body')} ${t('title.login.noSigner')}` : t('title.login.body');

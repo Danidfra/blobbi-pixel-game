@@ -13,7 +13,7 @@ import { generateTurtleWorld, DEFAULT_TURTLE_OPTIONS } from '../world/turtle-wor
 import { SHELL_VARIANTS, DEFAULT_SHELL_VARIANT, NEW_WORLD_SHELL_VARIANT, isShellVariant, type ShellVariant } from '../carrier/types';
 import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/compose';
 import { auditWorld } from '../render/audit';
-import type { ShareStatus } from '../nostr/port';
+import type { OwnedBlobbi, ShareStatus } from '../nostr/port';
 import type { WorldDescription, WorldOptions } from '../world/types';
 import { DEFAULT_WORLD_OPTIONS } from '../world/types';
 import { PALETTES, COZY } from '../core/palette';
@@ -33,6 +33,7 @@ import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
+import { decideEntry, rememberStay, stayedWith } from '../game/world-entry';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
 import { RECIPES, canCraft, recipeById } from '../game/crafting';
@@ -1252,6 +1253,96 @@ title.onSound = (n) => gameUI.onSound?.(n);
 function islandLabel(identity: string): string {
   if (live && live.identity === identity) return displayName(live.islandName, identity);
   return listWorlds(storeKeys(), storeGet).find((w) => w.identity === identity)?.name ?? worldName(identity);
+}
+
+/**
+ * M11D.8, SEAMLESS WORLD ENTRY (`src/game/world-entry.ts` decides; this carries it out). Once per page load, at the
+ * first start of play: a CONNECTED player whose identity is really here (the vault keeps its key, or the extension is
+ * present) goes straight into their island, with their Blobbi. Their current Blobbi across the Blobbi apps (kind 11125
+ * `current_companion`) is read first, read only, for a few seconds at most; offline, they enter with the Blobbi of
+ * this device. Anything the player does on the title meanwhile wins: nothing is then taken over. Never creates an
+ * identity, a Blobbi or an island, never publishes; the title is always one menu away (SETTINGS > MAIN MENU), and
+ * `#menu` opens on it.
+ */
+let entryTried = false;
+async function autoEnter(): Promise<void> {
+  if (entryTried) return;
+  entryTried = true;
+  const snap = account.snapshot();
+  const allowed = state.mode === 'play' && !linkedWorld && !params.has('menu') && !params.has('intro') && title.active && !intro;
+  if (!allowed || snap.status !== 'connected' || !snap.pubkey) return;
+  const pubkey = snap.pubkey;
+  const present = snap.method === 'vault' ? await identityService().then((svc) => svc.keeps(pubkey), () => false) : snap.signerAvailable;
+  if (!present) return;
+  const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
+  const res = await cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader(), blobbis: rd.relayBlobbiReader(), relays: rc.READ_RELAYS, timeoutMs: 4000 });
+  // The player did something meanwhile, or the account changed: they lead.
+  const after = account.snapshot();
+  if (title.touched || !title.active || intro || after.status !== 'connected' || after.pubkey !== pubkey) return;
+  const store = localStore();
+  if (!store) return;
+  /** The pixel seed a Blobbi of the account walks with (V3: its own; V1/V2: its world form), or null. */
+  const seedOf = (b: OwnedBlobbi): string | null => {
+    if (b.generation === 'v3') return b.seed;
+    const form = b.worldForm ? cleanWorldFormTraits(b.worldForm) : null;
+    return form && (b.generation === 'v1' || b.generation === 'v2') ? (worldFormSource(b.pubkey, b.d, b.generation, form)?.seed ?? null) : null;
+  };
+  const items = res.status === 'unavailable' ? [] : res.items;
+  const mine = new Set<string>();
+  for (const b of items) {
+    const seed = seedOf(b);
+    if (seed) mine.add(seed);
+  }
+  for (const g of readGuestBlobbis(store))
+    if (g.owner === pubkey) {
+      const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
+      if (r.ok) mine.add(r.source.seed);
+    }
+  const rec = loadSelectionRecord(store);
+  const recOwner = rec?.account ?? (rec?.source.kind === 'v3-address' ? (guestBlobbi(store, rec.source.d)?.owner ?? null) : null);
+  if (rec && recOwner === pubkey) mine.add(rec.source.seed);
+  const item = res.status === 'current' ? res.blobbi : null;
+  const worlds = listWorlds(storeKeys(), storeGet);
+  const decision = decideEntry({
+    allowed: true,
+    account: { pubkey, present },
+    islands: worlds.map((w) => ({ identity: w.identity, lastSeed: lastVisitor(store, w.identity)?.seed ?? null })),
+    mine,
+    walkingSeed: state.blobbi.seed,
+    current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item) } : { status: res.status === 'current' ? 'unavailable' : res.status },
+    stayed: (island, d) => stayedWith(store, island, pubkey, d),
+  });
+  if (import.meta.env.DEV) console.info('[entry]', decision.kind, res.status);
+  const enter = (identity: string) => {
+    const w = worlds.find((x) => x.identity === identity);
+    if (!w) return;
+    if (live && live.identity === w.identity) beginPlay();
+    else if (openWorldParams(w)) beginPlay();
+  };
+  switch (decision.kind) {
+    case 'enter':
+      return enter(decision.island);
+    case 'choose-island':
+      return title.showIslands();
+    case 'offer-switch':
+      return title.offerSwitch({
+        current: decision.name,
+        walking: blobbiDisplayName() ?? 'Blobbi',
+        island: islandLabel(decision.island),
+        bring: () => {
+          if (item && blobbisScreen.chooser?.choose(item)) enter(decision.island);
+        },
+        keep: () => {
+          rememberStay(store, decision.island, pubkey, decision.d, Date.now());
+          enter(decision.island);
+        },
+      });
+    case 'welcome':
+      if (item && blobbisScreen.chooser?.choose(item)) title.arrived(decision.name);
+      return;
+    case 'title':
+      return;
+  }
 }
 
 /**
@@ -2964,6 +3055,8 @@ function setMode(mode: Mode): void {
       // A fresh entry into play starts at the title screen: WELCOME the first time, the main menu after.
       title.active = true;
       title.reset();
+      // M11D.8: a returning connected player may go straight in (once per page load; the title stays one menu away).
+      void autoEnter();
     }
     lastFrameTime = 0;
     view.focus();
