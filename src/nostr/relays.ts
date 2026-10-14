@@ -7,6 +7,7 @@
  * already use; no relay list is read from the player's profile in this version.
  */
 
+import { getBlobbonautQueryDValues } from '@blobbi-kit/core';
 import { READ_RELAYS } from './relay-config';
 
 /** The relays profiles are read from (M11D.6: the same set Blobbis are published to, `relay-config.ts`). */
@@ -41,8 +42,18 @@ export function relayBlobbiReader(): BlobbiReader {
   return { readBlobbis: (pubkey, relays, signal) => queryRelays(relays, { kinds: [31124], authors: [pubkey], '#b': [BLOBBI_MARKER], limit: 200 }, signal) };
 }
 
+/** M11D.8: reads an owner's Blobbonaut profile (kind 11125, and the legacy 31125), which names the current Blobbi. */
+export interface BlobbonautReader {
+  readBlobbonaut(pubkey: string, relays: readonly string[], signal: AbortSignal): Promise<ProfileReadResult>;
+}
+
+/** M11D.8: the profile as the kit asks for it (`fetchFreshBlobbonautProfile`): both kinds, every d it may carry. */
+export function relayBlobbonautReader(): BlobbonautReader {
+  return { readBlobbonaut: (pubkey, relays, signal) => queryRelays(relays, { kinds: [11125, 31125], authors: [pubkey], '#d': getBlobbonautQueryDValues(pubkey), limit: 20 }, signal) };
+}
+
 /** One REQ per relay, each relay opened for it and closed after (no reconnection); answers merged, never trusted. */
-async function queryRelays(relays: readonly string[], filter: { kinds: number[]; authors: string[]; limit: number; '#b'?: string[] }, signal: AbortSignal): Promise<ProfileReadResult> {
+async function queryRelays(relays: readonly string[], filter: { kinds: number[]; authors: string[]; limit: number; '#b'?: string[]; '#d'?: string[] }, signal: AbortSignal): Promise<ProfileReadResult> {
   const { NRelay1 } = await import('@nostrify/nostrify');
   const answers = await Promise.allSettled(
     relays.map(async (url) => {
