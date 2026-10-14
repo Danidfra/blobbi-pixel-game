@@ -120,3 +120,11 @@ when the tab is backgrounded.
 ## M11D.4
 
 Signing and publishing now exist, confined to the key vault, the extension signer and the publisher, and only for a consented registration of a Blobbi met in this game: see [M11D.4](../milestones/M11D4.md). Reading stays as described above.
+
+## M11D.5
+
+Two backups of a reserved identity: the Protected Key (NIP-49, as in M11D.4) and the Recovery Key (the plain NIP-19
+`nsec`, only on the player's explicit request after an acknowledgment, offered as a file and never drawn, copied or
+stored). Only the key vault makes or reads an `nsec`; `backup.ts` only finds its line in a file (the boundary test's
+allow-list). Verification and restore accept either kind (and a raw `nsec` pasted alone), never overwrite an identity
+and never publish: see [M11D.5](../milestones/M11D5.md).

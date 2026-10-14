@@ -112,7 +112,7 @@ and never writes.
 | Key | What | Source |
 |---|---|---|
 | `blobbi-pixel-lab:selected-blobbi` | the chosen Blobbi (V3 address, V3 seed or demo seed); since M11C optionally `name` and `account` for a Blobbi chosen from MY BLOBBIS (same version 1; older code ignores the two fields; it walks only while that account is connected); since M11D.1 optionally `stage: 'baby'` beside `account` (older code draws the adult of the same genome); since M11D.2 a `world-form` source for a V1/V2 Blobbi (address, generation, look, derived seed; only beside its account; older code ignores the record); since M11D.3 `stage: 'baby'` also for a local Blobbi (`local-blobbi-…`) without an account | `src/game/blobbi-selection.ts` |
-| `blobbi-pixel-lab:guest-blobbis` | Blobbis met here with a reserved owner (M11D.4): owner, owner kind, petId, d, name, birth, island, born, registered; public data only | `src/game/guest-blobbis.ts` |
+| `blobbi-pixel-lab:guest-blobbis` | Blobbis met here with a reserved owner (M11D.4): owner, owner kind, petId, d, name, birth, island, born, registered; since M11D.5 also `named` (the player chose the name) and `namingLaterAt`; public data only | `src/game/guest-blobbis.ts` |
 | `blobbi-pixel-lab:activation` | registrations under way or done (M11D.4): stage, mode, the signed (public) events, relays that accepted | `src/nostr/activation.ts` |
 | IndexedDB `blobbi-pixel-vault` | the key vault (M11D.4): sealed secrets (AES-GCM ciphertext) and the non-extractable wrapping key; never localStorage | `src/nostr/keystore.ts` |
 | `blobbi-pixel-lab:local-blobbis` | Blobbis met in this game (M11D.3): `{version: 1, blobbis: [{id, createdAt, island, born, bornAt}]}`; local only, no key, no address | `src/game/local-blobbis.ts` |

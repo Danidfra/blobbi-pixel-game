@@ -506,6 +506,17 @@ All **NOT TESTED**; steps and expected results in [M11D.4](../milestones/M11D4.m
 |---|---|
 | ID-01 .. ID-20 | NOT TESTED |
 
+## M11D.5: lifecycle, naming, two backups (LIFE, SHADOW, NAME, BACKUP, RESTORE, UX, INVITE, COPY, LAB)
+
+All **NOT TESTED**; steps and expected results in [M11D.5](../milestones/M11D5.md) §14. Automated:
+`tests/m11d5.test.ts`, `tests/m11d5-identity.test.ts`; images `examples/m11d5/`. Live publishing is off in this build.
+Start browser checks with `node scripts/lab-browser.mjs start` (muted) and end them with `... stop`.
+
+| ID | Status |
+|---|---|
+| LIFE-01 .. LIFE-03, SHADOW-01 .. 02, NAME-01 .. 04 | NOT TESTED |
+| BACKUP-01 .. 06, RESTORE-01 .. 04, UX-01 .. 02, INVITE-01 .. 02, COPY-01, LAB-01 | NOT TESTED |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

@@ -1,6 +1,6 @@
 # Guest identity: audit and implementation plan (M11D.2, DESIGN ONLY)
 
-**Status: AUDIT AND DESIGN (M11D.2); IMPLEMENTED in [M11D.4](../milestones/M11D4.md)** (live publishing off). Nothing here is implemented: no keypair is generated, no secret stored, no account
+**Status: AUDIT AND DESIGN (M11D.2); IMPLEMENTED in [M11D.4](../milestones/M11D4.md)** (live publishing off); the plain nsec backup offered beside NIP-49 in [M11D.5](../milestones/M11D5.md). Nothing here is implemented: no keypair is generated, no secret stored, no account
 created, no event signed or published. Facts are **VERIFIED** (read in source, path:line given) or **PROPOSED**.
 Sources read 2026-10-13: this repository (`develop` during M11D.2), `nostr-pet` (`feat/blobbi-v3`, the Blobbi
 Standalone, read only), `blobbi-kit/packages` (read only). It extends [guest Blobbi identity](GUEST-BLOBBI-IDENTITY.md)

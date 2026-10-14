@@ -1,6 +1,6 @@
 # Account creation inside the game (M11C.5, DESIGN)
 
-**Status: INVESTIGATION + PROPOSAL (M11C.5); a guest account flow is IMPLEMENTED in [M11D.4](../milestones/M11D4.md)** (reserved identity, verified NIP-49 backup, consent, registration; live publishing off). Nothing is implemented: no key generation, no nsec import, no secret storage.
+**Status: INVESTIGATION + PROPOSAL (M11C.5); a guest account flow is IMPLEMENTED in [M11D.4](../milestones/M11D4.md); the two backups (Recovery Key nsec / Protected Key NIP-49), naming and the new look in [M11D.5](../milestones/M11D5.md)** (reserved identity, verified NIP-49 backup, consent, registration; live publishing off). Nothing is implemented: no key generation, no nsec import, no secret storage.
 Today the game only connects an existing browser extension (NIP-07) read-only ([M11B](../milestones/M11B.md)).
 Facts are **VERIFIED** (path given) or **PROPOSED**.
 
