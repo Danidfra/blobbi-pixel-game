@@ -135,7 +135,7 @@ function accountWith(read: BlobbiReader['readBlobbis'], o: { store?: ReturnType<
 describe('the account reads the collection', () => {
   it('a guest reads nothing; connected, it reads once and caches (no repeated relay queries)', async () => {
     let now = 1000;
-    const { account, calls } = accountWith(async () => ({ events: [blobbiEvent()], reachable: 2 }), { now: () => now });
+    const { account, calls } = accountWith(async () => ({ events: [blobbiEvent()], reachable: DEFAULT_RELAYS.length }), { now: () => now });
     await account.loadBlobbis();
     expect(calls).toEqual([]);
     expect(account.blobbis().status).toBe('idle');

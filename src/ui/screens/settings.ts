@@ -11,7 +11,7 @@
 import { Gfx, UI } from '../gfx';
 import { isConfirm, moveSelection, TEXT_SIZES, type GameUI, type Screen, type TextSize } from '../game-ui';
 import type { AudioSettings } from '../../audio/engine';
-import type { AccountPort, AccountSnapshot } from '../../nostr/port';
+import type { AccountPort, AccountSnapshot, ShareStatus } from '../../nostr/port';
 import { getLocale, LOCALES, setLocale, t, type MessageKey } from '../../i18n';
 import { bodyFontHas } from '../fonts/body-font';
 
@@ -46,7 +46,7 @@ export class SettingsScreen implements Screen {
    * M11D.4: the reserved Blobbi walking now (its name, whether it is registered) and the account flow (activate or
    * restore). Without them the rows are not shown.
    */
-  reservedWalking: (() => { name: string; registered: boolean; awaitsName?: boolean } | null) | null = null;
+  reservedWalking: (() => { name: string; registered: boolean; awaitsName?: boolean; share?: ShareStatus } | null) | null = null;
   /** M11D.5: choose the walking Blobbi's name (shown while it waits for one). */
   onName: (() => void) | null = null;
   onIdentity: ((page: 'activate' | 'restore') => void) | null = null;
@@ -129,7 +129,7 @@ export class SettingsScreen implements Screen {
     const identityRows: Row[] = this.onIdentity
       ? [
           ...(mine?.awaitsName && this.onName ? [{ label: t('account.nameBlobbi'), run: () => this.onName?.() }] : []),
-          ...(mine ? [{ label: t(mine.registered ? 'account.blobbiReady' : 'account.saveBlobbi', { name: mine.name }), run: () => this.onIdentity?.('activate') }] : []),
+          ...(mine ? [{ label: t(shareLabel(mine), { name: mine.name }), run: () => this.onIdentity?.('activate') }] : []),
           { label: t('account.haveBackup'), run: () => this.onIdentity?.('restore') },
         ]
       : [];
@@ -225,6 +225,9 @@ export class SettingsScreen implements Screen {
       cy += g.para(t('account.pitch'), x, cy, w, UI.ink) + 2;
       cy += g.para(t('account.optional'), x, cy, w, UI.muted) + 3;
     }
+    // M11D.6: where the walking Blobbi stands with other worlds, in plain words (backed up is not shared).
+    const mine = this.onIdentity ? (this.reservedWalking?.() ?? null) : null;
+    if (mine?.share) cy += g.para(t(`account.share.${mine.share}`, { name: mine.name }), x, cy, w, mine.share === 'shared' ? UI.good : mine.share === 'failed' || mine.share === 'partial' ? UI.bad : UI.muted, 2) + 3;
     const rows = this.rows(ui);
     this.index = Math.min(this.index, Math.max(0, rows.length - 1));
     rows.forEach((it, i) => {
@@ -270,4 +273,12 @@ export function accountName(s: AccountSnapshot): string {
     return s.npubShort ?? t('account.noProfileName');
   }
   return t(s.profile === 'loading' ? 'account.lookingForProfile' : 'account.noProfileName');
+}
+
+/** M11D.6: the walking Blobbi's ACCOUNT row, by where it stands with other worlds. */
+function shareLabel(mine: { registered: boolean; share?: ShareStatus }): MessageKey {
+  if (mine.registered || mine.share === 'shared') return 'account.blobbiReady';
+  if (mine.share === 'practiced') return 'account.blobbiPracticed';
+  if (mine.share === 'pending' || mine.share === 'partial' || mine.share === 'failed') return 'account.blobbiPending';
+  return 'account.saveBlobbi';
 }

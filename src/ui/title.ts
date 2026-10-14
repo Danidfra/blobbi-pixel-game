@@ -144,6 +144,11 @@ export class TitleScreen {
   private now = 0;
   /** Calmer drawing (no bobbing title, a steady caret). */
   reducedMotion = false;
+  /**
+   * M11D.6: the Blobbi just brought back from a backup (its name), while the player chooses where to go on: the
+   * islands page greets it, and a new adventure offers CONTINUE WITH <name> first (MEET A NEW BLOBBI still there).
+   */
+  restoredName: string | null = null;
 
   constructor(private readonly actions: TitleActions) {
     this.reset();
@@ -154,6 +159,7 @@ export class TitleScreen {
     const first = this.actions.worlds().length === 0 && !this.actions.current().saved && !this.actions.current().linked;
     this.go(first ? 'welcome' : 'main');
     this.pendingCreate = null;
+    this.restoredName = null;
   }
 
   get firstTime(): boolean {
@@ -201,11 +207,10 @@ export class TitleScreen {
       ];
     if (this.page === 'companion') {
       const cur = a.currentBlobbi?.() ?? null;
-      return [
-        { label: upper(t('title.meetNew')), detail: upper(t('title.meetNew.detail')), run: () => this.create('new') },
-        ...(cur ? [{ label: upper(t('title.bringCurrent', { name: cur.name })), detail: upper(t('title.bringCurrent.detail')), run: () => this.create('current') }] : []),
-        { label: upper(t('title.back')), run: () => this.back() },
-      ];
+      const meet: Item = { label: upper(t('title.meetNew')), detail: upper(t('title.meetNew.detail')), run: () => this.create('new') };
+      const bring: Item[] = cur ? [{ label: upper(t('title.bringCurrent', { name: cur.name })), detail: upper(t('title.bringCurrent.detail')), run: () => this.create('current') }] : [];
+      // M11D.6: a Blobbi just restored is the obvious companion: it comes first.
+      return [...(this.restoredName ? [...bring, meet] : [meet, ...bring]), { label: upper(t('title.back')), run: () => this.back() }];
     }
     if (this.page === 'login') {
       const acc = a.account?.();
@@ -255,6 +260,20 @@ export class TitleScreen {
     return [];
   }
 
+  /**
+   * M11D.6, AFTER A RESTORE: on to playing. With saved islands, the islands page (choose one, or a new adventure);
+   * with none, straight into a new adventure (its Carrier first; the restored Blobbi is offered first as companion).
+   * Never makes an island by itself. `name` null: an identity came back without a Blobbi.
+   */
+  afterRestore(name: string | null): void {
+    this.active = true;
+    this.restoredName = name;
+    this.pendingCreate = null;
+    if (this.actions.worlds().length > 0) return this.go('islands');
+    if (name) return this.newAdventure();
+    this.reset();
+  }
+
   /** The island CONTINUE plays: the host's active one, else the most recent. */
   private activeEntry(worlds: readonly WorldEntry[]): WorldEntry | null {
     const id = this.actions.activeIdentity?.() ?? null;
@@ -275,6 +294,7 @@ export class TitleScreen {
     if (this.page === 'carrier' || this.page === 'about' || this.page === 'error' || this.page === 'islands' || this.page === 'newConfirm' || this.page === 'login') {
       if (this.page !== 'login') this.companionPreset = null;
       const first = this.actions.worlds().length === 0 && !this.actions.current().saved && !this.actions.current().linked;
+      this.restoredName = null;
       return this.go(first ? 'welcome' : 'main');
     }
     this.go('main');
@@ -332,6 +352,7 @@ export class TitleScreen {
     }
     this.pendingCreate = { kind: CARRIER_CARDS[this.carrier].kind, name: sanitizeIslandName(this.name), companion, owner: this.owner };
     this.companionPreset = null;
+    this.restoredName = null;
     this.owner = 'guest';
     this.go('creating');
   }
@@ -551,7 +572,8 @@ export class TitleScreen {
       g.heading(heading, px, y, UI.accent, SHADE);
       y += 9;
     }
-    if (this.page === 'islands' && items.length > 2) {
+    if (this.page === 'islands' && this.restoredName) y += g.para(t('title.restored', { name: this.restoredName }), px, y, panelW, UI.good, 3, SHADE) + 3;
+    else if (this.page === 'islands' && items.length > 2) {
       y += g.para(t('title.islandsNote'), px, y, panelW, UI.muted, 5, SHADE) + 3;
     }
     if (this.page === 'about') y += g.para(t('title.aboutText'), px, y, panelW, UI.ink, 5, SHADE) + 4;

@@ -48,7 +48,8 @@ export function recoveryFileName(pubkey: string): string {
 
 /** The file's text. `lines` are the human words, in the player's language (from the caller). */
 export function buildBackupFile(secret: string, pubkey: string, blobbis: BackupBlobbi[], lines: readonly string[]): string {
-  const meta = JSON.stringify({ pubkey, blobbis: blobbis.map((b) => ({ d: b.d, petId: b.petId, name: b.name, bornAt: b.bornAt, ...(b.named ? { named: true } : {}) })) });
+  // M11D.6: at most 20 Blobbis (what a restore reads), so the file stays well under the 4 KB Blobbi Standalone accepts.
+  const meta = JSON.stringify({ pubkey, blobbis: blobbis.slice(0, 20).map((b) => ({ d: b.d, petId: b.petId, name: b.name, bornAt: b.bornAt, ...(b.named ? { named: true } : {}) })) });
   return [...lines, '', secret, '', `${BACKUP_MARK} ${meta}`, ''].join('\n');
 }
 

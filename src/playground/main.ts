@@ -13,6 +13,7 @@ import { generateTurtleWorld, DEFAULT_TURTLE_OPTIONS } from '../world/turtle-wor
 import { SHELL_VARIANTS, DEFAULT_SHELL_VARIANT, NEW_WORLD_SHELL_VARIANT, isShellVariant, type ShellVariant } from '../carrier/types';
 import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/compose';
 import { auditWorld } from '../render/audit';
+import type { ShareStatus } from '../nostr/port';
 import type { WorldDescription, WorldOptions } from '../world/types';
 import { DEFAULT_WORLD_OPTIONS } from '../world/types';
 import { PALETTES, COZY } from '../core/palette';
@@ -27,7 +28,7 @@ import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BL
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
 import { isLocalBlobbiSeed, localBlobbi, markBorn } from '../game/local-blobbis';
-import { awaitsName, chooseGuestName, forgetUnbornGuestBlobbi, guestBlobbi, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
+import { awaitsName, chooseGuestName, forgetUnbornGuestBlobbi, guestBlobbi, readGuestBlobbis, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
 import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
@@ -628,20 +629,23 @@ settingsScreen.onMyBlobbis = () => gameUI.open('blobbis');
 // ─── M11D.4: reserved identities, the secret backup, registration ───────────────────────────
 /**
  * The identity service (the key vault, backups, registration) is loaded only when first needed: the game's first
- * screen never loads it. Publishing is a REHEARSAL (an in-browser relay: nothing leaves the device) unless the page was
- * opened with `#publish=live` (the owner decides when live publishing ships; docs/milestones/M11D4.md).
+ * screen never loads it. Publishing is a REHEARSAL (an in-browser relay: nothing leaves the device) unless the build
+ * says live (`VITE_BLOBBI_PUBLISH=live`) or, on a development server only, the page is opened with `#publish=live`
+ * (the owner decides when live publishing ships; `src/nostr/relay-config.ts`, docs/milestones/M11D6.md).
  */
 let identityTask: Promise<IdentityService> | null = null;
 function identityService(): Promise<IdentityService> {
   identityTask ??= (async () => {
-    const [{ IdentityService: Service }, keys, pub, signer] = await Promise.all([import('../nostr/identity'), import('../nostr/keystore'), import('../nostr/publisher'), import('../nostr/signer')]);
+    const [{ IdentityService: Service }, keys, pub, signer, relayConfig] = await Promise.all([import('../nostr/identity'), import('../nostr/keystore'), import('../nostr/publisher'), import('../nostr/signer'), import('../nostr/relay-config')]);
     let backend: import('../nostr/keystore').VaultBackend;
     try {
       backend = keys.indexedDbVaultBackend();
     } catch {
       backend = keys.memoryVaultBackend(); // the service reports the vault unavailable; nothing is pretended
     }
-    const publisher = params.get('publish') === 'live' ? pub.relayPublisher() : pub.memoryRelay();
+    // M11D.6: the build decides (VITE_BLOBBI_PUBLISH=live); `#publish=live` works only on a development server.
+    const mode = relayConfig.publishModeFor({ buildMode: import.meta.env.VITE_BLOBBI_PUBLISH, dev: import.meta.env.DEV, hash: params });
+    const publisher = mode === 'live' ? pub.relayPublisher() : pub.memoryRelay();
     const store = localStore() ?? memoryStore();
     return new Service({
       store,
@@ -652,8 +656,10 @@ function identityService(): Promise<IdentityService> {
       onChanged: () => (shownName = blobbiDisplayName()),
       onRegistered: (b) => {
         // A guest identity becomes the player's account (an identity this game keeps); the same Blobbi stays, in
-        // place: no departure, no arrival, nothing about the island changes.
-        if (b.ownerKind === 'guest') account.adoptVaultIdentity(b.owner);
+        // place: no departure, no arrival, nothing about the island changes. M11D.6: only when no OTHER account is
+        // connected; a connected account (a browser extension) is never replaced behind the player's back.
+        const acc = account.snapshot();
+        if (b.ownerKind === 'guest' && (acc.status !== 'connected' || acc.pubkey === b.owner)) account.adoptVaultIdentity(b.owner);
         shownName = blobbiDisplayName();
       },
     });
@@ -670,11 +676,27 @@ async function openIdentity(page: 'activate' | 'restore'): Promise<void> {
   gameUI.open('identity');
 }
 settingsScreen.onIdentity = (page) => void openIdentity(page);
+/**
+ * M11D.6: where each Blobbi met here stands with other worlds (`ShareStatus`), asked of the identity service and
+ * kept a moment; until it answers, the public record says enough (shared, practiced or nothing yet).
+ */
+const shareCache = new Map<string, { status: ShareStatus; at: number }>();
+function shareOf(g: GuestBlobbi): ShareStatus {
+  const hit = shareCache.get(g.d);
+  if (!hit || performance.now() - hit.at > 2000) {
+    shareCache.set(g.d, { status: hit?.status ?? (g.activatedAt ? 'shared' : g.practicedAt ? 'practiced' : 'local'), at: performance.now() });
+    void identityService()
+      .then((svc) => svc.shareStatus(g.d))
+      .then((status) => shareCache.set(g.d, { status, at: performance.now() }))
+      .catch(() => {});
+  }
+  return shareCache.get(g.d)!.status;
+}
 settingsScreen.reservedWalking = () => {
   const src = state.blobbi;
   if (src.kind !== 'v3-address') return null;
   const g = storeOrNull((st) => guestBlobbi(st, src.d));
-  return g && g.born ? { name: g.name, registered: !!g.activatedAt, awaitsName: awaitsName(g) } : null;
+  return g && g.born ? { name: g.name, registered: !!g.activatedAt, awaitsName: awaitsName(g), share: shareOf(g) } : null;
 };
 settingsScreen.onName = () => {
   namingScreen.start();
@@ -768,6 +790,27 @@ identityScreen.host = {
     if (!r.ok) return;
     storeOrNull((st) => storeGuestSelection(st, r.source, 'baby'));
     applyBlobbi(r.source, 'baby');
+  },
+  // M11D.6: after a restore, one clear way on. On the main menu: the restored Blobbi becomes the chosen one (the
+  // player pressed CONTINUE WITH <name>), then the islands to choose from, or a new adventure when there are none
+  // (nothing is created until the player says so). While playing: it comes to this island, as BRING did.
+  continueAfterRestore: (d) => {
+    const g = d ? storeOrNull((st) => guestBlobbi(st, d)) : null;
+    const r = g ? resolveBlobbi({ pubkey: g.owner, d: g.d }) : null;
+    if (g && r?.ok) {
+      storeOrNull((st) => storeGuestSelection(st, r.source, 'baby'));
+      applyBlobbi(r.source, 'baby');
+    }
+    if (title.active) title.afterRestore(g && r?.ok ? g.name : null);
+  },
+  portraitOf: (d) => {
+    const g = storeOrNull((st) => guestBlobbi(st, d));
+    const r = g ? resolveBlobbi({ pubkey: g.owner, d: g.d }) : null;
+    return r?.ok ? { identity: identityOfSource(r.source, 'baby'), size: state.blobbiSize } : null;
+  },
+  otherAccountConnected: (owner) => {
+    const acc = account.snapshot();
+    return acc.status === 'connected' && !!acc.pubkey && acc.pubkey !== owner;
   },
 };
 
@@ -933,7 +976,8 @@ function syncAccountBlobbi(restore = true): void {
 account.onChange(() => syncAccountBlobbi());
 
 // ─── M11C.5: the gentle account invitation (never asks the signer, never publishes) ───────
-const invite = new AccountInvite(localStore(), () => identity === 'connected');
+// M11D.6: never for a Blobbi already shared with other worlds (registered for real), connected or not.
+const invite = new AccountInvite(localStore(), () => identity === 'connected' || !!walkingGuest()?.activatedAt);
 gameUI.invite = invite;
 // M11D.5: ONE invitation (the M11C.5 card, its timing, cooldown and "don't show again" kept): the walking Blobbi's own
 // curiosity about other worlds. A Blobbi met here goes straight to saving it for other worlds; any other opens ACCOUNT.
@@ -1089,8 +1133,16 @@ function islandNote(w: WorldEntry): string {
     parts.push(days <= 0 ? t('title.played.today') : days === 1 ? t('title.played.yesterday') : t('title.played.days', { count: days }));
   }
   const last = storeOrNull((st) => lastVisitor(st, w.identity));
-  if (last) parts.push(t('title.withBlobbi', { name: last.name ?? (isLocalBlobbiSeed(last.seed) ? t('blobbi.localBaby') : last.seed === DEMO_BLOBBI_SEED ? 'Blobbi' : last.seed.slice(0, 10)) }));
+  if (last) parts.push(t('title.withBlobbi', { name: last.name ?? metHereName(last.seed) ?? (isLocalBlobbiSeed(last.seed) ? t('blobbi.localBaby') : last.seed === DEMO_BLOBBI_SEED ? 'Blobbi' : last.seed.slice(0, 10)) }));
   return parts.join('  ');
+}
+/** M11D.6: the name of a Blobbi met here, by its look's seed (an island card names it, never a seed). */
+function metHereName(seed: string): string | null {
+  for (const g of storeOrNull(readGuestBlobbis) ?? []) {
+    const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
+    if (r.ok && r.source.seed === seed) return g.name;
+  }
+  return null;
 }
 function startOfDay(ms: number): number {
   const d = new Date(ms);

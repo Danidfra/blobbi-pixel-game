@@ -71,7 +71,8 @@ describe('M11D.5: naming a new Blobbi', () => {
     expect(awaitsName(guestBlobbi(s.store, g.d)!)).toBe(false);
     expect(chooseGuestName(s.store, g.d, '   ')).toBe(null);
     expect(cleanBlobbiName('x'.repeat(40))).toHaveLength(24);
-    // Registered: its name is part of its canonical state.
+    // Registered (M11D.6: for real, a live run behind it): its name is part of its canonical state.
+    s.store.set('blobbi-pixel-lab:activation', JSON.stringify({ version: 1, runs: { [g.d]: { owner: g.owner, d: g.d, mode: 'live', stage: 'done' } } }));
     updateGuestBlobbi(s.store, g.d, { activatedAt: 5 });
     expect(chooseGuestName(s.store, g.d, 'Other')).toBe(null);
     expect(guestBlobbi(s.store, g.d)!.name).toBe('Momo');
@@ -170,6 +171,7 @@ describe('M11D.5: naming a new Blobbi', () => {
     sc.start('activate');
     ui.open('identity');
     ui.handleKey('Enter'); // LET'S DO IT
+    await new Promise((r) => setTimeout(r, 0)); // M11D.6: the intro first asks whether the backup is already checked
     expect(sc.page).toBe('choose');
   });
 
@@ -328,6 +330,7 @@ describe('M11D.5: the account flow pages', () => {
     sc.start('activate');
     ui.open('identity');
     ui.handleKey('Enter'); // LET'S DO IT
+    await new Promise((r) => setTimeout(r, 0)); // M11D.6: the intro first asks whether the backup is already checked
     expect(sc.page).toBe('choose');
     draw();
     ui.handleKey('Enter'); // RECOVERY KEY (the first card)

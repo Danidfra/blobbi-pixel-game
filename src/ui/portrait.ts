@@ -5,7 +5,9 @@
  * MOTION everything is still (no hop, no twinkle, no travelling light), and nothing here changes the game.
  */
 import { hex, type Color } from '../core/color';
-import { REST_POSE, type BlobbiPose, type Expression } from '../blobbi/sprite';
+import { REST_POSE, buildBlobbiSprite, type BlobbiPose, type Expression } from '../blobbi/sprite';
+import type { PixelBlobbiIdentity } from '../blobbi/identity';
+import type { Sprite } from '../core/pixel';
 import { fromTemplate } from './icons';
 import { UI, type Gfx } from './gfx';
 import type { GameUI } from './game-ui';
@@ -20,6 +22,24 @@ export interface PortraitOptions {
   island?: boolean;
   /** The island's largest half width (the frame it must fit). */
   islandMax?: number;
+  /**
+   * M11D.6: draw THIS Blobbi instead of the walking one (a restored Blobbi, before it walks anywhere): its identity
+   * (from its canonical address and stage) and size. Drawn even with no live world.
+   */
+  subject?: { identity: PixelBlobbiIdentity; size: number };
+}
+
+/** The few sprites a subject portrait needs (one per pose), kept small. */
+const subjectSprites = new Map<string, Sprite>();
+function subjectSprite(s: { identity: PixelBlobbiIdentity; size: number }, pose: BlobbiPose): Sprite {
+  const key = `${s.identity.seed}|${s.identity.stage}|${s.size}|${pose.expression}|${pose.breath}|${pose.lid}`;
+  let hit = subjectSprites.get(key);
+  if (!hit) {
+    if (subjectSprites.size > 32) subjectSprites.clear();
+    hit = buildBlobbiSprite(s.identity, pose, s.size);
+    subjectSprites.set(key, hit);
+  }
+  return hit;
 }
 
 /**
@@ -28,12 +48,12 @@ export interface PortraitOptions {
  */
 export function drawPortrait(g: Gfx, ui: GameUI, cx: number, groundY: number, o: PortraitOptions = {}): number {
   const live = ui.live;
-  if (!live) return 0;
+  if (!live && !o.subject) return 0;
   const still = ui.settings.reducedMotion;
   const t = ui.now;
   const blink = !still && t % 3.4 < 0.14;
   const pose: BlobbiPose = { ...REST_POSE, expression: o.expression ?? 'happy', breath: !still && t % 1.6 < 0.8 ? 1 : 0, lid: blink ? 2 : 0 };
-  const sprite = live.blobbiSprite(pose);
+  const sprite = o.subject ? subjectSprite(o.subject, pose) : live!.blobbiSprite(pose);
   const k = o.scale ?? 1;
   const big = k === 1 ? sprite.buffer : sprite.buffer.scaled(k);
   const lift = o.hop && !still ? Math.round(Math.abs(Math.sin(t * 6)) * 3 * k) : 0;
@@ -51,7 +71,8 @@ export function drawPortrait(g: Gfx, ui: GameUI, cx: number, groundY: number, o:
     g.buf.set(cx + ir - 6, groundY - 2, hex('#ff9ad5'));
   }
   // A soft shadow the size of the Blobbi's own body, then the Blobbi.
-  const rx = Math.max(3, Math.round((live.blobbi.shadowRx + 1) * k));
+  const shadowRx = o.subject || !live ? Math.max(2, Math.round(sprite.buffer.trimmed().buffer.width / 2) - 1) : live.blobbi.shadowRx;
+  const rx = Math.max(3, Math.round((shadowRx + 1) * k));
   const shade = o.island ? hex('#3c8a48') : hex('#151925');
   for (let dx = -rx; dx <= rx; dx++) g.buf.set(cx + dx, groundY - (o.island ? 1 : 0), shade);
   for (let dx = -rx + 2; dx <= rx - 2; dx++) g.buf.set(cx + dx, groundY + (o.island ? 0 : 1), shade);

@@ -14,7 +14,7 @@
  *
  * Templates only: signing is the vault's (a reserved identity) or the browser extension's (an existing account).
  */
-import { addPetToHas, buildBlobbonautTags, buildEggTags, classifyBlobbiEvent, deriveBlobbiV3Seed, getCanonicalBlobbiD, KIND_BLOBBI_STATE, KIND_BLOBBONAUT_PROFILE, updateBlobbiTags, updateBlobbonautTags } from '@blobbi-kit/core';
+import { addPetToHas, buildBlobbonautTags, buildEggTags, classifyBlobbiEvent, deriveBlobbiV3Seed, getBlobbonautQueryDValues, getCanonicalBlobbiD, getCanonicalBlobbonautD, isValidBlobbonautEvent, KIND_BLOBBI_STATE, KIND_BLOBBONAUT_PROFILE, KIND_BLOBBONAUT_PROFILE_LEGACY, updateBlobbiTags, updateBlobbonautTags } from '@blobbi-kit/core';
 
 export interface EventTemplate {
   kind: number;
@@ -37,16 +37,33 @@ export const canonicalD = (owner: string, petId: string): string => getCanonical
 /** Its V3 visual seed: the kit's derivation from (owner, d). The look is fixed the moment both exist. */
 export const canonicalSeed = (owner: string, petId: string): string => deriveBlobbiV3Seed(owner, canonicalD(owner, petId));
 
-/** The 31124 state of a Blobbi hatched in this game, ready to sign (at `now`, seconds). */
+/**
+ * The 31124 state of a Blobbi hatched in this game, ready to sign (at `now`, seconds). M11D.6: the kit's care clock
+ * (`last_interaction`, `last_decay_at`, `care_streak_last_at`) starts at `now`, the moment it is shared, not at the
+ * reservation: a Blobbi shared days after it hatched must not open in its home apps as if nobody had cared for it
+ * since (Standalone projects decay from `last_decay_at`). Its look depends only on (owner, d), never on a time.
+ */
 export function babyStateTemplate(f: BirthFacts, now: number): EventTemplate {
-  const egg = buildEggTags(f.owner, f.petId, f.bornAt, f.name, { visualGeneration: 'v3' });
+  const egg = buildEggTags(f.owner, f.petId, now, f.name, { visualGeneration: 'v3' });
   const tags = updateBlobbiTags(egg, { stage: 'baby', state: 'active', progression_state: 'none' });
   return { kind: KIND_BLOBBI_STATE, created_at: now, tags, content: '' };
 }
 
-/** The owner's 11125 profile listing the Blobbi (merged over an existing one, never dropping a Blobbi). */
-export function profileTemplate(owner: string, d: string, now: number, existing: { tags: string[][]; content: string } | null): EventTemplate {
-  const base = existing ? existing.tags.map((t) => [...t]) : buildBlobbonautTags(owner);
+/**
+ * M11D.6: how the owner's profile is asked for, as the kit's own reader does (`fetchFreshBlobbonautProfile`): both the
+ * 11125 and the legacy 31125 kind, by the kit's d values.
+ */
+export const profileFilter = (owner: string) => ({ kinds: [KIND_BLOBBONAUT_PROFILE, KIND_BLOBBONAUT_PROFILE_LEGACY], authors: [owner], '#d': getBlobbonautQueryDValues(owner), limit: 10 });
+
+/** Whether an event is a usable profile by the kit's reading (the ecosystem marker, a d). */
+export const isProfile = (e: { kind: number; tags: string[][] }): boolean => isValidBlobbonautEvent(e as never);
+
+/**
+ * The owner's 11125 profile listing the Blobbi (merged over an existing one, never dropping a Blobbi or a tag). A
+ * legacy 31125 profile is carried over into the 11125 with the kit's canonical d.
+ */
+export function profileTemplate(owner: string, d: string, now: number, existing: { kind?: number; tags: string[][]; content: string } | null): EventTemplate {
+  const base = existing ? existing.tags.map((t) => (t[0] === 'd' && existing.kind === KIND_BLOBBONAUT_PROFILE_LEGACY ? ['d', getCanonicalBlobbonautD(owner)] : [...t])) : buildBlobbonautTags(owner);
   const has = base.filter((t) => t[0] === 'has' && t[1]).map((t) => t[1]);
   const tags = updateBlobbonautTags(base, { has: addPetToHas(has, d), current_companion: d });
   return { kind: KIND_BLOBBONAUT_PROFILE, created_at: now, tags, content: existing?.content ?? '' };

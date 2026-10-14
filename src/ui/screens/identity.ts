@@ -35,6 +35,7 @@ import type { PixelBuffer } from '../../core/pixel';
 import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, ReservedBlobbi } from '../../nostr/port';
 import { KEY_ICON, LOCK_ICON, drawConnectedWorlds, drawPortrait, drawTwinkles } from '../portrait';
 import type { Expression } from '../../blobbi/sprite';
+import type { PixelBlobbiIdentity } from '../../blobbi/identity';
 
 /** One action of a page: a button, an illustrated card (the two backups) or a tick box (an acknowledgment). */
 interface Action {
@@ -64,6 +65,15 @@ export interface IdentityHost {
   walking(): { reserved: ReservedBlobbi | null; legacyLocal: boolean };
   /** Bring a restored Blobbi to the island (the usual explicit choice). */
   bring(d: string): void;
+  /**
+   * M11D.6: CONTINUE after a restore: the host takes the player on (the restored Blobbi, when there is one, as the
+   * obvious companion: the islands to choose from, or a new adventure). Never creates an island by itself.
+   */
+  continueAfterRestore?(d: string | null): void;
+  /** M11D.6: how a restored Blobbi looks (its canonical identity and size), to show it before it walks anywhere. */
+  portraitOf?(d: string): { identity: PixelBlobbiIdentity; size: number } | null;
+  /** M11D.6: another account (not this Blobbi's owner) is connected now: it stays, and the screen says so. */
+  otherAccountConnected?(owner: string): boolean;
 }
 
 export class IdentityScreen implements Screen {
@@ -173,7 +183,6 @@ export class IdentityScreen implements Screen {
   private actions(ui: GameUI): Action[] {
     const name = this.nameOf();
     const id = this.identity;
-    const b = this.subjectBlobbi();
     // The password row appears only when the loaded backup needs one (or, before loading, for a Protected Key).
     const needsPassword = this.loadedKind() === 'ncryptsec' || (!this.loaded && this.method === 'ncryptsec');
     const load: Action[] = [
@@ -184,7 +193,7 @@ export class IdentityScreen implements Screen {
     switch (this.page) {
       case 'intro':
         return [
-          { label: t('identity.intro.go'), primary: true, run: () => this.go(b?.ownerKind === 'account' ? 'consent' : b?.named ? 'choose' : 'name') },
+          { label: t('identity.intro.go'), primary: true, run: () => void this.afterIntro() },
           { label: t('identity.notNow'), run: () => ui.close() },
         ];
       case 'name':
@@ -241,8 +250,14 @@ export class IdentityScreen implements Screen {
           { label: t('identity.cancel'), run: () => this.go('restore') },
         ];
       case 'restoreDone': {
-        const first = this.preview?.blobbis[0];
-        return [...(first ? [{ label: t('identity.restore.bring', { name: first.name }), primary: true, run: () => (this.host?.bring(first.d), ui.close()) }] : []), { label: t('identity.close'), run: () => ui.close() }];
+        // M11D.6: one clear way on. The host decides where (the islands, or a new adventure with this Blobbi).
+        const first = this.preview?.blobbis[0] ?? null;
+        const on = () => {
+          ui.close();
+          if (this.host?.continueAfterRestore) this.host.continueAfterRestore(first?.d ?? null);
+          else if (first) this.host?.bring(first.d);
+        };
+        return [{ label: first ? t('identity.restore.continueWith', { name: first.name }) : t('identity.restore.continue'), primary: true, run: on }, { label: t('identity.restore.later'), run: () => ui.close() }];
       }
       case 'legacy':
       case 'nothing':
@@ -259,6 +274,17 @@ export class IdentityScreen implements Screen {
 
   private edit(field: IdentityField, secret: boolean): void {
     this.host?.editText(field, this.fields[field], secret, (v) => this.setField(field, v));
+  }
+
+  /**
+   * After the intro: an account's Blobbi goes to consent; M11D.6: so does one whose backup is already checked (a
+   * restored identity proved its backup by being restored); else the name (unless chosen) and the two backups.
+   */
+  private async afterIntro(): Promise<void> {
+    const b = this.subjectBlobbi();
+    if (b?.ownerKind === 'account') return this.go('consent');
+    if (b && (await this.identity?.backupVerified(b.owner))) return this.go('consent');
+    this.go(b?.named ? 'choose' : 'name');
   }
 
   private async makeBackup(): Promise<void> {
@@ -402,8 +428,8 @@ export class IdentityScreen implements Screen {
     const name = this.nameOf();
     const p = (key: MessageKey, cy: number, c = UI.ink, lines = 6, vars: Record<string, string | number> = {}) => cy + g.para(t(key, { name, ...vars }), tx, cy, tw, c, lines) + 4;
     let cy = top;
-    const head = (key: MessageKey) => {
-      cy += g.para(upper(t(key, { name })), tx, cy, tw, UI.accent, 3) + 4;
+    const head = (key: MessageKey, vars: Record<string, string | number> = {}) => {
+      cy += g.para(upper(t(key, { name, ...vars })), tx, cy, tw, UI.accent, 3) + 4;
     };
     const field = (label: MessageKey, value: string, secret: boolean) => {
       g.text(t(label), tx, cy, UI.muted);
@@ -456,10 +482,11 @@ export class IdentityScreen implements Screen {
         cy = p('identity.consent.body', cy);
         if (this.identity?.publishMode === 'rehearsal') cy = p('identity.consent.rehearsal', cy, UI.muted, 3);
         if (this.subjectBlobbi()?.ownerKind === 'account') cy = p('identity.consent.account', cy, UI.muted, 3);
+        else if (this.subjectBlobbi() && this.host?.otherAccountConnected?.(this.subjectBlobbi()!.owner)) cy = p('identity.consent.keepAccount', cy, UI.muted, 3);
         break;
       case 'working':
         head('identity.working.title');
-        cy = p('identity.working.body', cy, UI.muted);
+        cy = p(this.identity?.publishMode === 'rehearsal' ? 'identity.working.rehearsal' : 'identity.working.body', cy, UI.muted);
         break;
       case 'failed':
         head('identity.failed.title');
@@ -467,13 +494,19 @@ export class IdentityScreen implements Screen {
         cy = p('identity.failed.safe', cy, UI.muted, 3);
         break;
       case 'reveal':
+        // M11D.6: practice is never told as sharing: its own page, and Nostr is not revealed for a rehearsal.
+        if (this.identity?.publishMode === 'rehearsal') {
+          head('identity.practice.title');
+          cy = p('identity.practice.body1', cy);
+          cy = p('identity.practice.body2', cy, UI.muted);
+          break;
+        }
         head('identity.reveal.title');
         cy = p('identity.reveal.body1', cy);
         cy = p('identity.reveal.body2', cy, UI.good);
         // Little connected islands, a light travelling between them.
         drawConnectedWorlds(g, ui, tx, cy + 8, Math.min(tw, 150));
         cy += 14;
-        if (this.identity?.publishMode === 'rehearsal') cy = p('identity.reveal.rehearsal', cy, UI.muted, 2);
         break;
       case 'restore':
         head('identity.restore.title');
@@ -492,10 +525,12 @@ export class IdentityScreen implements Screen {
         cy = p('identity.restore.nothingShared', cy, UI.muted, 2);
         break;
       }
-      case 'restoreDone':
-        head('identity.restore.doneTitle');
-        cy = p(this.preview?.blobbis.length ? 'identity.restore.doneBody' : 'identity.restore.doneIdentity', cy, UI.ink, 4, { name: this.preview?.blobbis[0]?.name ?? '' });
+      case 'restoreDone': {
+        const first = this.preview?.blobbis[0];
+        head(first ? 'identity.restore.doneTitle' : 'identity.restore.welcome', { name: first?.name ?? '' });
+        cy = p(first ? 'identity.restore.doneBody' : 'identity.restore.doneIdentity', cy, UI.ink, 4, { name: first?.name ?? '' });
         break;
+      }
       case 'legacy':
         head('identity.legacy.title');
         cy = p('identity.legacy.body', cy);
@@ -520,9 +555,13 @@ export class IdentityScreen implements Screen {
     const mood = this.mood(ui);
     g.box(x, y, left, h, UI.slot, UI.line);
     if (mood.party) drawTwinkles(g, ui, lx, ground - 12 * k, 12 * k, 9);
-    if (ui.live) {
-      drawPortrait(g, ui, lx, ground, { scale: k, expression: mood.expression, hop: mood.party, island: true, islandMax: Math.floor(left / 2) - 6 });
-      g.text(name, lx - Math.floor(g.measure(name) / 2), ground + 12, mood.party ? UI.accent : UI.ink);
+    // M11D.6: after a restore, the restored Blobbi itself (it may not walk anywhere yet).
+    const restored = this.page === 'restoreDone' && this.preview?.blobbis[0] ? this.preview.blobbis[0] : null;
+    const subject = restored ? (this.host?.portraitOf?.(restored.d) ?? undefined) : undefined;
+    if (ui.live || subject) {
+      const shown = restored ? restored.name : name;
+      drawPortrait(g, ui, lx, ground, { scale: k, expression: mood.expression, hop: mood.party, island: true, islandMax: Math.floor(left / 2) - 6, subject });
+      g.text(shown, lx - Math.floor(g.measure(shown) / 2), ground + 12, mood.party ? UI.accent : UI.ink);
     } else g.buf.blit(LOCK_ICON.scaled(3), lx - Math.floor((LOCK_ICON.width * 3) / 2), ground - LOCK_ICON.height * 3);
 
     const tx = x + left + 8;
@@ -600,6 +639,7 @@ export function problemKey(p: IdentityProblem): MessageKey {
     unreachable: 'identity.problem.unreachable',
     'publish-failed': 'identity.problem.publish',
     'not-confirmed': 'identity.problem.confirm',
+    partial: 'identity.problem.partial',
     'sign-failed': 'identity.problem.sign',
     'wrong-signer': 'identity.problem.sign',
     'no-backup': 'identity.problem.backup',

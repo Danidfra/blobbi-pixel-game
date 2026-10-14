@@ -5,11 +5,21 @@
  *   relayPublisher   real relays (Nostrify `NRelay1`, one connection per relay for the request, closed after)
  *   memoryRelay      an in-browser relay: tests, and the default REHEARSAL mode of this build, where everything is
  *                    prepared, signed, "sent" and read back exactly as for real, but nothing leaves the device
+ *   relayGroup       M11D.6: several in-memory relays behind one publisher (tests: partial outages, quorum)
  *
- * Live publishing is OFF by default in this build (the owner decides when it ships): the host switches to real relays
- * only with an explicit development flag (`#publish=live`), see docs/milestones/M11D4.md.
+ * M11D.6, WHAT A RELAY SAID: every publish reports each relay's answer (`RelayAck`): accepted only on a NIP-01 `OK`
+ * true, or `OK` false with the `duplicate:` prefix (the relay already holds this very event). A WebSocket send that
+ * got no `OK` is never counted. Every query reports what each relay returned (or that it did not answer), so the
+ * caller can tell which relays really hold an event (read-back). A relay's own words are reduced to the NIP-01
+ * machine prefix (`blocked`, `rate-limited`, ...): untrusted text is never shown or stored.
+ *
+ * Live publishing is OFF by default (the owner decides when it ships): see `relay-config.ts` for how a build or a
+ * development page switches to real relays.
  */
 import type { NostrEvent } from 'nostr-tools/pure';
+import { PUBLISH_RELAYS } from './relay-config';
+
+export { PUBLISH_RELAYS };
 
 export interface PublishFilter {
   kinds: number[];
@@ -18,46 +28,94 @@ export interface PublishFilter {
   limit?: number;
 }
 
+/** One relay's answer to one event. `reason`: a NIP-01 prefix, or 'timeout' / 'unreachable' / 'refused'. */
+export interface RelayAck {
+  relay: string;
+  ok: boolean;
+  reason: string;
+}
+
+export interface QueryResult {
+  /** Everything every relay returned (untrusted: the caller checks every event). */
+  events: NostrEvent[];
+  /** How many relays answered. */
+  reachable: number;
+  /** What each relay returned; null for a relay that did not answer. */
+  byRelay: Record<string, NostrEvent[] | null>;
+}
+
 export interface Publisher {
   /** 'live' (real relays) or 'rehearsal' (nothing leaves the device). Shown to the player. */
   readonly mode: 'live' | 'rehearsal';
   readonly relays: readonly string[];
-  /** Read events (preflight and verification). Untrusted: the caller checks every event. */
-  query(filter: PublishFilter, timeoutMs: number): Promise<{ events: NostrEvent[]; reachable: number }>;
-  /** Send one signed event; the relays that accepted it (OK true). Never throws for a refusing relay. */
-  publish(event: NostrEvent, timeoutMs: number): Promise<string[]>;
+  /** Read events (preflight and read-back). Untrusted: the caller checks every event. */
+  query(filter: PublishFilter, timeoutMs: number): Promise<QueryResult>;
+  /** Send one signed event to every relay (or only to `only`); each relay's answer. Never throws for a relay. */
+  publish(event: NostrEvent, timeoutMs: number, only?: readonly string[]): Promise<RelayAck[]>;
 }
 
-/** The relays the Blobbi apps publish to (the Standalone's set). */
-export const PUBLISH_RELAYS: readonly string[] = ['wss://relay.ditto.pub', 'wss://relay.primal.net', 'wss://relay.nostr.band'];
+/** The NIP-01 machine-readable prefixes a relay may give with `OK` false; anything else is 'refused'. */
+const PREFIXES = new Set(['duplicate', 'pow', 'blocked', 'rate-limited', 'invalid', 'restricted', 'mute', 'error', 'auth-required']);
+
+/** A relay's message reduced to its NIP-01 prefix (its free text is never kept). */
+export function reasonOf(message: unknown): string {
+  if (message instanceof Error && (message.name === 'TimeoutError' || message.name === 'AbortError')) return 'timeout';
+  const text = message instanceof Error ? message.message : typeof message === 'string' ? message : '';
+  const prefix = text.split(':')[0].trim().toLowerCase();
+  return PREFIXES.has(prefix) ? prefix : 'refused';
+}
+
+/** Whether a relay's answer means it holds the event (OK true, or a `duplicate:` refusal). */
+export const accepted = (acks: readonly RelayAck[]): string[] => acks.filter((a) => a.ok).map((a) => a.relay);
 
 const matches = (e: NostrEvent, f: PublishFilter) => f.kinds.includes(e.kind) && f.authors.includes(e.pubkey) && (!f['#d'] || e.tags.some((t) => t[0] === 'd' && f['#d']!.includes(t[1])));
 
 /**
  * An in-memory relay (with optional failures, for tests): it keeps the newest replaceable event per (kind, author, d),
- * as a relay does. `refuse` makes it reject events; `down` makes it unreachable.
+ * as a relay does. `refuse` makes it reject events; `down` makes it unreachable; `forget` makes it accept an event and
+ * not keep it (a relay that answers OK and loses it). `mode` is 'rehearsal' unless a test plays a real relay.
  */
-export function memoryRelay(opts: { url?: string; refuse?: (e: NostrEvent) => boolean; down?: () => boolean } = {}): Publisher & { events: NostrEvent[]; sent: NostrEvent[] } {
+export function memoryRelay(opts: { url?: string; mode?: 'live' | 'rehearsal'; refuse?: (e: NostrEvent) => boolean; down?: () => boolean; forget?: (e: NostrEvent) => boolean } = {}): Publisher & { events: NostrEvent[]; sent: NostrEvent[] } {
   const url = opts.url ?? 'memory://rehearsal';
   const events: NostrEvent[] = [];
   const sent: NostrEvent[] = [];
   const key = (e: NostrEvent) => `${e.kind}|${e.pubkey}|${e.tags.find((t) => t[0] === 'd')?.[1] ?? ''}`;
   return {
-    mode: 'rehearsal',
+    mode: opts.mode ?? 'rehearsal',
     relays: [url],
     events,
     sent,
     async query(filter) {
-      if (opts.down?.()) return { events: [], reachable: 0 };
-      return { events: events.filter((e) => matches(e, filter)).map((e) => ({ ...e, tags: e.tags.map((t) => [...t]) })), reachable: 1 };
+      if (opts.down?.()) return { events: [], reachable: 0, byRelay: { [url]: null } };
+      const found = events.filter((e) => matches(e, filter)).map((e) => ({ ...e, tags: e.tags.map((t) => [...t]) }));
+      return { events: found, reachable: 1, byRelay: { [url]: found } };
     },
-    async publish(event) {
+    async publish(event, _timeoutMs, only) {
+      if (only && !only.includes(url)) return [];
       sent.push(event);
-      if (opts.down?.() || opts.refuse?.(event)) return [];
+      if (opts.down?.()) return [{ relay: url, ok: false, reason: 'timeout' }];
+      if (opts.refuse?.(event)) return [{ relay: url, ok: false, reason: 'blocked' }];
+      if (events.some((e) => e.id === event.id)) return [{ relay: url, ok: true, reason: 'duplicate' }];
+      if (opts.forget?.(event)) return [{ relay: url, ok: true, reason: '' }];
       const i = events.findIndex((e) => key(e) === key(event));
       if (i < 0) events.push(event);
-      else if (events[i].created_at <= event.created_at) events[i] = event;
-      return [url];
+      else if (events[i].created_at < event.created_at || (events[i].created_at === event.created_at && event.id < events[i].id)) events[i] = event;
+      return [{ relay: url, ok: true, reason: '' }];
+    },
+  };
+}
+
+/** M11D.6: several publishers (in-memory relays, each with its own url and failures) behind one. */
+export function relayGroup(members: readonly Publisher[], mode: 'live' | 'rehearsal' = 'live'): Publisher {
+  return {
+    mode,
+    relays: members.flatMap((m) => m.relays),
+    async query(filter, timeoutMs) {
+      const answers = await Promise.all(members.map((m) => m.query(filter, timeoutMs)));
+      return { events: answers.flatMap((a) => a.events), reachable: answers.reduce((n, a) => n + a.reachable, 0), byRelay: Object.assign({}, ...answers.map((a) => a.byRelay)) };
+    },
+    async publish(event, timeoutMs, only) {
+      return (await Promise.all(members.map((m) => m.publish(event, timeoutMs, only)))).flat();
     },
   };
 }
@@ -78,18 +136,27 @@ export function relayPublisher(relays: readonly string[] = PUBLISH_RELAYS): Publ
     relays,
     async query(filter, timeoutMs) {
       const answers = await Promise.allSettled(relays.map((url) => withRelay(url, (r) => r.query([filter], { signal: AbortSignal.timeout(timeoutMs) }))));
+      const byRelay: Record<string, NostrEvent[] | null> = {};
       const events: NostrEvent[] = [];
       let reachable = 0;
-      for (const a of answers)
+      answers.forEach((a, i) => {
+        byRelay[relays[i]] = a.status === 'fulfilled' ? a.value : null;
         if (a.status === 'fulfilled') {
           reachable++;
           events.push(...a.value);
         }
-      return { events, reachable };
+      });
+      return { events, reachable, byRelay };
     },
-    async publish(event, timeoutMs) {
-      const answers = await Promise.allSettled(relays.map((url) => withRelay(url, (r) => r.event(event, { signal: AbortSignal.timeout(timeoutMs) }).then(() => url))));
-      return answers.filter((a): a is PromiseFulfilledResult<string> => a.status === 'fulfilled').map((a) => a.value);
+    async publish(event, timeoutMs, only) {
+      const targets = only ? relays.filter((r) => only.includes(r)) : relays;
+      const answers = await Promise.allSettled(targets.map((url) => withRelay(url, (r) => r.event(event, { signal: AbortSignal.timeout(timeoutMs) }))));
+      return answers.map((a, i): RelayAck => {
+        if (a.status === 'fulfilled') return { relay: targets[i], ok: true, reason: '' };
+        const reason = reasonOf(a.reason);
+        // NIP-01: a relay that already has this very event may say so with OK false and `duplicate:`; it holds it.
+        return { relay: targets[i], ok: reason === 'duplicate', reason };
+      });
     },
   };
 }

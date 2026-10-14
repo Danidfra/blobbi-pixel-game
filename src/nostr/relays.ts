@@ -7,8 +7,10 @@
  * already use; no relay list is read from the player's profile in this version.
  */
 
-/** The relays profiles are read from (the Blobbi ecosystem's defaults; public data only). */
-export const DEFAULT_RELAYS: readonly string[] = ['wss://relay.ditto.pub', 'wss://relay.primal.net'];
+import { READ_RELAYS } from './relay-config';
+
+/** The relays profiles are read from (M11D.6: the same set Blobbis are published to, `relay-config.ts`). */
+export const DEFAULT_RELAYS: readonly string[] = READ_RELAYS;
 
 export interface ProfileReadResult {
   /** Whatever the relays returned (checked later, never trusted). */

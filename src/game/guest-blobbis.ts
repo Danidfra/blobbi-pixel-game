@@ -5,7 +5,15 @@
  * its V3 look is fixed by (owner, d) from birth and stays the same when it is registered.
  *
  * Record `blobbi-pixel-lab:guest-blobbis`: `{ version: 1, blobbis: [{ owner, ownerKind, petId, d, name, createdAt,
- * bornAt, island, born, activatedAt, named, namingLaterAt }] }` (the last two since M11D.5; older readers ignore them). PUBLIC data only (public keys, d tags, names, times): no secret, ever.
+ * bornAt, island, born, activatedAt, named, namingLaterAt, practicedAt }] }` (named and namingLaterAt since M11D.5,
+ * practicedAt since M11D.6; older readers ignore them). PUBLIC data only (public keys, d tags, names, times): no
+ * secret, ever.
+ *
+ * M11D.6, PRACTICE IS NOT SHARING: `activatedAt` means the Blobbi's events were published to real relays and read
+ * back. A registration rehearsed in practice mode (nothing left the device) sets `practicedAt` instead. Builds before
+ * M11D.6 set `activatedAt` after a rehearsal too: such a record is READ as practiced (its time moved to `practicedAt`)
+ * unless the activation record holds a LIVE run for it. Nothing is rewritten until the record changes for another
+ * reason, and nothing is lost.
  * Never part of an island save; an island never belongs to a Blobbi. Records are never deleted by the game: an
  * activated Blobbi keeps its record (marked `activatedAt`), so nothing is lost if an activation is undone or retried.
  */
@@ -40,6 +48,21 @@ export interface GuestBlobbi {
   named: boolean;
   /** M11D.5: when the player last said "later" to the naming question (ms), or null. */
   namingLaterAt: number | null;
+  /** M11D.6: when its registration was rehearsed in practice mode (nothing published), or null. */
+  practicedAt: number | null;
+}
+
+/** The activation record's key (`nostr/activation.ts`), read here only to tell a live registration from a rehearsal. */
+const ACTIVATION_KEY = 'blobbi-pixel-lab:activation';
+
+/** The Blobbis (d) whose activation record is a LIVE run (published to real relays). */
+function liveRuns(store: KeyValueStore): Set<string> {
+  try {
+    const v = JSON.parse(store.get(ACTIVATION_KEY) ?? 'null') as { runs?: Record<string, { mode?: unknown }> } | null;
+    return new Set(Object.entries(v?.runs ?? {}).filter(([, r]) => r?.mode === 'live').map(([d]) => d));
+  } catch {
+    return new Set();
+  }
 }
 
 /** Friendly first names for a new Blobbi (the player may rename it before registering). Deterministic per petId. */
@@ -51,18 +74,28 @@ export function readGuestBlobbis(store: KeyValueStore): GuestBlobbi[] {
     const raw = store.get(GUEST_BLOBBIS_KEY);
     const parsed = raw ? (JSON.parse(raw) as { version?: unknown; blobbis?: unknown }) : null;
     if (parsed?.version !== 1 || !Array.isArray(parsed.blobbis)) return [];
+    const live = liveRuns(store);
     return parsed.blobbis.filter((b): b is GuestBlobbi => {
       const g = b as GuestBlobbi;
       return !!g && KEY_HEX.test(g.owner) && PET.test(g.petId) && g.d === `blobbi-${g.owner.slice(0, 12)}-${g.petId}` && (g.ownerKind === 'guest' || g.ownerKind === 'account') && typeof g.name === 'string';
-    }).map((g) => ({ owner: g.owner, ownerKind: g.ownerKind, petId: g.petId, d: g.d, name: g.name.slice(0, 24) || suggestedName(g.petId), createdAt: Number(g.createdAt) || 0, bornAt: Number(g.bornAt) || 0, island: typeof g.island === 'string' ? g.island : null, born: g.born === true, activatedAt: typeof g.activatedAt === 'number' ? g.activatedAt : null, named: wasNamed(g), namingLaterAt: typeof g.namingLaterAt === 'number' ? g.namingLaterAt : null }));
+    }).map((g) => ({ owner: g.owner, ownerKind: g.ownerKind, petId: g.petId, d: g.d, name: g.name.slice(0, 24) || suggestedName(g.petId), createdAt: Number(g.createdAt) || 0, bornAt: Number(g.bornAt) || 0, island: typeof g.island === 'string' ? g.island : null, born: g.born === true, ...registration(g, live.has(g.d)), named: wasNamed(g), namingLaterAt: typeof g.namingLaterAt === 'number' ? g.namingLaterAt : null }));
   } catch {
     return [];
   }
 }
 
+/** M11D.6: registered only with a live run behind it; a rehearsed one (before M11D.6 too) is practiced. */
+function registration(g: GuestBlobbi, live: boolean): { activatedAt: number | null; practicedAt: number | null } {
+  const activated = typeof g.activatedAt === 'number' ? g.activatedAt : null;
+  const practiced = typeof g.practicedAt === 'number' ? g.practicedAt : null;
+  if (activated !== null && !live) return { activatedAt: null, practicedAt: practiced ?? activated };
+  return { activatedAt: activated, practicedAt: practiced };
+}
+
 function wasNamed(g: GuestBlobbi): boolean {
-  if (typeof g.named === 'boolean') return g.named || typeof g.activatedAt === 'number';
-  return typeof g.activatedAt === 'number' || (!!g.name && g.name !== suggestedName(g.petId));
+  const went = typeof g.activatedAt === 'number' || typeof g.practicedAt === 'number';
+  if (typeof g.named === 'boolean') return g.named || went;
+  return went || (!!g.name && g.name !== suggestedName(g.petId));
 }
 
 /** M11D.5: a born Blobbi whose name the player has not chosen yet (and can still change: not registered). */
@@ -85,7 +118,7 @@ export function guestBlobbi(store: KeyValueStore, d: string): GuestBlobbi | null
   return readGuestBlobbis(store).find((b) => b.d === d) ?? null;
 }
 
-export function updateGuestBlobbi(store: KeyValueStore, d: string, change: Partial<Pick<GuestBlobbi, 'name' | 'born' | 'activatedAt' | 'island' | 'named' | 'namingLaterAt'>>): GuestBlobbi | null {
+export function updateGuestBlobbi(store: KeyValueStore, d: string, change: Partial<Pick<GuestBlobbi, 'name' | 'born' | 'activatedAt' | 'island' | 'named' | 'namingLaterAt' | 'practicedAt'>>): GuestBlobbi | null {
   const list = readGuestBlobbis(store);
   const b = list.find((x) => x.d === d);
   if (!b) return null;
@@ -95,6 +128,7 @@ export function updateGuestBlobbi(store: KeyValueStore, d: string, change: Parti
   if (change.island !== undefined && !b.island) b.island = change.island;
   if (change.named !== undefined) b.named = b.named || change.named;
   if (change.namingLaterAt !== undefined) b.namingLaterAt = change.namingLaterAt;
+  if (change.practicedAt !== undefined) b.practicedAt = change.practicedAt;
   write(store, list);
   return b;
 }

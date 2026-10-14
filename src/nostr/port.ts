@@ -126,20 +126,39 @@ export interface ReservedBlobbi {
   named: boolean;
   /** M11D.5: when the player last said "later" to the naming question (ms), or null. */
   namingLaterAt: number | null;
+  /** M11D.6: when its sharing was rehearsed in practice mode (nothing published), or null. */
+  practicedAt?: number | null;
 }
+
+/**
+ * M11D.6: where a Blobbi stands with other worlds, as the player is told it (never "shared" unless it is).
+ *   local      nothing done yet
+ *   backedUp   its backup was checked; not shared
+ *   practiced  the practice run went through (practice mode: nothing left the device)
+ *   pending    sharing started and has not finished (resumable)
+ *   partial    some worlds hold it, not enough yet: TRY AGAIN finishes it
+ *   failed     the last try did not get through (nothing lost): TRY AGAIN
+ *   shared     published and read back as the policy asks: other worlds can recognize it
+ */
+export type ShareStatus = 'local' | 'backedUp' | 'practiced' | 'pending' | 'partial' | 'failed' | 'shared';
 
 /** M11D.5: the two kinds of backup. A Recovery Key (plain `nsec`, no password) or a Protected Key (NIP-49). */
 export type BackupKind = 'nsec' | 'ncryptsec';
 
 /** Where a registration stands (resumable). */
 export interface RegistrationState {
-  stage: 'none' | 'consented' | 'signed' | 'published' | 'confirmed' | 'done';
+  stage: 'none' | 'consented' | 'signed' | 'publishing' | 'published' | 'confirmed' | 'done';
   mode: 'live' | 'rehearsal';
   adopted: boolean;
   acceptedBy: number;
+  /** M11D.6: how many relays returned both events when read back, and how many relays there are. */
+  heldBy?: number;
+  relays?: number;
+  /** M11D.6: why the last try stopped, or null. */
+  problem?: IdentityProblem | null;
 }
 
-export type IdentityProblem = 'unavailable' | 'wrong-password' | 'corrupt-backup' | 'mismatch' | 'not-found' | 'storage' | 'no-backup' | 'no-consent' | 'sign-failed' | 'wrong-signer' | 'not-canonical' | 'publish-failed' | 'not-confirmed' | 'unreachable' | 'busy';
+export type IdentityProblem = 'unavailable' | 'wrong-password' | 'corrupt-backup' | 'mismatch' | 'not-found' | 'storage' | 'no-backup' | 'no-consent' | 'sign-failed' | 'wrong-signer' | 'not-canonical' | 'publish-failed' | 'not-confirmed' | 'partial' | 'unreachable' | 'busy';
 
 export type IdentityResult<T> = { ok: true; value: T } | { ok: false; problem: IdentityProblem };
 
@@ -187,6 +206,8 @@ export interface IdentityPort {
   /** Restore an identity (and the Blobbis its backup names) from a backup; never overwrites, never publishes. */
   restoreBackup(text: string, password: string): Promise<IdentityResult<BackupPreview>>;
   registration(d: string): RegistrationState;
+  /** M11D.6: where the Blobbi stands with other worlds (for the player: backed up, practiced, pending, shared...). */
+  shareStatus(d: string): Promise<ShareStatus>;
   /** Register (publish) a Blobbi after explicit consent; resumable and idempotent. */
   register(d: string, consent: boolean): Promise<IdentityResult<RegistrationState>>;
 }

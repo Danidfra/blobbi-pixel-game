@@ -191,10 +191,11 @@ describe('registration: consent, a verified backup, the kit events, idempotent a
   });
 
   it('publishes the hatched Baby (kit-canonical, same look) then the profile, confirms them, and makes it the account', async () => {
-    const s = setup();
+    // M11D.6: an in-memory relay playing a REAL one (a rehearsal never registers: tests/m11d6.test.ts).
+    const s = setup({ relay: memoryRelay({ mode: 'live', url: 'memory://live' }) });
     const { b } = await readyGuest(s);
     const r = await s.svc.register(b.d, true);
-    expect(r).toMatchObject({ ok: true, value: { stage: 'done', mode: 'rehearsal' } });
+    expect(r).toMatchObject({ ok: true, value: { stage: 'done', mode: 'live' } });
     const [blobbi, profile] = s.relay.sent;
     expect([blobbi.kind, profile.kind]).toEqual([31124, 11125]);
     expect(verifyEvent(blobbi) && verifyEvent(profile)).toBe(true);
@@ -329,6 +330,7 @@ describe('the account flow screen', () => {
     draw();
     expect(sc.page).toBe('intro');
     ui.handleKey('Enter'); // LET'S DO IT
+    await flush(); // M11D.6: the intro first asks whether the backup is already checked
     expect(sc.page).toBe('name');
     sc.setField('name', 'Mochi');
     sc.index = 1;

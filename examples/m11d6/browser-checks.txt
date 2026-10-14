@@ -1,0 +1,11 @@
+PASS  a named Blobbi without a checked backup goes to the two backups
+PASS  the same Blobbi, in place, still a Baby
+PASS  no departure, no arrival
+PASS  practice marks it practiced, never registered
+PASS  practice does not switch the account
+PASS  no socket to any relay (only the dev server's own)
+PASS  with islands, CONTINUE leads to the islands page ({"active":true,"page":"islands","restored":"Momo"})
+PASS  no island: straight into a new adventure ({"active":true,"page":"carrier","restored":"Momo"})
+PASS  the companion is asked; no island made by itself
+PASS  the restored Blobbi is the one chosen: same d, a Baby, its name
+PASS  nothing secret-looking in localStorage

@@ -274,8 +274,8 @@ describe('the relay reader can only read', () => {
     const res = await relayProfileReader().readProfile(PK, DEFAULT_RELAYS, new AbortController().signal);
     vi.doUnmock('@nostrify/nostrify');
     expect(made.map((m) => m.url)).toEqual([...DEFAULT_RELAYS]);
-    expect(res.reachable).toBe(1);
-    expect(res.events).toHaveLength(1);
+    expect(res.reachable).toBe(DEFAULT_RELAYS.length - 1); // every relay but the one that failed
+    expect(res.events).toHaveLength(DEFAULT_RELAYS.length - 1);
     for (const m of made) {
       expect(m.queries).toEqual([[{ kinds: [0], authors: [PK], limit: 1 }]]);
       expect(m.events).toBe(0);

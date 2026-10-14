@@ -15,9 +15,10 @@ import type { KeyValueStore } from '../game/persistence';
 import { addGuestBlobbi, chooseGuestName, guestBlobbi, readGuestBlobbis, suggestedName, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
 import { KeyVault, VaultError, askPersistentStorage } from './keystore';
 import { backupFileName, buildBackupFile, parseBackupFile, recoveryFileName } from './backup';
-import { activate, activationRun, ActivationError, finishActivation } from './activation';
+import { activate, activationRun, ActivationError, finishActivation, ownerRuns } from './activation';
+import { canonicalD } from './canonical-events';
 import type { Publisher } from './publisher';
-import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, IdentityResult, RegistrationState, ReservedBlobbi } from './port';
+import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, IdentityResult, RegistrationState, ReservedBlobbi, ShareStatus } from './port';
 import { npubEncode, shortNpub } from './keys';
 import type { EventTemplate } from './canonical-events';
 import type { NostrEvent } from 'nostr-tools/pure';
@@ -28,7 +29,10 @@ export interface IdentityServiceOptions {
   publisher: Publisher;
   /** Signs as an existing account (the browser extension); absent: account-owned Blobbis cannot be registered. */
   accountSigner?: (template: EventTemplate) => Promise<NostrEvent>;
-  /** Called when a registration completed: the identity becomes the player's account (`vault` for a guest). */
+  /**
+   * Called when a registration completed FOR REAL (live: published and read back). The host decides what that means
+   * for the account (M11D.6: it never replaces another connected account). Never called for a rehearsal.
+   */
   onRegistered?: (b: ReservedBlobbi) => void;
   /** Called when a Blobbi's public record changed (its name). */
   onChanged?: () => void;
@@ -37,6 +41,8 @@ export interface IdentityServiceOptions {
   petId?: () => string;
   /** M11D.5: the connected account's public key, if any (a restore of another identity says it keeps this one). */
   currentAccount?: () => string | null;
+  /** M11D.6: the wait before reading back again (tests: none). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const fail = <T>(problem: IdentityProblem): IdentityResult<T> => ({ ok: false, problem });
@@ -90,7 +96,7 @@ export class IdentityService implements IdentityPort {
         pubkey = owner.pubkey;
       } else pubkey = owner.pubkey;
       const petId = (this.o.petId ?? generatePetId10)();
-      const b: GuestBlobbi = { owner: pubkey, ownerKind: owner.kind === 'account' ? 'account' : 'guest', petId, d: `blobbi-${pubkey.slice(0, 12)}-${petId}`, name: suggestedName(petId), createdAt: this.now(), bornAt: Math.floor(this.now() / 1000), island, born: false, activatedAt: null, named: false, namingLaterAt: null };
+      const b: GuestBlobbi = { owner: pubkey, ownerKind: owner.kind === 'account' ? 'account' : 'guest', petId, d: canonicalD(pubkey, petId), name: suggestedName(petId), createdAt: this.now(), bornAt: Math.floor(this.now() / 1000), island, born: false, activatedAt: null, named: false, namingLaterAt: null, practicedAt: null };
       return { ok: true, value: addGuestBlobbi(this.o.store, b) };
     } catch (e) {
       return fail(problemOf(e));
@@ -146,7 +152,7 @@ export class IdentityService implements IdentityPort {
     try {
       const { pubkey, alreadyHere } = await this.o.vault.inspectBackup(parsed.secret, parsed.kind === 'nsec' ? '' : password);
       // The public line counts only when it names the identity the backup really opens.
-      const named = parsed.meta && parsed.meta.pubkey === pubkey ? parsed.meta.blobbis.filter((b) => b.d === `blobbi-${pubkey.slice(0, 12)}-${b.petId}`) : [];
+      const named = parsed.meta && parsed.meta.pubkey === pubkey ? parsed.meta.blobbis.filter((b) => b.d === canonicalD(pubkey, b.petId)) : [];
       const account = this.o.currentAccount?.() ?? null;
       return { ok: true, value: { kind: parsed.kind, otherAccount: !!account && account !== pubkey, pubkey, npubShort: shortNpub(npubEncode(pubkey)), alreadyHere, blobbis: named.map((b) => ({ d: b.d, name: b.name, alreadyHere: !!guestBlobbi(this.o.store, b.d) })) } };
     } catch (e) {
@@ -166,7 +172,7 @@ export class IdentityService implements IdentityPort {
       // already here is left exactly as it is (never duplicated).
       for (const b of parsed.meta?.blobbis ?? [])
         if (preview.value.blobbis.some((p) => p.d === b.d) && !guestBlobbi(this.o.store, b.d))
-          addGuestBlobbi(this.o.store, { owner: preview.value.pubkey, ownerKind: 'guest', petId: b.petId, d: b.d, name: b.name, createdAt: this.now(), bornAt: b.bornAt, island: null, born: true, activatedAt: null, named: b.named === true || b.name !== suggestedName(b.petId), namingLaterAt: null });
+          addGuestBlobbi(this.o.store, { owner: preview.value.pubkey, ownerKind: 'guest', petId: b.petId, d: b.d, name: b.name, createdAt: this.now(), bornAt: b.bornAt, island: null, born: true, activatedAt: null, named: b.named === true || b.name !== suggestedName(b.petId), namingLaterAt: null, practicedAt: null });
       return preview;
     } catch (e) {
       return fail(problemOf(e));
@@ -176,8 +182,27 @@ export class IdentityService implements IdentityPort {
   }
 
   registration(d: string): RegistrationState {
-    const run = activationRun(this.o.store, d);
-    return { stage: run?.stage ?? 'none', mode: run?.mode ?? this.publishMode, adopted: run?.adopted ?? false, acceptedBy: Math.min(run?.accepted.blobbi.length ?? 0, run?.accepted.profile.length ?? 0) };
+    // Only a run of this build's mode: a rehearsal never stands for a live registration.
+    const run = activationRun(this.o.store, d, this.publishMode);
+    return {
+      stage: run?.stage ?? 'none',
+      mode: run?.mode ?? this.publishMode,
+      adopted: run?.adopted ?? false,
+      acceptedBy: Math.min(run?.accepted.blobbi.length ?? 0, run?.accepted.profile.length ?? 0),
+      heldBy: Math.min(run?.seenOn?.blobbi.length ?? 0, run?.seenOn?.profile.length ?? 0),
+      relays: this.o.publisher.relays.length,
+      problem: run?.lastProblem ?? null,
+    };
+  }
+
+  async shareStatus(d: string): Promise<ShareStatus> {
+    const b = guestBlobbi(this.o.store, d);
+    if (!b) return 'local';
+    if (b.activatedAt) return 'shared';
+    const reg = this.registration(d);
+    if (this.publishMode === 'live' && reg.stage !== 'none' && reg.stage !== 'done') return reg.problem === 'partial' ? 'partial' : reg.problem ? 'failed' : 'pending';
+    if (b.practicedAt && this.publishMode === 'rehearsal') return 'practiced';
+    return b.ownerKind === 'guest' && (await this.backupVerified(b.owner)) ? 'backedUp' : 'local';
   }
 
   async register(d: string, consent: boolean): Promise<IdentityResult<RegistrationState>> {
@@ -190,10 +215,18 @@ export class IdentityService implements IdentityPort {
       const backupVerified = b.ownerKind === 'account' || (await this.backupVerified(b.owner));
       const sign = b.ownerKind === 'guest' ? (t: EventTemplate) => this.o.vault.sign(b.owner, t) : this.o.accountSigner;
       if (!sign) return fail('sign-failed');
-      await activate({ facts: { owner: b.owner, petId: b.petId, name: b.name, bornAt: b.bornAt }, consent, backupVerified, ownerKind: b.ownerKind }, { store: this.o.store, publisher: this.o.publisher, sign, now: this.now });
-      // Only after the relays gave both events back: the identity becomes the account, the Blobbi registered.
-      const done = updateGuestBlobbi(this.o.store, d, { activatedAt: this.now() })!;
+      const mode = this.publishMode;
+      // The owner may have a profile out there already (an account, or this identity shared another Blobbi before).
+      const mayHaveProfile = b.ownerKind === 'account' || ownerRuns(this.o.store, b.owner, mode).some((r) => r.d !== d && (r.stage === 'done' || r.stage === 'confirmed' || r.accepted.profile.length > 0)) || readGuestBlobbis(this.o.store).some((x) => x.owner === b.owner && x.d !== d && !!x.activatedAt);
+      await activate({ facts: { owner: b.owner, petId: b.petId, name: b.name, bornAt: b.bornAt }, consent, backupVerified, ownerKind: b.ownerKind, mayHaveProfile }, { store: this.o.store, publisher: this.o.publisher, sign, now: this.now, sleep: this.o.sleep });
       finishActivation(this.o.store, d, this.now());
+      // A rehearsal (nothing left the device) is practice, never a registration: no account change, no "shared".
+      if (mode === 'rehearsal') {
+        updateGuestBlobbi(this.o.store, d, { practicedAt: this.now(), named: true });
+        return { ok: true, value: this.registration(d) };
+      }
+      // Only after the relays gave both events back (the policy): the Blobbi is registered.
+      const done = updateGuestBlobbi(this.o.store, d, { activatedAt: this.now() })!;
       this.o.onRegistered?.(publicOf(done));
       return { ok: true, value: this.registration(d) };
     } catch (e) {
@@ -204,4 +237,4 @@ export class IdentityService implements IdentityPort {
   }
 }
 
-const publicOf = (b: GuestBlobbi): ReservedBlobbi => ({ owner: b.owner, ownerKind: b.ownerKind, petId: b.petId, d: b.d, name: b.name, born: b.born, activatedAt: b.activatedAt, named: b.named, namingLaterAt: b.namingLaterAt });
+const publicOf = (b: GuestBlobbi): ReservedBlobbi => ({ owner: b.owner, ownerKind: b.ownerKind, petId: b.petId, d: b.d, name: b.name, born: b.born, activatedAt: b.activatedAt, named: b.named, namingLaterAt: b.namingLaterAt, practicedAt: b.practicedAt });
