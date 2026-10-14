@@ -525,7 +525,9 @@ PUB-01..03 publish a disposable test Blobbi to the public relays: only after the
 
 | ID | Status |
 |---|---|
-| PUB-01 .. PUB-06 | NOT TESTED (PUB-01..03 need approval, PUB-04..06 a live build) |
+| PUB-01 .. PUB-02 | PASS (2026-10-14, approved live run with a disposable identity; `examples/m11d6/live-run-2026-10-14.txt`) |
+| PUB-03 | NOT TESTED (open the test npub in Standalone) |
+| PUB-04 .. PUB-06 | NOT TESTED (need a live build) |
 | REST-01 .. REST-03, STAT-01, INV-01 | NOT TESTED |
 
 ## Camera and regressions M1–M3 (CAM, REG)

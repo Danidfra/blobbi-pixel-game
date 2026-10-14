@@ -1,0 +1,24 @@
+mode     LIVE (approved): publishing to real relays
+identity npub1e8sm94uet7uf6crgz7gwzhz6dmry62r62gpvn8g2thcmhq98k5zs4yadm3 (disposable, public key only)
+d        blobbi-c9e1b2d7995f-418e6fed6a
+relays   wss://relay.ditto.pub, wss://relay.primal.net, wss://relay.dreamith.to
+PASS  both events are signed by the disposable identity and verify
+PASS  the kit reads the Baby as a modern canonical Blobbi
+PASS  d, stage and the V3 look (seed of owner and d) are as the game draws it
+PASS  the care clock starts now (not at the reservation)
+PASS  the profile lists the Blobbi and makes it the companion
+PASS  no secret in either event
+PASS  registration confirmed by the policy (read back from two relays, relay.ditto.pub among them)
+acks     blobbi: wss://relay.ditto.pub, wss://relay.primal.net, wss://relay.dreamith.to | profile: wss://relay.ditto.pub, wss://relay.primal.net, wss://relay.dreamith.to
+readback blobbi: wss://relay.ditto.pub, wss://relay.primal.net, wss://relay.dreamith.to | profile: wss://relay.ditto.pub, wss://relay.primal.net
+PASS  wss://relay.ditto.pub: discovered as the Standalone looks (owner, d, stage, look)
+PASS  wss://relay.primal.net: discovered as the Standalone looks (owner, d, stage, look)
+PASS  wss://relay.dreamith.to: discovered as the Standalone looks (owner, d, stage, look)
+PASS  discovered by a separate client on enough relays
+PASS  a second run sends nothing (idempotent)
+
+Done. The disposable test Blobbi stays public on these relays: npub1e8sm94uet7uf6crgz7gwzhz6dmry62r62gpvn8g2thcmhq98k5zs4yadm3
+
+# Follow-up probes (2026-10-14, read-only unless noted)
+Read-back moments later, every relay, three filters (kit profile filter, 11125 by author, all by author): ditto, primal, dreamith each return 11125:1ad8664a and 31124:54835ae5.
+Fresh device, same identity, empty store, a signer that refuses: {"stage":"confirmed","adopted":true,"blobbiId":"54835ae5","profileId":"1ad8664a","seenOn":{"blobbi":[ditto,primal,dreamith],"profile":[ditto,primal,dreamith]},"sends":0,"signs":0}

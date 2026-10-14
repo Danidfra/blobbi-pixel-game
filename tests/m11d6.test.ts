@@ -151,7 +151,20 @@ describe('M11D.6: registration against several relays (partial outages, retries,
     expect(await s.svc.shareStatus(b.d)).toBe('shared');
   }, 30_000);
 
-  it('a relay that says OK but keeps nothing does not count; every relay refusing is a failure (nothing lost)', async () => {
+  it('a fresh device with the same identity: both events adopted from the relays, nothing signed, nothing sent', async () => {
+    const { members, group } = threeRelays();
+    const s = setup(group);
+    const b = await readyGuest(s);
+    expect((await s.svc.register(b.d, true)).ok).toBe(true);
+    const sent = members.map((m) => m.sent.length);
+    let signed = 0;
+    const run = await activate({ facts: { owner: b.owner, petId: b.petId, name: b.name, bornAt: b.bornAt }, consent: true, backupVerified: true, ownerKind: 'guest' }, { store: memoryStore(), publisher: group, sign: async () => (signed++, Promise.reject(new Error('no'))), now: () => 1_770_000_000_000, sleep: noSleep });
+    expect(run.adopted).toBe(true);
+    expect(signed).toBe(0);
+    expect(members.map((m) => m.sent.length)).toEqual(sent);
+  }, 30_000);
+
+    it('a relay that says OK but keeps nothing does not count; every relay refusing is a failure (nothing lost)', async () => {
     const forget = new Set(['wss://relay.primal.net', 'wss://relay.dreamith.to']);
     const a = threeRelays({ forget });
     const s = setup(a.group);

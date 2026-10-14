@@ -38,8 +38,8 @@ Status words:
 |---|---|---|
 | Events built only with the kit; V3 look from (owner, d); no explicit seed | PASS (auto) | `m11d4`, `m11d6`, live-check dry run |
 | Read-back policy (two relays, relay.ditto.pub required), partial and failed states, retries without duplicates | PASS (auto) | `m11d6`: in-memory relays and a local relay through Nostrify |
-| Publishing to the real relays with a disposable identity | BLOCKED | Waiting for the owner's approval (M11D.6 §5, PUB-01..02) |
-| Standalone shows a Pixel-published Baby as the same Blobbi | BLOCKED | Needs PUB-01 first (PUB-03) |
+| Publishing to the real relays with a disposable identity | PASS | Approved and run 2026-10-14: acks and read-back on all three relays, discovery by the Standalone's query, idempotent on a fresh device (M11D.6 §5a, `examples/m11d6/live-run-2026-10-14.txt`) |
+| Standalone shows a Pixel-published Baby as the same Blobbi | NOT TESTED | Its discovery query and the kit's parsing PASS against the real relays; a person must still open the test npub in the Standalone app (PUB-03) |
 | Live publishing enabled in the release build (`VITE_BLOBBI_PUBLISH=live`) | BLOCKED | Owner's decision after PUB-01..04 |
 | A real player's share end to end (PUB-04..06) | BLOCKED | Needs a live build |
 
@@ -145,7 +145,7 @@ the [manual test plan](../testing/MANUAL-TEST-PLAN.md).
 
 ## 16. Release blockers
 
-1. **The first live publication with a disposable identity** (PUB-01..03) has not been approved or run.
+1. **Standalone's own screen** has not shown the disposable test Blobbi to a person yet (PUB-03); the live publication itself passed (PUB-01..02).
 2. **A real share in a live build** (PUB-04..06) has not been run; live publishing is off.
 3. **Hosting**: HTTPS origin and the headers of §12 do not exist yet.
 4. **Browser and phone coverage** (§5, §6): no real Firefox, Safari, iOS or Android test.

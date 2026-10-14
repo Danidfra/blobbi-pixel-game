@@ -203,7 +203,9 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
     const blobbi = run.blobbi ?? existingBlobbi ?? (await signAs(babyStateTemplate(f, nowS())));
     if (!isCanonicalBlobbi(blobbi)) stop('not-canonical');
     const profile = run.profile ?? (existingProfile?.kind === 11125 && lists(existingProfile, d) ? existingProfile : await signAs(profileTemplate(f.owner, d, nowS(), existingProfile)));
-    save({ blobbi, profile, adopted: run.adopted || (!!existingBlobbi && existingBlobbi.id === blobbi.id), stage: 'signed', lastProblem: null });
+    // What the relays already hold counts as held (an adopted Blobbi or profile is not sent again where it is).
+    const seenOn = { blobbi: union(run.seenOn!.blobbi, holdersOfBlobbi(blobbiAnswer, blobbi)), profile: union(run.seenOn!.profile, holdersOfListing(profileAnswer, f.owner, d)) };
+    save({ blobbi, profile, seenOn, adopted: run.adopted || (!!existingBlobbi && existingBlobbi.id === blobbi.id), stage: 'signed', lastProblem: null });
   }
 
   // 2. PUBLISH the stored signed events (the same ones on every retry), each only where it is still missing.
