@@ -49,6 +49,7 @@ plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M1
 - [M11D.3](milestones/M11D3.md): the main menu, several islands, the pixel egg and the first birth, visit timing.
 - [M11D.2](milestones/M11D2.md): V1/V2 world forms, departure and arrival, Baby effects and tools; the [guest identity plan](architecture/GUEST-IDENTITY-PLAN.md) (design only).
 - [M11D.1](milestones/M11D1.md): Baby Blobbis in pixels (V3 Babies visit; V1/V2 Baby pictures), tools held by invisible arms, the baby lab (`baby-lab.html`, dev only), the intro reduced-motion fix.
+- [M11D.6](milestones/M11D6.md): real publishing made safe (relays, read-back policy, retries), the way back after a restore, compatibility and security audits; the [Pixel beta checklist](releases/PIXEL-BETA-CHECKLIST.md).
 - [M11C.5](milestones/M11C5.md): the account invitation; designs for [guest Blobbi identity](architecture/GUEST-BLOBBI-IDENTITY.md), [Baby Blobbi](architecture/BABY-BLOBBI.md), [energy](architecture/BLOBBI-ENERGY.md), [account creation](architecture/ACCOUNT-CREATION.md).
 - [M11C](milestones/M11C.md): the Guest/Connected chip, the tool hotbar, MY BLOBBIS (read-only canonical Blobbi discovery).
 - Nostr: identity is IMPLEMENTED read-only in M11B (`src/nostr/`, [M11B](milestones/M11B.md)); the rest is the M11A design: [identity](architecture/NOSTR-IDENTITY.md),

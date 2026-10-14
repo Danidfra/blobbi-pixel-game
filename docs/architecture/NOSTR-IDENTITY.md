@@ -128,3 +128,12 @@ Two backups of a reserved identity: the Protected Key (NIP-49, as in M11D.4) and
 stored). Only the key vault makes or reads an `nsec`; `backup.ts` only finds its line in a file (the boundary test's
 allow-list). Verification and restore accept either kind (and a raw `nsec` pasted alone), never overwrite an identity
 and never publish: see [M11D.5](../milestones/M11D5.md).
+
+## M11D.6
+
+The relays and the confirmation policy live in one place, `src/nostr/relay-config.ts`: Pixel publishes to and reads
+from relay.ditto.pub (every Blobbi app reads it, required), relay.primal.net and relay.dreamith.to. A Blobbi counts as
+shared only when two of them return its events on a fresh read, relay.ditto.pub among them; fewer is a partial share
+that a retry finishes with the same signed events. Practice (rehearsal) never marks a Blobbi registered and never
+changes the account; a registration never replaces another connected account. A production build publishes for real
+only when built with `VITE_BLOBBI_PUBLISH=live`. See [M11D.6](../milestones/M11D6.md).

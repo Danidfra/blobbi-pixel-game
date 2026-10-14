@@ -517,6 +517,17 @@ Start browser checks with `node scripts/lab-browser.mjs start` (muted) and end t
 | LIFE-01 .. LIFE-03, SHADOW-01 .. 02, NAME-01 .. 04 | NOT TESTED |
 | BACKUP-01 .. 06, RESTORE-01 .. 04, UX-01 .. 02, INVITE-01 .. 02, COPY-01, LAB-01 | NOT TESTED |
 
+## M11D.6: publishing, restore, status (PUB, REST, STAT, INV)
+
+All **NOT TESTED**; steps and expected results in [M11D.6](../milestones/M11D6.md) §15, release status in the
+[beta checklist](../releases/PIXEL-BETA-CHECKLIST.md). Automated: `tests/m11d6.test.ts`; images `examples/m11d6/`.
+PUB-01..03 publish a disposable test Blobbi to the public relays: only after the owner's approval.
+
+| ID | Status |
+|---|---|
+| PUB-01 .. PUB-06 | NOT TESTED (PUB-01..03 need approval, PUB-04..06 a live build) |
+| REST-01 .. REST-03, STAT-01, INV-01 | NOT TESTED |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |
