@@ -1,0 +1,9 @@
+PASS  setup: Breezy Glade with Boca rosa, playing
+PASS  stamped Boca rosa, Moon newer, all relays: in:moon, in:moon, in:moon, in:moon, in:moon | bring/current/remote/-/stamp-player/145ms
+PASS  the same, with one relay that never answers: in:moon, in:moon, in:moon, in:moon, in:moon | bring/current+partial/remote/-/stamp-player/1652ms
+PASS  a slow relay changes nothing: identical outcomes
+PASS  an unstamped Boca rosa, Moon set before: "who comes along?" every time: title:switch, title:switch, title:switch, title:switch, title:switch | offer-switch/current+partial/ambiguous/no-local-time/bound/1642ms
+PASS  the unstamped choice got its existed-by bound, and no stamp (2026-10-15T19:47:04.455Z)
+PASS  Moon set after the bound: Moon comes along every time: in:moon, in:moon, in:moon, in:moon, in:moon | bring/current+partial/remote/-/bound/1648ms
+PASS  offline: the device's Blobbi (Moon) every time, no question, the stored choice byte for byte unchanged: in:moon, in:moon, in:moon, in:moon, in:moon | enter/unavailable/-/-/stamp-remote/6070ms
+PASS  no EVENT frame was ever sent, over every page load (0)

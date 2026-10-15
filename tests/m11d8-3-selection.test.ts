@@ -240,9 +240,11 @@ describe('M11D.8.3: the wiring in main.ts', () => {
   });
   it('the entry facts carry the device\'s choice and the profile\'s time in milliseconds, with this device\'s clock', () => {
     const auto = between('async function autoEnter', 'blobbisScreen.onChosen');
-    expect(auto).toMatch(/local = rec && rec\.source\.seed === state\.blobbi\.seed \? \{ at: rec\.selectedAt \?\? null, by: rec\.selectedBy \?\? null \} : null;/);
+    expect(auto).toMatch(/const mineNow = rec && rec\.source\.seed === state\.blobbi\.seed;/);
+    expect(auto).toMatch(/const local = mineNow \? \{ at: rec\.selectedAt \?\? null, by: rec\.selectedBy \?\? null, existedBy \} : null;/);
     expect(auto).toMatch(/at: answer\.status === 'current' \? currentSelectionAt\(answer\.profileAt\) : null/);
-    expect(auto).toMatch(/now: Date\.now\(\),/);
+    expect(auto).toMatch(/const now = Date\.now\(\);/);
+    expect(auto).toMatch(/\n\s+now,\n/);
     // Never the Blobbi's own state time.
     expect(auto).not.toMatch(/blobbi\.updatedAt/);
   });
