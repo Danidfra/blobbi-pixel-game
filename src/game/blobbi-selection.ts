@@ -38,6 +38,11 @@
  * act: a reload, an automatic entry, a resume, a newer kind 31124 or a screen never touch them. A record without them
  * (made before M11D.8.3) says "unknown", never "old": the entry then asks "who comes along?" as before, and the answer
  * stamps it. Older code ignores both fields.
+ *
+ * M11D.8.4, AN UPPER BOUND FOR AN UNSTAMPED CHOICE. When this code first meets a record WITHOUT a stamp it writes
+ * `existedBy` (ms): "this choice already existed at this moment". It is not when the choice was made and is never
+ * read as such; it only lets a choice made LATER in another app (clearly after that moment) be ordered after it. It
+ * is written once, never moved forward by later loads, and dropped when the record is next written with a stamp.
  */
 import type { BlobbiStage } from '../blobbi/canonical';
 import { resolveBlobbi, worldFormSource, type BlobbiSource } from '../blobbi/source';
@@ -66,6 +71,8 @@ export interface BlobbiSelection {
   /** M11D.8.3: when this choice was made (ms), and by whom. */
   selectedAt?: number;
   selectedBy?: SelectionOrigin;
+  /** M11D.8.4: an unstamped choice already existed at this moment (ms). An upper bound, never the choice's time. */
+  existedBy?: number;
 }
 
 /** M11D.8.3: who made the stored choice: the player, in this game; or the game, adopting the current Blobbi of the other worlds. */
@@ -88,13 +95,17 @@ export interface SelectionRecord {
   /** M11D.8.3: when the choice was made (ms) and by whom; null or absent when the record does not say (made before M11D.8.3). */
   selectedAt?: number | null;
   selectedBy?: SelectionOrigin | null;
+  /** M11D.8.4: for an unstamped choice, the moment it was first seen to exist (ms); absent otherwise. */
+  existedBy?: number;
 }
 
 /** M11D.8.3: the stored time and origin of a choice, checked: a finite positive time, a known origin; else nothing. */
-function readWhen(parsed: { selectedAt?: unknown; selectedBy?: unknown }): { selectedAt?: number; selectedBy?: SelectionOrigin } {
+function readWhen(parsed: { selectedAt?: unknown; selectedBy?: unknown; existedBy?: unknown }): { selectedAt?: number; selectedBy?: SelectionOrigin; existedBy?: number } {
   const at = typeof parsed.selectedAt === 'number' && Number.isFinite(parsed.selectedAt) && parsed.selectedAt > 0 ? parsed.selectedAt : null;
   const by = parsed.selectedBy === 'player' || parsed.selectedBy === 'remote' ? parsed.selectedBy : null;
-  return at !== null && by !== null ? { selectedAt: at, selectedBy: by } : {};
+  if (at !== null && by !== null) return { selectedAt: at, selectedBy: by };
+  const bound = typeof parsed.existedBy === 'number' && Number.isFinite(parsed.existedBy) && parsed.existedBy > 0 ? parsed.existedBy : null;
+  return bound !== null ? { existedBy: bound } : {};
 }
 
 export function loadSelection(store: KeyValueStore): BlobbiSource | null {
@@ -121,7 +132,7 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
   }
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown; guest?: unknown; selectedAt?: unknown; selectedBy?: unknown };
+    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown; guest?: unknown; selectedAt?: unknown; selectedBy?: unknown; existedBy?: unknown };
     if (parsed.version !== SELECTION_VERSION || !parsed.source || typeof parsed.source !== 'object') return null;
     const s = parsed.source;
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
@@ -170,6 +181,27 @@ function stamp(record: BlobbiSelection, when?: SelectionWhen): void {
 }
 
 /**
+ * M11D.8.4: note, once, that the stored choice (when it has no stamp) already exists now; returns the bound in force
+ * (the earlier one when already noted), or null for a stamped, missing or unreadable record. Only `existedBy` is
+ * added; nothing else in the record changes, and a stamped record is never touched.
+ */
+export function noteUnstampedChoice(store: KeyValueStore, now: number): number | null {
+  if (!Number.isFinite(now) || now <= 0) return null;
+  try {
+    const raw = store.get(SELECTION_KEY);
+    const parsed = raw ? (JSON.parse(raw) as BlobbiSelection) : null;
+    if (!parsed || parsed.version !== SELECTION_VERSION || !parsed.source || !loadSelectionRecord(store)) return null;
+    if (typeof parsed.selectedAt === 'number' && (parsed.selectedBy === 'player' || parsed.selectedBy === 'remote')) return null;
+    if (typeof parsed.existedBy === 'number' && Number.isFinite(parsed.existedBy) && parsed.existedBy > 0) return parsed.existedBy;
+    parsed.existedBy = Math.floor(now);
+    store.set(SELECTION_KEY, JSON.stringify(parsed));
+    return parsed.existedBy;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * M11D.8.3: the player confirmed the stored choice (CONTINUE WITH <name> on "who comes along?"): the record is
  * stamped as the player's, now, and nothing else about it changes. A record that cannot be read is left alone.
  */
@@ -178,6 +210,7 @@ export function markSelectionChosen(store: KeyValueStore, at: number): void {
     const raw = store.get(SELECTION_KEY);
     const parsed = raw ? (JSON.parse(raw) as BlobbiSelection) : null;
     if (!parsed || parsed.version !== SELECTION_VERSION || !parsed.source) return;
+    delete parsed.existedBy;
     stamp(parsed, { at, by: 'player' });
     store.set(SELECTION_KEY, JSON.stringify(parsed));
   } catch {

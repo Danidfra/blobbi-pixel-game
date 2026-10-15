@@ -62,15 +62,22 @@ export async function resolveCurrentBlobbi(owner: string, deps: CurrentBlobbiDep
   if (!HEX64.test(owner) || !deps.relays.length) return { status: 'unavailable' };
   const verify = deps.verify ?? verifyEvent;
   const abort = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => (timer = setTimeout(() => (abort.abort(), resolve(null)), deps.timeoutMs ?? 6000)));
-  const read = (p: Promise<ProfileReadResult>) => Promise.race([p.catch(() => null), late]);
+  const timeoutMs = deps.timeoutMs ?? 6000;
+  // M11D.8.4: at the deadline the reads are ABORTED and then give back what the answering relays sent (the readers
+  // settle on abort). Before, the deadline itself answered "nothing" in the same tick, so one slow relay erased the
+  // others' answers and the entry went in as if offline. A reader that ignores the abort gets a short backstop.
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
+  let backstop: ReturnType<typeof setTimeout> | undefined;
+  const never = new Promise<null>((resolve) => (backstop = setTimeout(() => resolve(null), timeoutMs + 1000)));
+  const read = (p: Promise<ProfileReadResult>) => Promise.race([p.catch(() => null), never]);
   let profileRes: ProfileReadResult | null;
   let blobbiRes: ProfileReadResult | null;
   try {
     [profileRes, blobbiRes] = await Promise.all([read(deps.profiles.readBlobbonaut(owner, deps.relays, abort.signal)), read(deps.blobbis.readBlobbis(owner, deps.relays, abort.signal))]);
   } finally {
     clearTimeout(timer);
+    clearTimeout(backstop);
+    abort.abort();
   }
   // Without the profile nothing about the choice is known: never guess one from the Blobbis alone.
   if (!profileRes || profileRes.reachable === 0) return { status: 'unavailable' };

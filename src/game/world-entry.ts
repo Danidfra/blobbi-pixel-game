@@ -56,6 +56,8 @@ export type EntryCurrent =
 export interface EntryLocalChoice {
   at: number | null;
   by: 'player' | 'remote' | null;
+  /** M11D.8.4: for an unstamped choice, a moment it already existed by (an upper bound on its time), or null. */
+  existedBy?: number | null;
 }
 
 /**
@@ -75,12 +77,34 @@ export function currentSelectionAt(profileAtSeconds: number | null | undefined):
  * only one there is, so the rule is deliberately plain: a clear gap, both in the past.
  */
 export function compareSelections(localAt: number | null, remoteAt: number | null, now: number, skewMs = SELECTION_SKEW_MS): 'local' | 'remote' | 'ambiguous' {
-  if (localAt === null || remoteAt === null || !Number.isFinite(localAt) || !Number.isFinite(remoteAt) || !Number.isFinite(now)) return 'ambiguous';
-  if (localAt > now + skewMs || remoteAt > now + skewMs) return 'ambiguous';
-  const gap = remoteAt - localAt;
-  if (Math.abs(gap) <= skewMs) return 'ambiguous';
-  return gap > 0 ? 'remote' : 'local';
+  return selectionOrder({ at: localAt, by: null }, remoteAt, now, skewMs).order;
 }
+
+/** M11D.8.4: why two choices could not be ordered (for the diagnostic record; never shown to the player). */
+export type AmbiguityReason = 'no-local-time' | 'no-remote-time' | 'future' | 'too-close' | 'no-clock';
+
+/**
+ * M11D.8.4: the order of the device's choice and the current one, with the reason when there is none. A stamped
+ * choice is compared by its time. An unstamped one with an `existedBy` bound can only be found OLDER (the remote
+ * choice clearly after the bound); anything else about it stays ambiguous (never assumed old, never assumed new).
+ */
+export function selectionOrder(local: EntryLocalChoice | null, remoteAt: number | null, now: number, skewMs = SELECTION_SKEW_MS): { order: 'local' | 'remote' | 'ambiguous'; reason?: AmbiguityReason; basis: 'stamp' | 'bound' | 'none' } {
+  const at = local?.at ?? null;
+  const bound = at === null ? (local?.existedBy ?? null) : null;
+  const basis = at !== null ? 'stamp' : bound !== null ? 'bound' : 'none';
+  if (!Number.isFinite(now)) return { order: 'ambiguous', reason: 'no-clock', basis };
+  if (remoteAt === null || !Number.isFinite(remoteAt)) return { order: 'ambiguous', reason: 'no-remote-time', basis };
+  if (remoteAt > now + skewMs) return { order: 'ambiguous', reason: 'future', basis };
+  if (at !== null && Number.isFinite(at)) {
+    if (at > now + skewMs) return { order: 'ambiguous', reason: 'future', basis };
+    const gap = remoteAt - at;
+    if (Math.abs(gap) <= skewMs) return { order: 'ambiguous', reason: 'too-close', basis };
+    return { order: gap > 0 ? 'remote' : 'local', basis };
+  }
+  if (bound !== null && Number.isFinite(bound) && bound <= now + skewMs) return remoteAt - bound > skewMs ? { order: 'remote', basis } : { order: 'ambiguous', reason: 'no-local-time', basis };
+  return { order: 'ambiguous', reason: 'no-local-time', basis };
+}
+
 
 export interface EntryFacts {
   /** A plain start of play: no `#menu`, not a lab mode, the title untouched so far. */
@@ -132,7 +156,7 @@ export function decideEntry(f: EntryFacts): EntryDecision {
   if (!f.mine.has(f.walkingSeed)) return { kind: 'title', why: 'walking-not-mine' };
   if (current && current.seed && current.seed !== f.walkingSeed) {
     // M11D.8.3: the most recent explicit choice, when it can be told; else the player's remembered answer, else ask.
-    const order = f.now === undefined ? 'ambiguous' : compareSelections(f.local?.at ?? null, current.at ?? null, f.now);
+    const order = f.now === undefined ? 'ambiguous' : selectionOrder(f.local ?? null, current.at ?? null, f.now).order;
     if (order === 'remote') return { kind: 'bring', island, d: current.d, name: current.name };
     if (order === 'local') return { kind: 'enter', island };
     if (!f.stayed?.(island, current.d)) return { kind: 'offer-switch', island, d: current.d, name: current.name };
@@ -222,4 +246,58 @@ export async function runEntry<R>(host: EntryHost<R>): Promise<{ decision: Entry
   if (!still()) return null;
   const facts = host.facts(pubkey, present, answer);
   return facts ? { decision: decideEntry(facts), answer, pubkey } : null;
+}
+
+// ─── M11D.8.4: the diagnostic record of the last automatic entry ─────────────────────────────────────────────────
+
+/** Record `blobbi-pixel-lab:entry-diagnostic`: the last automatic entry's outcome and reasons. Public, no identifiers. */
+export const ENTRY_DIAGNOSTIC_KEY = 'blobbi-pixel-lab:entry-diagnostic';
+
+export interface EntryDiagnostic {
+  version: 1;
+  /** When the entry was decided (ms). */
+  at: number;
+  /** How long the entry waited (ms). */
+  waitedMs: number;
+  decision: EntryDecision['kind'];
+  why: string | null;
+  /** What the relays said about the current Blobbi; `partial` when not every relay answered. */
+  current: string;
+  partial: boolean;
+  /** Whether the current Blobbi differs from the walking one, and how the two choices were ordered. */
+  differs: boolean;
+  order: 'local' | 'remote' | 'ambiguous' | null;
+  reason: AmbiguityReason | null;
+  /** How the device's choice is known: by its stamp (and who made it), by an existed-by bound, or not at all. */
+  local: 'stamp-player' | 'stamp-remote' | 'bound' | 'none' | 'no-record';
+  /** Seconds between the two choice times (remote minus local stamp or bound), rounded; null when unknown. */
+  gapSeconds: number | null;
+  stayRemembered: boolean;
+}
+
+/** Build the diagnostic from the decision and the facts it was made with (pure; nothing private goes in). */
+export function entryDiagnostic(decision: EntryDecision, f: EntryFacts | null, answer: { status: string; partial: boolean }, waitedMs: number, at: number): EntryDiagnostic {
+  const current = f && f.current.status === 'current' && f.current.walkable && f.current.seed ? f.current : null;
+  const differs = !!current && current.seed !== f!.walkingSeed;
+  const o = differs && f!.now !== undefined ? selectionOrder(f!.local ?? null, current!.at ?? null, f!.now) : null;
+  const l = f?.local ?? null;
+  const local: EntryDiagnostic['local'] = !l ? 'no-record' : l.at !== null ? (l.by === 'remote' ? 'stamp-remote' : 'stamp-player') : l.existedBy != null ? 'bound' : 'none';
+  const base = l?.at ?? l?.existedBy ?? null;
+  const gap = current?.at != null && base !== null ? Math.round((current.at - base) / 1000) : null;
+  const island = decision.kind === 'enter' || decision.kind === 'offer-switch' || decision.kind === 'bring' ? decision.island : null;
+  return {
+    version: 1,
+    at,
+    waitedMs: Math.max(0, Math.round(waitedMs)),
+    decision: decision.kind,
+    why: decision.kind === 'title' ? decision.why : null,
+    current: answer.status,
+    partial: answer.partial,
+    differs,
+    order: o?.order ?? null,
+    reason: o?.reason ?? null,
+    local,
+    gapSeconds: gap,
+    stayRemembered: !!(differs && island && f!.stayed?.(island, current!.d)),
+  };
 }

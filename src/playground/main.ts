@@ -23,7 +23,7 @@ import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
-import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, storeGuestSelection, storeSelection, type SelectionWhen } from '../game/blobbi-selection';
+import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, noteUnstampedChoice, storeGuestSelection, storeSelection, type SelectionWhen } from '../game/blobbi-selection';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
@@ -33,7 +33,7 @@ import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
-import { currentSelectionAt, decideChosen, entryAddress, rememberStay, runEntry, stayedWith, type EntryDecision } from '../game/world-entry';
+import { currentSelectionAt, decideChosen, entryAddress, ENTRY_DIAGNOSTIC_KEY, entryDiagnostic, rememberStay, runEntry, stayedWith, type EntryDecision, type EntryFacts } from '../game/world-entry';
 import { EntryScreen } from '../ui/entry-screen';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
@@ -1384,6 +1384,16 @@ async function autoEnter(): Promise<void> {
   const linked = address.linked ? (linkedIdentity ?? '') : null;
   // M11D.8.2: the loading page, instead of a menu that would leave by itself.
   entry.begin();
+  const startedAt = Date.now();
+  // M11D.8.4: the current Blobbi is PUBLIC data: its read starts now, beside the extension's check, instead of after
+  // it (the two waits used to add up). Nothing is decided from it until the identity is confirmed (`runEntry`).
+  const readCurrent = async (pubkey: string) => {
+    const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
+    // 6 s for the relays; once one has answered the others get 1.5 s more; what arrived is always kept.
+    return cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader({ graceMs: 1500 }), blobbis: rd.relayBlobbiReader({ graceMs: 1500 }), relays: rc.READ_RELAYS, timeoutMs: 6000 }).catch(() => ({ status: 'unavailable' as const }));
+  };
+  const early = readCurrent(snap.pubkey);
+  let factsUsed: EntryFacts | null = null;
   const run = await runEntry({
     account: () => {
       const s = account.snapshot();
@@ -1396,10 +1406,9 @@ async function autoEnter(): Promise<void> {
       entry.phase = 'signer';
       return account.verifyExtension(6000).then((r) => r === 'verified');
     },
-    current: async (pubkey) => {
+    current: (pubkey) => {
       entry.phase = 'worlds';
-      const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
-      return cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader(), blobbis: rd.relayBlobbiReader(), relays: rc.READ_RELAYS, timeoutMs: 4000 }).catch(() => ({ status: 'unavailable' as const }));
+      return pubkey === snap.pubkey ? early : readCurrent(pubkey);
     },
     // The player asked for the menu (or the page gave up), or something else took over: they lead.
     waiting: () => state.mode === 'play' && title.active && entry.waiting() && !title.touched && !intro,
@@ -1409,9 +1418,13 @@ async function autoEnter(): Promise<void> {
       const items = answer.status === 'unavailable' ? [] : answer.items;
       const item = answer.status === 'current' ? answer.blobbi : null;
       // M11D.8.3: the device's choice of the walking Blobbi, when and by whom (null: made before, or not stored).
+      // M11D.8.4: an unstamped choice gets, once, the moment it was first seen to exist (an upper bound, never its time).
+      const now = Date.now();
       const rec = loadSelectionRecord(store);
-      const local = rec && rec.source.seed === state.blobbi.seed ? { at: rec.selectedAt ?? null, by: rec.selectedBy ?? null } : null;
-      return {
+      const mineNow = rec && rec.source.seed === state.blobbi.seed;
+      const existedBy = mineNow && rec.selectedAt == null ? noteUnstampedChoice(store, now) : null;
+      const local = mineNow ? { at: rec.selectedAt ?? null, by: rec.selectedBy ?? null, existedBy } : null;
+      return (factsUsed = {
         allowed: true,
         linked,
         account: { pubkey, present },
@@ -1420,8 +1433,8 @@ async function autoEnter(): Promise<void> {
         current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item), at: answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
         stayed: (island, d) => stayedWith(store, island, pubkey, d),
         local,
-        now: Date.now(),
-      };
+        now,
+      });
     },
   });
   // Whatever was decided, the loading page is over now (the title, or the island, comes at once).
@@ -1429,7 +1442,14 @@ async function autoEnter(): Promise<void> {
   const store = localStore();
   if (!run || !run.answer || !store) return;
   const { decision, answer, pubkey } = run;
-  if (import.meta.env.DEV) console.info('[entry]', decision.kind, decision.kind === 'title' ? decision.why : '', answer.status);
+  // M11D.8.4: what was decided and why, kept on this device for diagnosis (no key, no address, no name).
+  const diag = entryDiagnostic(decision, factsUsed, answer.status === 'current' || answer.status === 'missing' || answer.status === 'no-selection' ? { status: answer.status, partial: answer.partial } : { status: answer.status, partial: false }, Date.now() - startedAt, Date.now());
+  try {
+    localStorage.setItem(ENTRY_DIAGNOSTIC_KEY, JSON.stringify(diag));
+  } catch {
+    /* not kept */
+  }
+  if (import.meta.env.DEV) console.info('[entry]', JSON.stringify(diag));
   carryOut(decision, answer.status === 'current' ? answer.blobbi : null, pubkey, store, answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null);
 }
 
