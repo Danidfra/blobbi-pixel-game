@@ -541,7 +541,9 @@ Automated: `tests/m11d8-*.test.ts`, `tests/m11d8-2-*.test.ts`; browser checks `s
 | ENTRY-01 (reload inside an island), ENTRY-02 (MAIN MENU kept), ENTRY-03 (CONTINUE restores the entry) | PASS (2026-10-15, owner, local identity) |
 | LOAD-01 (the loading page), EXT-01 (connect, choose a Blobbi), DITTO-01 (Set as companion found, "who comes along?") | PASS (2026-10-15, owner, real extension and real Ditto events) |
 | LOAD-02 (slow and quick), EXT-02 .. EXT-03 (switched, locked), ENTRY-04 (offline) | NOT TESTED |
-| SEL-01 .. SEL-10 (M11D.8.3 §11: remote newer, local newer, remote again, same, old record, island untouched, offline, egg, extension, nothing sent) | NOT TESTED |
+| SEL-01 (remote newer) | FAIL then FIXED (2026-10-15: first load went in with the local Blobbi, refresh asked; root cause in M11D.8.4 §2) |
+| SEL-02 .. SEL-10 (M11D.8.3 §11) | NOT TESTED |
+| START-01 .. START-06 (M11D.8.4 §9: first load, repeated loads, Ditto again, local again, slow network, offline) | NOT TESTED |
 
 ## Camera and regressions M1–M3 (CAM, REG)
 

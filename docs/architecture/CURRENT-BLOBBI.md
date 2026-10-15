@@ -84,3 +84,8 @@ near-equal, future-dated) keeps "who comes along?". A Blobbi's kind 31124 `creat
 
 Pixel still publishes nothing: a choice made here is not visible to Ditto or Standalone until an explicit, consented
 publication of kind 11125 exists (future work; not in M11D.8.3). Details: docs/milestones/M11D8-3.md §4 to §6.
+
+M11D.8.4 additions: the read keeps the answers of the relays that did answer (one slow relay no longer reads as
+offline), starts beside the extension's check, and an unstamped device choice gets a one-time `existedBy` upper bound
+so a remote choice made clearly after it can be ordered. Each automatic entry leaves a diagnostic record without
+identifiers (`blobbi-pixel-lab:entry-diagnostic`). Details: docs/milestones/M11D8-4.md.
