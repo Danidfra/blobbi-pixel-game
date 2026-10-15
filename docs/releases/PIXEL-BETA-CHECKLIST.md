@@ -1,6 +1,6 @@
 # Blobbi Pixel: public beta checklist
 
-Written in M11D.6 ([milestone](../milestones/M11D6.md)), 2026-10-13. **The beta is NOT ready to release**: the
+Written in M11D.6 ([milestone](../milestones/M11D6.md)), 2026-10-13; reviewed in the [release audit of 2026-10-15](RELEASE-AUDIT-2026-10-15.md). **The beta is NOT ready to release**: the
 release blockers in §16 are open. Update a row only with evidence (a person's manual test, a log, a link).
 
 Status words:
@@ -31,6 +31,10 @@ Status words:
 | MY BLOBBIS lists the account's canonical Blobbis from the relays | NOT TESTED | auto `m11c-blobbis`; now read from three relays |
 | Registering a Blobbi never replaces a connected extension account | NOT TESTED | auto `m11d6`; manual PUB-06 |
 | Remote signers (NIP-46), mobile signers | BLOCKED | Not implemented (KI-93) |
+| The extension's account verified on each page load; another key never enters an island (M11D.8.2) | NOT TESTED | auto `m11d8-2-extension`; manual EXT-02 |
+| The current Blobbi set in Ditto is found in Pixel (kind 11125) | PASS | Owner's manual test with real events, 2026-10-15 (M11D.8.2) |
+| Seamless entry: reload inside an island, MAIN MENU kept, CONTINUE | PASS | Owner's manual test, 2026-10-15 (M11D.8) |
+| The most recent explicit choice wins; same result on every load (M11D.8.3, M11D.8.4) | NOT TESTED | auto `m11d8-3-selection`, `m11d8-4-startup`, browser checks; manual START-01..06 |
 
 ## 3. Canonical publishing
 
@@ -145,7 +149,7 @@ the [manual test plan](../testing/MANUAL-TEST-PLAN.md).
 
 ## 16. Release blockers
 
-1. **Standalone's own screen** has not shown the disposable test Blobbi to a person yet (PUB-03); the live publication itself passed (PUB-01..02).
+1. **Standalone's own screen** showing the disposable test Blobbi (PUB-03): reported working by the owner during M11D.7 (Pudding found in Standalone) but never recorded; to be confirmed and recorded. The live publication itself passed (PUB-01..02).
 2. **A real share in a live build** (PUB-04..06) has not been run; live publishing is off.
 3. **Hosting**: HTTPS origin and the headers of §12 do not exist yet.
 4. **Browser and phone coverage** (§5, §6): no real Firefox, Safari, iOS or Android test.

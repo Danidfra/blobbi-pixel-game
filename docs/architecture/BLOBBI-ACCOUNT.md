@@ -6,7 +6,8 @@ M11D.8 design note. Nothing here is built: no account service, no signer, no bac
 
 - **On the same browser and origin**, a returning CONNECTED player enters their island directly with their Blobbi
   (`src/game/world-entry.ts`). "Connected" means an identity that is really here: one this game keeps (its key
-  sealed in the IndexedDB vault, restored or registered here) or a browser extension (NIP-07) that is present now.
+  sealed in the IndexedDB vault, restored or registered here) or a browser extension (NIP-07) that answers with the
+  account's own key on this page load (M11D.8.2: another key, no answer or no extension never enters).
 - The current Blobbi is read from the owner's public kind 11125 profile (`docs/architecture/CURRENT-BLOBBI.md`), so a
   Blobbi chosen in Standalone is offered in Pixel. Reading needs no permission and no signature.
 - **A new browser** needs one explicit step: connect the extension, or restore the identity from its backup (Recovery

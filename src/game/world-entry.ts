@@ -4,7 +4,7 @@
  * case is testable. The title stays the place for everything else, and is always one menu away.
  *
  * WHO MAY ENTER DIRECTLY: only a CONNECTED player whose identity is really here: an identity this game keeps (its key
- * in the vault) or a browser extension account with the extension present. A remembered public key alone, a link or
+ * in the vault) or a browser extension that answers with the account's own key (M11D.8.2). A remembered public key alone, a link or
  * a published profile never counts as being signed in. A disconnected account has no record, so it never enters.
  *
  * WHICH ISLAND: islands are never owned by a Blobbi (M11D.3), so the only local link between an island and an identity
@@ -111,7 +111,7 @@ export interface EntryFacts {
   allowed: boolean;
   /** The island a link names (`#seed=...`, the game's own address after a reload, or a shared link), or null. */
   linked?: string | null;
-  /** The connected account and whether its identity is really here (vault key, or the extension present). */
+  /** The connected account and whether its identity is really here (vault key, or the extension answering with its key). */
   account: { pubkey: string; present: boolean } | null;
   /** Saved islands (any order). */
   islands: readonly EntryIsland[];
