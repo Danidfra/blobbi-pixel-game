@@ -100,9 +100,12 @@ The Blobbi the player chooses is their companion in every Blobbi app. No new kin
 same Blobbi: agree. Only one side usable: that one. A choice the network knows of (shared from here, or adopted, with
 the profile event's id: `synced` in the selection record) against the current one: NIP-01 order (newer `created_at`,
 then the lower id), so a shared choice never blocks a later one. Adopted with a time only (records before the sync):
-`created_at` order. Made here and not shared yet: made over the profile now seen (`over`), or one naming the same
-Blobbi, it wins; otherwise the clock, as M11D.8.3/8.4 (`selectionOrder`: 60 s margin, the `existedBy` bound); anything
-unclear is put to the player.
+`created_at` order. Made here and not shared yet: made over the profile now seen or a newer one (`over`: the newest of
+the current Blobbi last read and the profile the walking Blobbi's own choice was carried by), it wins; a profile
+written after it is never ignored (even one naming the Blobbi the player passed over: it may be a real new choice):
+the clock, as M11D.8.3/8.4 (`selectionOrder`: 60 s margin, the `existedBy` bound); anything unclear is put to the
+player. Writers add `CHOICE_FRESH_MS`: the share starting within 30 s of the choice is the latest act in real time
+and is written without asking; a later attempt is ordered against what it finds.
 
 **Writing** (`src/nostr/companion-share.ts`, live builds only; a rehearsal build shares nothing): a complete read (each
 of `PROFILE_REQUIRED_RELAYS`, relay.ditto.pub and relay.primal.net, answered), over the newest valid profile, only
