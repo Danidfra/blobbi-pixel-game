@@ -37,11 +37,11 @@ const nsec = nsecEncode(sk);
 
 const relayStub = `window.__wsUrls = []; window.__wsSent = []; const BLOBBIS = ${JSON.stringify([pudding, mochi])}; const PROFILES = ${JSON.stringify(PROFILES)};
 const SETTING = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
-const DOWN = SETTING('m11d8:relays', 'up') === 'down'; const PICK = SETTING('m11d8:profile', 'pudding');
+const DOWN = SETTING('m11d8:relays', 'up') === 'down'; const PICK = SETTING('m11d8:profile', 'pudding'); const DELAY = Number(SETTING('m11d8:delay', '30'));
 window.WebSocket = class { constructor(url) { window.__wsUrls.push(String(url)); this.url = String(url); this.readyState = 0; this.l = {}; setTimeout(() => { if (DOWN) { this.readyState = 3; this.emit('error', new Event('error')); this.emit('close', new CloseEvent('close')); } else { this.readyState = 1; this.emit('open', new Event('open')); } }, 20); }
   emit(t, ev) { this['on' + t]?.(ev); for (const f of this.l[t] ?? []) f(ev); }
   addEventListener(t, f) { (this.l[t] ??= []).push(f); } removeEventListener(t, f) { this.l[t] = (this.l[t] ?? []).filter((g) => g !== f); }
-  send(d) { window.__wsSent.push(String(d)); const m = JSON.parse(d); if (m[0] === 'REQ') { const f = m[2] ?? {}; const kinds = f.kinds ?? []; const out = kinds.includes(31124) ? BLOBBIS : kinds.includes(11125) && PROFILES[PICK] ? [PROFILES[PICK]] : []; setTimeout(() => { for (const e of out) this.emit('message', new MessageEvent('message', { data: JSON.stringify(['EVENT', m[1], e]) })); this.emit('message', new MessageEvent('message', { data: JSON.stringify(['EOSE', m[1]]) })); }, 30); } }
+  send(d) { window.__wsSent.push(String(d)); const m = JSON.parse(d); if (m[0] === 'REQ') { const f = m[2] ?? {}; const kinds = f.kinds ?? []; const out = kinds.includes(31124) ? BLOBBIS : kinds.includes(11125) && PROFILES[PICK] ? [PROFILES[PICK]] : []; setTimeout(() => { for (const e of out) this.emit('message', new MessageEvent('message', { data: JSON.stringify(['EVENT', m[1], e]) })); this.emit('message', new MessageEvent('message', { data: JSON.stringify(['EOSE', m[1]]) })); }, DELAY); } }
   close() { this.readyState = 3; }
   get CONNECTING() { return 0; } get OPEN() { return 1; } get CLOSING() { return 2; } get CLOSED() { return 3; } };
 window.WebSocket.CONNECTING = 0; window.WebSocket.OPEN = 1; window.WebSocket.CLOSING = 2; window.WebSocket.CLOSED = 3;`;
@@ -101,7 +101,9 @@ const fresh = async (p: Tab) => {
   await p.load();
 };
 const setting = (p: Tab, k: string, v: string | null) => p.evaluate(v === null ? `localStorage.removeItem('${k}');` : `localStorage.setItem('${k}', '${v}');`);
-const where = (p: Tab) => p.evaluate("const t = window.__blobbi.title(); const l = window.__blobbi.live(); return { title: t.active, page: t.page, island: l ? l.identity : null, seed: l ? l.blobbi.seed : null, intro: !!window.__blobbi.intro(), account: window.__blobbi.account().snapshot().status };");
+const where = (p: Tab) => p.evaluate("const t = window.__blobbi.title(); const l = window.__blobbi.live(); return { title: t.active, page: t.page, island: l ? l.identity : null, seed: l ? l.blobbi.seed : null, intro: !!window.__blobbi.intro(), account: window.__blobbi.account().snapshot().status, loading: window.__blobbi.entry().active };");
+/** A real key on the game's canvas (the page's own routing: the loading page first, then the title). */
+const press = (p: Tab, code: string) => p.evaluate(`document.getElementById('view').dispatchEvent(new KeyboardEvent('keydown', { code: ${JSON.stringify(code)}, key: '', bubbles: true }));`);
 const facts = (p: Tab) =>
   p.evaluate(`const g = JSON.parse(localStorage.getItem('blobbi-pixel-lab:guest-blobbis') ?? '{"blobbis":[]}').blobbis; return { guests: g.length, owners: [...new Set(g.map((b) => b.owner))].length, ownerIsMine: g.every((b) => b.owner === ${JSON.stringify(owner)}) };`);
 /** Wait for the automatic entry to settle (it reads the relays for at most a few seconds). */
@@ -138,12 +140,31 @@ try {
   const puddingSeed = made.seed;
   check(!made.title && !!island, `setup: an island with Pudding, playing (${JSON.stringify(made)})`);
 
-  // ── 2. Reload: straight into the island with Pudding (no title stop, no intro again) ──
+  // ── 2. Reload: the loading page (never the menu) while the worlds answer, then straight into the island ──
+  await setting(p, 'm11d8:delay', '2500');
   await p.load();
+  const loading = await where(p);
+  check(loading.loading && loading.title, `2. M11D.8.2: while the entry is decided, the loading page is up (no menu) (${JSON.stringify(loading)})`);
+  await sleep(1700);
+  const stillLoading = await where(p);
+  check(stillLoading.loading, `2. M11D.8.2: still the loading page after 1.7 s, MAIN MENU offered (${JSON.stringify(stillLoading)})`);
+  await p.shoot('2a-loading');
+  // An ordinary key while loading never leaks to the menu and never cancels the entry.
+  await press(p, 'ArrowDown');
+  await sleep(100);
+  const keyed = await where(p);
+  check(keyed.loading, `2. M11D.8.2: an ordinary key during the loading page changes nothing (${JSON.stringify(keyed)})`);
   await settle(p);
   const back = await where(p);
-  check(!back.title && back.island === island && back.seed === puddingSeed && !back.intro, `2. a returning connected player: straight in, same island, Pudding, no intro (${JSON.stringify(back)})`);
+  check(!back.title && !back.loading && back.island === island && back.seed === puddingSeed && !back.intro, `2. a returning connected player: straight in, same island, Pudding, no intro (${JSON.stringify(back)})`);
   await p.shoot('2-straight-in');
+  await setting(p, 'm11d8:delay', null);
+  // A quick answer: no loading page lingers (straight in well under the MAIN MENU delay).
+  const tq = Date.now();
+  await p.load();
+  await settle(p);
+  const quick = await where(p);
+  check(!quick.title && quick.island === island, `2. M11D.8.2: quick worlds: in after ${((Date.now() - tq) / 1000).toFixed(1)} s, no lingering page (${JSON.stringify(quick)})`);
 
   // ── 6. Another current Blobbi (Mochi, chosen in another app): asked once ──
   await setting(p, 'm11d8:profile', 'mochi');
@@ -179,19 +200,29 @@ try {
 
   // ── 7. #menu, or a key on the title: the title stays ──
   await p.load('#menu');
+  const menuAtOnce = await where(p);
+  check(menuAtOnce.title && !menuAtOnce.loading, `7. M11D.8.2: #menu: the title at once, no loading page (${JSON.stringify(menuAtOnce)})`);
   await sleep(6000);
   const menu = await where(p);
   check(menu.title && menu.page === 'main', `7. #menu: the title stays (${JSON.stringify(menu)})`);
   await p.shoot('7-menu');
+  // M11D.8.2: ESC (or MAIN MENU) on the loading page gives the title back; the late answer changes nothing.
+  await setting(p, 'm11d8:delay', '2500');
   await p.load();
-  await p.evaluate("window.__blobbi.title().key('ArrowDown');");
-  await sleep(6000);
+  await press(p, 'Escape');
+  await sleep(200);
+  const escaped = await where(p);
+  check(escaped.title && !escaped.loading && escaped.page === 'main', `7. M11D.8.2: ESC on the loading page: the main menu at once (${JSON.stringify(escaped)})`);
+  await sleep(4000);
   const touched = await where(p);
-  check(touched.title, `7. a key on the title: the player leads, no automatic entry (${JSON.stringify(touched)})`);
+  check(touched.title && touched.page === 'main', `7. the player leads: no automatic entry after the worlds answered (${JSON.stringify(touched)})`);
+  await setting(p, 'm11d8:delay', null);
 
   // ── 8. Disconnect: the title, every time after ──
   await p.evaluate('window.__blobbi.account().disconnect();');
   await p.load();
+  const guestAtOnce = await where(p);
+  check(guestAtOnce.title && !guestAtOnce.loading, `8. M11D.8.2: a guest: the title at once, no loading page (${JSON.stringify(guestAtOnce)})`);
   await sleep(6000);
   const gone = await where(p);
   check(gone.title && gone.account === 'guest', `8. disconnected: the title, no automatic entry (${JSON.stringify(gone)})`);
