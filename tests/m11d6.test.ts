@@ -254,6 +254,28 @@ describe("M11D.6: the owner's profile is never rebuilt from a guess", () => {
     expect(has).toEqual([getCanonicalBlobbiD(o.pk, 'aaaaaaaaaa'), getCanonicalBlobbiD(o.pk, 'bbbbbbbbbb')]);
   }, 30_000);
 
+  it('companion sync audit: an OLDER profile on the answering relays, the newest one out of sight: unreachable, nothing sent', async () => {
+    const down = new Set<string>();
+    const { members, group } = threeRelays({ down });
+    const o = owner();
+    const older = finalizeEvent(profileTemplate(o.pk, getCanonicalBlobbiD(o.pk, 'aaaaaaaaaa'), 1_700_000_000, null), o.sk);
+    const newer = finalizeEvent(profileTemplate(o.pk, getCanonicalBlobbiD(o.pk, 'cccccccccc'), 1_700_000_100, older), o.sk);
+    await members[0].publish(older, 1000);
+    await members[1].publish(newer, 1000);
+    for (const m of members) m.sent.length = 0;
+    down.add('wss://relay.primal.net');
+    const store = memoryStore();
+    let signed = 0;
+    const run = activate({ facts: { owner: o.pk, petId: 'bbbbbbbbbb', name: 'Pip', bornAt: 1 }, consent: true, backupVerified: true, ownerKind: 'account', mayHaveProfile: true }, { store, publisher: group, sign: (t) => (signed++, o.sign(t)), now: () => 1_760_000_000_000, sleep: noSleep });
+    await expect(run).rejects.toMatchObject({ problem: 'unreachable' });
+    expect(signed).toBe(0);
+    expect(members.flatMap((m) => m.sent).filter((e) => e.kind === 11125)).toEqual([]);
+    // Back up: built over the newest, so the Blobbi only it listed is kept
+    down.clear();
+    const done = await activate({ facts: { owner: o.pk, petId: 'bbbbbbbbbb', name: 'Pip', bornAt: 1 }, consent: true, backupVerified: true, ownerKind: 'account', mayHaveProfile: true }, { store, publisher: group, sign: o.sign, now: () => 1_760_000_000_000, sleep: noSleep });
+    expect(done.profile!.tags.filter((t) => t[0] === 'has').map((t) => t[1])).toContain(getCanonicalBlobbiD(o.pk, 'cccccccccc'));
+  }, 30_000);
+
   it('a newer profile made meanwhile (another app) is merged over before the profile goes out, never replaced', async () => {
     const o = owner();
     let refuseProfile = true;

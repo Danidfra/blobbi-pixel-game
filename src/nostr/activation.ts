@@ -32,7 +32,7 @@ import { verifyEvent } from 'nostr-tools/pure';
 import type { KeyValueStore } from '../game/persistence';
 import { babyStateTemplate, canonicalD, isCanonicalBlobbi, isProfile, profileFilter, profileTemplate, type BirthFacts, type EventTemplate } from './canonical-events';
 import { accepted, type Publisher, type QueryResult } from './publisher';
-import { policyMet } from './relay-config';
+import { policyMet, PROFILE_REQUIRED_RELAYS } from './relay-config';
 
 export const ACTIVATION_KEY = 'blobbi-pixel-lab:activation';
 
@@ -170,6 +170,12 @@ function holdersOfListing(q: QueryResult, owner: string, d: string): string[] {
 
 const tagD = (e: NostrEvent) => e.tags.find((t) => t[0] === 'd')?.[1];
 
+/** Every relay that must answer for a profile read to be complete did (`PROFILE_REQUIRED_RELAYS`; else every relay). */
+function profileReadComplete(publisher: Publisher, q: QueryResult): boolean {
+  const required = PROFILE_REQUIRED_RELAYS.filter((u) => publisher.relays.includes(u));
+  return (required.length ? required : publisher.relays).every((u) => q.byRelay[u] != null);
+}
+
 /** Run (or resume) a registration. Returns the confirmed run; throws `ActivationError` with the run as it stands. */
 export async function activate(req: ActivationRequest, deps: ActivationDeps): Promise<ActivationRun> {
   const { store, publisher } = deps;
@@ -216,6 +222,10 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
     const existingProfile = newestProfile(profileAnswer.events, f.owner);
     // A profile is built from scratch only when none can exist out of sight.
     if (!existingProfile && req.mayHaveProfile && profileAnswer.reachable < publisher.relays.length) stop('unreachable');
+    // Companion sync audit: a profile built OVER an existing one needs a complete read too (each relay every Blobbi
+    // app writes profiles to answered); a newer profile on a silent relay would otherwise lose what it lists.
+    const needsProfile = !run.profile && !(existingProfile?.kind === 11125 && lists(existingProfile, d));
+    if (needsProfile && existingProfile && !profileReadComplete(publisher, profileAnswer)) stop('unreachable');
     const blobbi = run.blobbi ?? existingBlobbi ?? (await signAs(babyStateTemplate(f, nowS())));
     if (!isCanonicalBlobbi(blobbi)) stop('not-canonical');
     const profile = run.profile ?? (existingProfile?.kind === 11125 && lists(existingProfile, d) ? existingProfile : await signAs(profileTemplate(f.owner, d, nowS(), existingProfile)));
