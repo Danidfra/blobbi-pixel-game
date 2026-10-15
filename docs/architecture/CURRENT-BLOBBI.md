@@ -72,3 +72,15 @@ merely selected on Ditto's page (the likely case for "Boca rosa") is not publish
 Pixel then reads `no-companion` (or the profile's older companion). This is documented, not worked around: no
 replacement protocol, no event from Pixel, kinds 11125 and 31124 unchanged. For the ecosystem (§3): Ditto's page
 selection and Standalone's device pick could publish 11125 on change, as Standalone does.
+
+## 5. Precedence between the device's choice and the current Blobbi (M11D.8.3)
+
+Pixel keeps a choice of its own (the walking Blobbi, `blobbi-pixel-lab:selected-blobbi`) stamped with when and by
+whom it was made (`selectedAt` ms, `selectedBy` player | remote). On entry, when the current Blobbi differs from the
+walking one, the two CHOICES are ordered (`compareSelections`, `src/game/world-entry.ts`): the remote choice's time is
+the profile's `created_at`; a clear gap of more than 60 s, both in the past, decides; the newer choice wins (a newer
+remote one comes along, stamped with its own time; a newer local one stays). Anything unclear (no stamp, equal or
+near-equal, future-dated) keeps "who comes along?". A Blobbi's kind 31124 `created_at` never takes part.
+
+Pixel still publishes nothing: a choice made here is not visible to Ditto or Standalone until an explicit, consented
+publication of kind 11125 exists (future work; not in M11D.8.3). Details: docs/milestones/M11D8-3.md §4 to §6.
