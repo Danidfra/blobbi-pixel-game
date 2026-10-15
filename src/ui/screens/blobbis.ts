@@ -1,7 +1,9 @@
 /**
  * MY BLOBBIS (M11C): the connected player's canonical Blobbis, read from their own kind 31124 events, and the choice
- * of which one walks the island. Read-only: nothing here publishes, signs or changes a Blobbi, and choosing changes
- * only who walks (the island, its bag, buildings and progress are the island's and stay exactly as they are).
+ * of which one walks the island. Nothing here publishes, signs or changes a Blobbi, and choosing changes only who
+ * walks (the island, its bag, buildings and progress are the island's and stay exactly as they are). Companion sync:
+ * the HOST then shares the choice with the player's other Blobbi games (`src/game/companion-sync.ts`); this screen
+ * only shows how that went (`CompanionPanel`).
  *
  * - A V3 adult or (M11D.1) a V3 Baby may visit: its preview is the pixel game's own drawing of it (the kit's V3
  *   renderer, rasterized, at its stage), the same picture that will walk.
@@ -38,9 +40,24 @@ export interface BlobbiChooser {
    * Bring this Blobbi to the island (only ever called for an `available` one). True when it happened. M11D.8.3:
    * `when` says when and by whom the choice was made; absent, it is the player's, now (this screen's own choice).
    */
-  choose(blobbi: OwnedBlobbi, when?: { at: number; by: 'player' | 'remote' }): boolean;
+  choose(blobbi: OwnedBlobbi, when?: { at: number; by: 'player' | 'remote'; synced?: { id: string; createdAt: number } | null }): boolean;
   /** Back to the island's visiting Blobbi. */
   useVisitor(): void;
+}
+
+/**
+ * Companion sync (the host, `src/game/companion-sync.ts`): the walking Blobbi and the player's other Blobbi games.
+ * Shown beside the Blobbi that walks: TRY AGAIN when a choice made here could not be shared yet, and the question
+ * when a choice made here and one made in another game are too close in time to tell which came last.
+ */
+export interface CompanionPanel {
+  /** A choice made here is not in the player's other Blobbi games yet (and may be tried again). */
+  waiting(): boolean;
+  retry(): void;
+  /** The question, by the two Blobbis' names, or null. */
+  question(): { here: string; there: string } | null;
+  /** Keep the Blobbi walking here (`true`), or bring the other one. */
+  answer(keep: boolean): void;
 }
 
 /**
@@ -79,6 +96,8 @@ export class BlobbisScreen implements Screen {
   onChosen: ((b: OwnedBlobbi) => void) | null = null;
   /** M11D.2: the world forms already explained (none: explained every time). */
   forms: WorldFormMemory | null = null;
+  /** Companion sync: sharing the walking Blobbi with the other Blobbi games (none: nothing shown). */
+  companion: CompanionPanel | null = null;
   /** M11D.2: the V1/V2 Blobbi whose new form is being explained (TRY THIS FORM / NOT NOW), or null. */
   confirming: OwnedBlobbi | null = null;
   /** Previews by seed and size (drawing a Blobbi costs a few milliseconds: once per Blobbi, never per frame). */
@@ -310,6 +329,7 @@ export class BlobbisScreen implements Screen {
       if (selected === b.address) g.button(t('blobbis.walkingWithYou'), dx, cy, () => {}, { w: Math.min(dw, 150), enabled: false });
       else g.button(t('blobbis.bring'), dx, cy, () => this.choose(b, ui), { w: Math.min(dw, 150), primary: true });
       cy += 14;
+      if (selected === b.address) cy = this.drawCompanion(g, dx, cy, dw);
     } else {
       cy += g.para(t(reasonKey(b), { g: b.generation.toUpperCase() }), dx, cy, dw, UI.ink, 5) + 2;
       if (!olderBaby(b)) cy += g.para(t('blobbis.colorsOnly'), dx, cy, dw, UI.muted, 2) + 3;
@@ -321,6 +341,25 @@ export class BlobbisScreen implements Screen {
     if (snap.partial) notes.push(t('blobbis.partial'));
     if (snap.skipped) notes.push(t('blobbis.skipped', { count: snap.skipped }));
     if (notes.length) g.text(clip(g, notes.join('  '), w), x, y + h - 8, UI.muted);
+  }
+
+  /** Companion sync, beside the walking Blobbi: the question, or TRY AGAIN for a choice not shared yet. */
+  private drawCompanion(g: Gfx, dx: number, cy: number, dw: number): number {
+    const c = this.companion;
+    if (!c) return cy;
+    const q = c.question();
+    if (q) {
+      cy += g.para(t('companion.ask', { here: q.here, there: q.there }), dx, cy + 2, dw, UI.ink, 5) + 4;
+      g.button(t('companion.keep', { name: q.here }), dx, cy, () => c.answer(true), { w: Math.min(dw, 150), primary: true });
+      g.button(t('companion.bring', { name: q.there }), dx, cy + 14, () => c.answer(false), { w: Math.min(dw, 150) });
+      return cy + 28;
+    }
+    if (c.waiting()) {
+      cy += g.para(t('companion.notSharedShort'), dx, cy + 2, dw, UI.muted, 2) + 4;
+      g.button(t('blobbis.tryAgain'), dx, cy, () => c.retry(), { w: Math.min(dw, 150) });
+      return cy + 14;
+    }
+    return cy;
   }
 
   /** M11D.2: the explanation of a V1/V2 Blobbi's new form: both pictures, TRY THIS FORM and NOT NOW. */

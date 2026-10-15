@@ -232,16 +232,17 @@ describe('M11D.8.3: the wiring in main.ts', () => {
     expect(sync).not.toMatch(/storeSelection\(|selectBlobbi\(|storeGuestSelection\(|markSelectionChosen\(/);
     expect(sync).toMatch(/applyBlobbi\(/);
     const carry = between('function carryOut', 'async function autoEnter');
-    expect(carry).toMatch(/case 'bring':[\s\S]*choose\(item, \{ at: currentAt \?\? Date\.now\(\), by: 'remote' \}\)/);
+    // Companion sync: an adopted choice also keeps the profile event it came from (`synced`), so it is never shared again
+    expect(carry).toMatch(/case 'bring':[\s\S]*choose\(item, \{ at: currentAt \?\? Date\.now\(\), by: 'remote', synced \}\)/);
     expect(carry).toMatch(/bring: \(\) => \{\s*if \(item && blobbisScreen\.chooser\?\.choose\(item, playerNow\(\)\)\)/);
-    expect(carry).toMatch(/keep: \(\) => \{[\s\S]*markSelectionChosen\(store, Date\.now\(\)\);/);
+    expect(carry).toMatch(/keep: \(\) => \{[\s\S]*markSelectionChosen\(store, Date\.now\(\), companion\.seen\);/);
     expect(src).toMatch(/choose: \(b, when = playerNow\(\)\) =>/);
     expect(src).toMatch(/function selectBlobbi\(source: BlobbiSource, from\?: [^)]*, when: SelectionWhen = playerNow\(\)\)/);
   });
   it('the entry facts carry the device\'s choice and the profile\'s time in milliseconds, with this device\'s clock', () => {
     const auto = between('async function autoEnter', 'blobbisScreen.onChosen');
     expect(auto).toMatch(/const mineNow = rec && rec\.source\.seed === state\.blobbi\.seed;/);
-    expect(auto).toMatch(/const local = mineNow \? \{ at: rec\.selectedAt \?\? null, by: rec\.selectedBy \?\? null, existedBy \} : null;/);
+    expect(auto).toMatch(/const local = mineNow \? \{ at: rec\.selectedAt \?\? null, by: rec\.selectedBy \?\? null, existedBy, synced: rec\.synced \?\? null, over: rec\.over \?\? null \} : null;/);
     expect(auto).toMatch(/at: answer\.status === 'current' \? currentSelectionAt\(answer\.profileAt\) : null/);
     expect(auto).toMatch(/const now = Date\.now\(\);/);
     expect(auto).toMatch(/\n\s+now,\n/);

@@ -23,7 +23,8 @@ import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
-import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, noteUnstampedChoice, storeGuestSelection, storeSelection, type SelectionWhen } from '../game/blobbi-selection';
+import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
+import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
@@ -1025,6 +1026,89 @@ function inviteBusy(): boolean {
 }
 // At start-up the choice already follows the rule (`startupBlobbi`); this only reads the identity and the name.
 syncAccountBlobbi(false);
+
+// ─── Companion sync: the Blobbi the player chooses is their companion in every Blobbi game ──────────────────────
+/**
+ * The game's half is `src/game/companion-sync.ts` (the rules, testable); this is its host. Shares only a choice the
+ * player made here, of their own account's Blobbi, while that account is really here (its key in the vault, or the
+ * extension answered with it: never a read-only session); meets a choice made elsewhere every minute in play and
+ * when the page comes back, and brings it along only in a calm moment. See docs/architecture/CURRENT-BLOBBI.md §6.
+ */
+const companionPresent = (): { pubkey: string; present: boolean } | null => {
+  const s = account.snapshot();
+  return s.status === 'connected' && s.pubkey ? { pubkey: s.pubkey, present: s.method === 'vault' || s.extension === 'verified' } : null;
+};
+const companion = new CompanionSync({
+  account: companionPresent,
+  local: () => {
+    const eff = effectiveSelection(storeOrNull(loadSelectionRecord), connectedPubkey);
+    if (!eff?.account || eff.account !== connectedPubkey || eff.source.seed !== state.blobbi.seed) return null;
+    const src = eff.source;
+    if (src.kind !== 'v3-address' && src.kind !== 'world-form') return null;
+    return { d: src.d, name: eff.name ?? 'Blobbi', at: eff.selectedAt ?? null, by: eff.selectedBy ?? null, existedBy: eff.existedBy ?? null, synced: eff.synced ?? null, over: eff.over ?? null };
+  },
+  resolve: async (pubkey): Promise<RemoteCompanion | null> => {
+    const a = await readCurrentBlobbi(pubkey);
+    if (a.status === 'current') return { status: 'current', d: a.blobbi.d, name: a.blobbi.name, id: a.profileId, createdAt: a.profileAt, walkable: a.blobbi.availability === 'available' && !!seedOf(a.blobbi), item: a.blobbi };
+    if (a.status === 'missing') return { status: 'other', profile: { id: a.profileId, createdAt: a.profileAt } };
+    if (a.status === 'no-selection') return { status: 'other', profile: a.profile ?? null };
+    return null;
+  },
+  share: async (req) => {
+    const method = account.snapshot().method;
+    if (!method) return { kind: 'wrong-account' };
+    const svc = await identityService();
+    const out = await svc.shareCompanion(req, {
+      method,
+      stillAccount: () => {
+        const now = companionPresent();
+        return !!now && now.present && now.pubkey === req.owner;
+      },
+    });
+    if (out.kind === 'shared') return { kind: 'shared', stamp: { id: out.event.id, createdAt: out.event.created_at } };
+    if (out.kind === 'unchanged') return { kind: 'unchanged', stamp: out.profile };
+    return { kind: out.kind };
+  },
+  bring: (r) => void blobbisScreen.chooser?.choose(r.item as OwnedBlobbi, { at: r.createdAt * 1000, by: 'remote', synced: { id: r.id, createdAt: r.createdAt } }),
+  markSynced: (d, stamp) => void storeOrNull((st) => connectedPubkey && markSelectionSynced(st, connectedPubkey, d, stamp)),
+  restamp: (over) => void storeOrNull((st) => markSelectionChosen(st, Date.now(), over)),
+  // In play: the same calm as the invitation's (no menu, speech, notice, timed action, teleport, cinematic); on the
+  // title: no menu open and no entry under way.
+  calm: () => (live && playStarted && !title.active ? !inviteBusy() : !gameUI.capturing && !intro && !entry.active),
+  online: () => typeof navigator === 'undefined' || navigator.onLine !== false,
+  now: () => Date.now(),
+  notify: (kind, names) => notifyCompanion(kind, names.name, names.other),
+});
+/** A small word about the companion: a notice in play, else the UI's short message. */
+function notifyCompanion(kind: 'came' | 'not-shared' | 'offline' | 'sign-failed' | 'ask', name: string, other?: string): void {
+  const place = t('blobbis.title');
+  const text =
+    kind === 'came'
+      ? t('companion.came', { name })
+      : kind === 'ask'
+        ? t('companion.askShort', { here: name, there: other ?? 'Blobbi', place })
+        : `${t(kind === 'offline' ? 'companion.offline' : kind === 'sign-failed' ? 'companion.signFailed' : 'companion.notShared', { name })} ${t('companion.retryHint', { place })}`;
+  if (live && playStarted && !title.active) live.notices.push({ heading: t('companion.heading'), title: name, text, until: Math.max(live.clock.time, live.notices.at(-1)?.until ?? 0) + 6 });
+  else gameUI.say(text, kind === 'came');
+}
+blobbisScreen.companion = {
+  waiting: () => companion.status.kind === 'waiting',
+  retry: () => void companion.retry(),
+  question: () => (companion.ambiguity ? { here: companion.ambiguity.here.name, there: companion.ambiguity.there.name } : null),
+  answer: (keep) => void companion.answer(keep),
+};
+account.onChange(() => companion.accountChanged());
+/** How often the player's current Blobbi is looked at while the game is open and in front. */
+const COMPANION_LOOK_MS = 60_000;
+const lookAtCompanion = () => {
+  if (document.visibilityState === 'visible' && entryTried && !entry.active) void companion.check();
+};
+setInterval(lookAtCompanion, COMPANION_LOOK_MS);
+document.addEventListener('visibilitychange', lookAtCompanion);
+window.addEventListener('online', () => {
+  companion.online();
+  lookAtCompanion();
+});
 /** Open SETTINGS on the ACCOUNT page (the HUD's identity chip). */
 function openAccountPage(): void {
   settingsScreen.showPage('account');
@@ -1327,7 +1411,9 @@ function deviceFacts(store: NonNullable<ReturnType<typeof localStore>>, pubkey: 
   return { islands: listWorlds(storeKeys(), storeGet).map((w) => ({ identity: w.identity, lastSeed: lastVisitor(store, w.identity)?.seed ?? null })), mine };
 }
 /** Carry a decision out: into an island, the islands page, the two title pages, or nothing (the title as it is). */
-function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: string, store: NonNullable<ReturnType<typeof localStore>>, currentAt: number | null = null): void {
+function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: string, store: NonNullable<ReturnType<typeof localStore>>, currentAt: number | null = null, currentId: string | null = null): void {
+  // Companion sync: a choice adopted from the other apps keeps the profile event it came from (never shared again)
+  const synced = currentAt !== null && currentId ? { id: currentId, createdAt: Math.floor(currentAt / 1000) } : null;
   const worlds = listWorlds(storeKeys(), storeGet);
   const enter = (identity: string) => {
     const w = worlds.find((x) => x.identity === identity);
@@ -1351,22 +1437,37 @@ function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: str
         keep: () => {
           // M11D.8.3: staying is the player's choice of the walking Blobbi, now (so a later remote choice can win).
           rememberStay(store, decision.island, pubkey, decision.d, Date.now());
-          markSelectionChosen(store, Date.now());
+          markSelectionChosen(store, Date.now(), companion.seen);
           enter(decision.island);
+          // Companion sync: an explicit choice, shared with the other Blobbi games
+          void companion.chosen();
         },
       });
     case 'bring':
       // M11D.8.3: the current Blobbi was chosen more recently in another world: it comes along, stamped with THAT
       // choice's own time (never this device's now), so a later choice anywhere can still win.
-      if (item && blobbisScreen.chooser?.choose(item, { at: currentAt ?? Date.now(), by: 'remote' })) enter(decision.island);
+      if (item && blobbisScreen.chooser?.choose(item, { at: currentAt ?? Date.now(), by: 'remote', synced })) enter(decision.island);
       return;
     case 'welcome':
       // Already chosen (the player did, or the walking Blobbi is it): just the page; else adopt the current one.
-      if (item && (walkingCanonical()?.address === item.address || blobbisScreen.chooser?.choose(item, { at: currentAt ?? Date.now(), by: 'remote' }))) title.arrived(decision.name);
+      if (item && (walkingCanonical()?.address === item.address || blobbisScreen.chooser?.choose(item, { at: currentAt ?? Date.now(), by: 'remote', synced }))) title.arrived(decision.name);
       return;
     case 'title':
       return;
   }
+}
+/** The player's current Blobbi across the Blobbi apps (kind 11125), read only: 6 s, then 1.5 s for the slower relays. */
+async function readCurrentBlobbi(pubkey: string): Promise<import('../nostr/current-blobbi').CurrentBlobbiResult> {
+  const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
+  // 6 s for the relays; once one has answered the others get 1.5 s more; what arrived is always kept.
+  return cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader({ graceMs: 1500 }), blobbis: rd.relayBlobbiReader({ graceMs: 1500 }), relays: rc.READ_RELAYS, timeoutMs: 6000 }).catch(() => ({ status: 'unavailable' as const }));
+}
+/** Companion sync: the profile the player is shown by an answer (a choice made now is made over it). */
+function seenBy(answer: import('../nostr/current-blobbi').CurrentBlobbiResult): SeenProfile | null {
+  if (answer.status === 'current') return { id: answer.profileId, createdAt: answer.profileAt, d: answer.blobbi.d };
+  if (answer.status === 'missing') return { id: answer.profileId, createdAt: answer.profileAt, d: answer.d };
+  if (answer.status === 'no-selection' && answer.profile) return { ...answer.profile, d: null };
+  return null;
 }
 async function autoEnter(): Promise<void> {
   if (entryTried) return;
@@ -1387,11 +1488,7 @@ async function autoEnter(): Promise<void> {
   const startedAt = Date.now();
   // M11D.8.4: the current Blobbi is PUBLIC data: its read starts now, beside the extension's check, instead of after
   // it (the two waits used to add up). Nothing is decided from it until the identity is confirmed (`runEntry`).
-  const readCurrent = async (pubkey: string) => {
-    const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
-    // 6 s for the relays; once one has answered the others get 1.5 s more; what arrived is always kept.
-    return cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader({ graceMs: 1500 }), blobbis: rd.relayBlobbiReader({ graceMs: 1500 }), relays: rc.READ_RELAYS, timeoutMs: 6000 }).catch(() => ({ status: 'unavailable' as const }));
-  };
+  const readCurrent = readCurrentBlobbi;
   const early = readCurrent(snap.pubkey);
   let factsUsed: EntryFacts | null = null;
   const run = await runEntry({
@@ -1423,14 +1520,14 @@ async function autoEnter(): Promise<void> {
       const rec = loadSelectionRecord(store);
       const mineNow = rec && rec.source.seed === state.blobbi.seed;
       const existedBy = mineNow && rec.selectedAt == null ? noteUnstampedChoice(store, now) : null;
-      const local = mineNow ? { at: rec.selectedAt ?? null, by: rec.selectedBy ?? null, existedBy } : null;
+      const local = mineNow ? { at: rec.selectedAt ?? null, by: rec.selectedBy ?? null, existedBy, synced: rec.synced ?? null, over: rec.over ?? null } : null;
       return (factsUsed = {
         allowed: true,
         linked,
         account: { pubkey, present },
         ...deviceFacts(store, pubkey, items),
         walkingSeed: state.blobbi.seed,
-        current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item), at: answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
+        current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item), at: answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null, id: answer.status === 'current' ? answer.profileId : null } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
         stayed: (island, d) => stayedWith(store, island, pubkey, d),
         local,
         now,
@@ -1450,7 +1547,9 @@ async function autoEnter(): Promise<void> {
     /* not kept */
   }
   if (import.meta.env.DEV) console.info('[entry]', JSON.stringify(diag));
-  carryOut(decision, answer.status === 'current' ? answer.blobbi : null, pubkey, store, answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null);
+  // Companion sync: what the player is shown now (a choice made from here on is made over it)
+  companion.seen = seenBy(answer);
+  carryOut(decision, answer.status === 'current' ? answer.blobbi : null, pubkey, store, answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null, answer.status === 'current' ? answer.profileId : null);
 }
 
 /**
@@ -1967,6 +2066,8 @@ function playFrame(now: number): void {
   gameUI.touchMode = touch.enabled;
   gameUI.hudBottom = viewRenderer!.hudBottom;
   updateNaming(real);
+  // Companion sync: a choice made in another Blobbi game comes along once the moment is calm
+  companion.tick();
   invite.update(real, { running: steps > 0 && !gameUI.capturing && document.visibilityState === 'visible', inputAge: (performance.now() - lastInputAt) / 1000, world: live, busy: inviteBusy() });
   gameUI.render(frame, now / 1000);
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
@@ -2428,8 +2529,12 @@ function chooseBlobbi(r: ResolvedBlobbi): void {
 
 function selectBlobbi(source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }, when: SelectionWhen = playerNow()): void {
   const store = localStore();
-  if (store) storeSelection(store, source, from, when);
+  // Companion sync: the player's own choice of their account's Blobbi is made over the profile they were shown, and is
+  // then shared with their other Blobbi games (a choice adopted from them, `by: 'remote'`, never is).
+  const mine = when.by === 'player' && !!from?.account && from.account === connectedPubkey;
+  if (store) storeSelection(store, source, from, mine ? { ...when, over: when.over ?? companion.seen } : when);
   applyBlobbi(source, from?.stage ?? 'adult');
+  if (mine) void companion.chosen();
 }
 
 /** Walk with a Blobbi without changing the stored choice (the account rule, `syncAccountBlobbi`). */
