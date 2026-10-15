@@ -52,4 +52,6 @@ Pixel's code is ready for this shape: identity checks go through one place (`acc
 - Never blanket-trust Blobbi domains: every app, first party or not, is approved by the player, one by one.
 - Separate the steps a player can see: being recognized (read only), reading public data, signing in, signing,
   publishing (always with consent). Seamless entry only ever uses the first two plus a session that already exists.
-- Never put keys in links, never import keys silently from another app, never publish to "sync" a choice.
+- Never put keys in links, never import keys silently from another app. A choice is published only when the player
+  makes it (companion sync, CURRENT-BLOBBI.md §6): never on load, never by an automatic entry, never to copy another
+  app's choice back.

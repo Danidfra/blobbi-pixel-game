@@ -1,6 +1,7 @@
 # The current Blobbi (kind 11125 `current_companion`)
 
-M11D.8 audit and design. Read only: Blobbi Pixel never writes this. Sources: `@blobbi-kit/core` 0.9.0 (installed
+M11D.8 audit and design. Since the companion sync (§6, 2026-10-15) Blobbi Pixel also WRITES it, for a choice the
+player makes here. Sources: `@blobbi-kit/core` 0.9.0 (installed
 `dist` and `~/Developer/blobbi-kit/packages/blobbi-core/src`) and Blobbi Standalone (`~/Developer/nostr-pet` at
 `773c3eb`). Neither was modified.
 
@@ -89,3 +90,45 @@ M11D.8.4 additions: the read keeps the answers of the relays that did answer (on
 offline), starts beside the extension's check, and an unstamped device choice gets a one-time `existedBy` upper bound
 so a remote choice made clearly after it can be ordered. Each automatic entry leaves a diagnostic record without
 identifiers (`blobbi-pixel-lab:entry-diagnostic`). Details: docs/milestones/M11D8-4.md.
+
+## 6. Companion sync (2026-10-15): the choice goes both ways
+
+The Blobbi the player chooses is their companion in every Blobbi app. No new kind or tag: kind 11125
+`current_companion`, the bare d. Blobbi Standalone carries the same rules (its `src/features/companion`).
+
+**Choice order v1** (`src/game/companion-order.ts`; the same test vectors as Standalone's, `tests/companion-order.test.ts`):
+same Blobbi: agree. Only one side usable: that one. A choice the network knows of (shared from here, or adopted, with
+the profile event's id: `synced` in the selection record) against the current one: NIP-01 order (newer `created_at`,
+then the lower id), so a shared choice never blocks a later one. Adopted with a time only (records before the sync):
+`created_at` order. Made here and not shared yet: made over the profile now seen (`over`), or one naming the same
+Blobbi, it wins; otherwise the clock, as M11D.8.3/8.4 (`selectionOrder`: 60 s margin, the `existedBy` bound); anything
+unclear is put to the player.
+
+**Writing** (`src/nostr/companion-share.ts`, live builds only; a rehearsal build shares nothing): a complete read (each
+of `PROFILE_REQUIRED_RELAYS`, relay.ditto.pub and relay.primal.net, answered), over the newest valid profile, only
+`current_companion` changed (the Blobbi listed in `has` if missing; nothing removed; content kept; `created_at` after
+the base's; `preservesProfile` checked before signing); never over a choice made clearly later elsewhere (the order
+above); a second complete read before sending; shared when read back as activation's policy says (2 relays,
+relay.ditto.pub among them); the signed event stored first (`blobbi-pixel-lab:companion-share`) so a retry resends it;
+a stored write superseded by a newer profile is dropped. No profile: nothing made (the choice stays here).
+
+**When**: only the player's acts share (MY BLOBBIS, BRING / CONTINUE WITH on "who comes along?", the answer to the
+question), by the connected account whose identity is really here (its key in the vault, or the extension verified),
+for a Blobbi of its own collection. Never a reload, an automatic entry or resume, an adopted choice, a visitor or a
+Blobbi met here and not shared. Failures are said once (a notice) and retried in the visit (back online, 15/60/180 s)
+or by TRY AGAIN in MY BLOBBIS; a signer that said no is not retried by itself.
+
+**Meeting a choice made elsewhere** (`src/game/companion-sync.ts`): the current Blobbi is read every minute while the
+game is in front, when the page comes back and when the connection returns; a newer one comes along by teleport, only
+in a calm moment (the invitation's calm: no menu, speech, notice, timed action, teleport or cinematic), stamped
+`remote` with its profile event (never shared again). Too close to tell: nothing changes by itself; a notice, and MY
+BLOBBIS asks (KEEP <here> / BRING <there>).
+
+**Audit of the existing writer.** Registration (`activation.ts`) set `current_companion` and merged over whatever
+profile the answering relays returned; it now also needs a complete read before building OVER an existing profile (a
+newer one on a silent relay could have lost what it listed) (`tests/m11d6.test.ts`).
+
+**Kit (recommended, not done):** `orderChoices`, the template and `preservesProfile` are pure and the same in both
+apps; a `@blobbi-kit/core` release could hold them, and the kit's `fetchFreshBlobbonautProfile` could gain the NIP-01
+tie-break and a "complete" flag.
+
