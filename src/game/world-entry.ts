@@ -23,8 +23,9 @@
  * `SELECTION_SKEW_MS`, a time in the future of this device's clock), the player is asked once: bring it, or stay.
  * "Stay" is remembered for that island and that current Blobbi (and stamps the device's choice as the player's,
  * now), so nothing is asked again until the current Blobbi changes. Offline (no answer): straight in with the
- * Blobbi of this device. Nothing here publishes: a choice made in this game stays on this device until an explicit,
- * consented synchronisation exists (none yet).
+ * Blobbi of this device. Nothing here publishes. Companion sync: the order now follows the rules every Blobbi app
+ * shares (`companionOrder`, `companion-order.ts`) when the profile's id is known, and a choice the PLAYER makes here
+ * (never an automatic entry) is shared with their other Blobbi games by the host (`companion-sync.ts`).
  *
  * A LINK NAMING AN ISLAND (`#seed=...`): while an island is played the game writes it into the address bar itself, so
  * a reload carries one (the M11D.8 intermittent title: every reload from inside an island stopped on the title, and
@@ -40,6 +41,8 @@
  * islands page, or a new adventure with it; never the menu again.
  */
 import type { KeyValueStore } from './persistence';
+import { globalChoiceAt, orderChoices, type ChoiceOrder, type LocalChoiceFacts } from './companion-order';
+import type { ProfileStamp, SeenProfile } from './blobbi-selection';
 
 export interface EntryIsland {
   identity: string;
@@ -49,7 +52,7 @@ export interface EntryIsland {
 
 /** The current Blobbi as the host resolved it (only what the decision needs). `at`: when it was chosen (ms), or null. */
 export type EntryCurrent =
-  | { status: 'current'; d: string; name: string; seed: string | null; walkable: boolean; at?: number | null }
+  | { status: 'current'; d: string; name: string; seed: string | null; walkable: boolean; at?: number | null; /** Companion sync: the profile event's id (with it, choices are ordered by `companion-order.ts`). */ id?: string | null }
   | { status: 'missing' | 'no-selection' | 'unavailable' };
 
 /** M11D.8.3: the device's stored choice of the walking Blobbi: when (ms) and by whom, or null when it does not say. */
@@ -58,6 +61,9 @@ export interface EntryLocalChoice {
   by: 'player' | 'remote' | null;
   /** M11D.8.4: for an unstamped choice, a moment it already existed by (an upper bound on its time), or null. */
   existedBy?: number | null;
+  /** Companion sync: the profile event carrying the choice (published here or adopted), and the one it was made over. */
+  synced?: ProfileStamp | null;
+  over?: SeenProfile | null;
 }
 
 /**
@@ -105,6 +111,24 @@ export function selectionOrder(local: EntryLocalChoice | null, remoteAt: number 
   return { order: 'ambiguous', reason: 'no-local-time', basis };
 }
 
+
+/**
+ * Companion sync: the order of the device's choice and the current Blobbi by the rules every Blobbi app shares
+ * (`companion-order.ts`, "choice order v1"): a choice the network knows of is ordered as relays order profiles
+ * (NIP-01), a choice made over the profile now seen beats it, and only then the clock (`selectionOrder`, with the
+ * `existedBy` bound for a choice made before M11D.8.3). Without the profile's id (callers before the sync), the
+ * clock alone, as M11D.8.3 did.
+ */
+export function companionOrder(local: EntryLocalChoice | null, current: { d: string; at: number | null; id?: string | null }, now: number): { order: 'local' | 'remote' | 'ambiguous'; rule: ChoiceOrder['rule'] | 'clock-only' } {
+  if (!current.id || current.at === null || !Number.isFinite(now)) return { order: selectionOrder(local, current.at, now).order, rule: 'clock-only' };
+  const facts: LocalChoiceFacts = { d: '(the walking Blobbi)', at: local?.at ?? null, by: local?.by ?? null, synced: local?.synced ?? null, over: local?.over ?? null };
+  const clock = (_l: LocalChoiceFacts, remoteAtMs: number, n: number): ChoiceOrder => {
+    const o = selectionOrder(local, remoteAtMs, n);
+    return o.order === 'remote' ? { winner: 'global', rule: 'clock' } : o.order === 'local' ? { winner: 'local', rule: 'clock' } : { winner: 'ambiguous', rule: 'clock' };
+  };
+  const o = orderChoices(facts, globalChoiceAt(current.d, current.id, current.at), now, SELECTION_SKEW_MS, clock);
+  return { order: o.winner === 'global' ? 'remote' : o.winner === 'local' || o.winner === 'agree' ? 'local' : 'ambiguous', rule: o.rule };
+}
 
 export interface EntryFacts {
   /** A plain start of play: no `#menu`, not a lab mode, the title untouched so far. */
@@ -156,7 +180,7 @@ export function decideEntry(f: EntryFacts): EntryDecision {
   if (!f.mine.has(f.walkingSeed)) return { kind: 'title', why: 'walking-not-mine' };
   if (current && current.seed && current.seed !== f.walkingSeed) {
     // M11D.8.3: the most recent explicit choice, when it can be told; else the player's remembered answer, else ask.
-    const order = f.now === undefined ? 'ambiguous' : selectionOrder(f.local ?? null, current.at ?? null, f.now).order;
+    const order = f.now === undefined ? 'ambiguous' : companionOrder(f.local ?? null, { d: current.d, at: current.at ?? null, id: current.id ?? null }, f.now).order;
     if (order === 'remote') return { kind: 'bring', island, d: current.d, name: current.name };
     if (order === 'local') return { kind: 'enter', island };
     if (!f.stayed?.(island, current.d)) return { kind: 'offer-switch', island, d: current.d, name: current.name };

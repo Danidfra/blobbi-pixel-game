@@ -83,7 +83,10 @@ describe('M11D.8: who enters directly, and where', () => {
 
   it('the decision has no way to make an identity, a Blobbi or an island, or to publish', () => {
     const src = readFileSync('src/game/world-entry.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    expect(src.match(/^import .*$/gm)).toEqual(["import type { KeyValueStore } from './persistence';"]);
+    // Companion sync: the shared ordering rules (pure: no network, no storage) and the selection record's stamp types
+    expect(src.match(/^import .*$/gm)).toEqual(["import type { KeyValueStore } from './persistence';", "import { globalChoiceAt, orderChoices, type ChoiceOrder, type LocalChoiceFacts } from './companion-order';", "import type { ProfileStamp, SeenProfile } from './blobbi-selection';"]);
+    const order = readFileSync('src/game/companion-order.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(order.match(/^import .*$/gm)).toBeNull();
     expect(src).not.toMatch(/reserve|create|publish|sign|fetch|WebSocket|vault/i);
   });
 

@@ -39,6 +39,12 @@
  * (made before M11D.8.3) says "unknown", never "old": the entry then asks "who comes along?" as before, and the answer
  * stamps it. Older code ignores both fields.
  *
+ * COMPANION SYNC, WHAT THE NETWORK KNOWS OF THE CHOICE. Two more optional fields in the same version-1 record:
+ * `synced` (the kind 11125 profile event that carries this choice across the Blobbi apps: the one this game published
+ * for it, or the one it was adopted from: its id and `created_at` in seconds) and `over` (for a choice made here: the
+ * profile the player had been shown when they made it, and the Blobbi it named). They order the choice against the
+ * player's current Blobbi (`companion-order.ts`); a new choice clears `synced`. Older code ignores both.
+ *
  * M11D.8.4, AN UPPER BOUND FOR AN UNSTAMPED CHOICE. When this code first meets a record WITHOUT a stamp it writes
  * `existedBy` (ms): "this choice already existed at this moment". It is not when the choice was made and is never
  * read as such; it only lets a choice made LATER in another app (clearly after that moment) be ordered after it. It
@@ -73,6 +79,20 @@ export interface BlobbiSelection {
   selectedBy?: SelectionOrigin;
   /** M11D.8.4: an unstamped choice already existed at this moment (ms). An upper bound, never the choice's time. */
   existedBy?: number;
+  /** Companion sync: the profile event carrying this choice across the apps (published here, or adopted). */
+  synced?: ProfileStamp;
+  /** Companion sync: the profile the player had been shown when they made this choice here. */
+  over?: SeenProfile;
+}
+
+/** A kind 11125 profile event, as far as ordering goes (`created_at` in seconds). */
+export interface ProfileStamp {
+  id: string;
+  createdAt: number;
+}
+/** The profile a choice was made over, and the Blobbi (bare d) it named then. */
+export interface SeenProfile extends ProfileStamp {
+  d?: string | null;
 }
 
 /** M11D.8.3: who made the stored choice: the player, in this game; or the game, adopting the current Blobbi of the other worlds. */
@@ -81,6 +101,10 @@ export type SelectionOrigin = 'player' | 'remote';
 export interface SelectionWhen {
   at: number;
   by: SelectionOrigin;
+  /** Companion sync: the profile event this choice was adopted from (a remote choice). */
+  synced?: ProfileStamp | null;
+  /** Companion sync: the profile the player had been shown (a choice made here). */
+  over?: SeenProfile | null;
 }
 
 /** A stored selection, checked: the source re-validated, the name cleaned, the account a well-formed key or absent. */
@@ -97,13 +121,31 @@ export interface SelectionRecord {
   selectedBy?: SelectionOrigin | null;
   /** M11D.8.4: for an unstamped choice, the moment it was first seen to exist (ms); absent otherwise. */
   existedBy?: number;
+  /** Companion sync (see the header). */
+  synced?: ProfileStamp;
+  over?: SeenProfile;
+}
+
+const ID_HEX = /^[0-9a-f]{64}$/;
+function stampOf(v: unknown): ProfileStamp | null {
+  const s = v as { id?: unknown; createdAt?: unknown } | null;
+  return s && typeof s === 'object' && typeof s.id === 'string' && ID_HEX.test(s.id) && typeof s.createdAt === 'number' && Number.isFinite(s.createdAt) && s.createdAt >= 0 ? { id: s.id, createdAt: s.createdAt } : null;
+}
+function seenOf(v: unknown): SeenProfile | null {
+  const s = stampOf(v);
+  const d = (v as { d?: unknown } | null)?.d;
+  return s ? { ...s, d: typeof d === 'string' && d ? d : null } : null;
 }
 
 /** M11D.8.3: the stored time and origin of a choice, checked: a finite positive time, a known origin; else nothing. */
-function readWhen(parsed: { selectedAt?: unknown; selectedBy?: unknown; existedBy?: unknown }): { selectedAt?: number; selectedBy?: SelectionOrigin; existedBy?: number } {
+function readWhen(parsed: { selectedAt?: unknown; selectedBy?: unknown; existedBy?: unknown; synced?: unknown; over?: unknown }): { selectedAt?: number; selectedBy?: SelectionOrigin; existedBy?: number; synced?: ProfileStamp; over?: SeenProfile } {
   const at = typeof parsed.selectedAt === 'number' && Number.isFinite(parsed.selectedAt) && parsed.selectedAt > 0 ? parsed.selectedAt : null;
   const by = parsed.selectedBy === 'player' || parsed.selectedBy === 'remote' ? parsed.selectedBy : null;
-  if (at !== null && by !== null) return { selectedAt: at, selectedBy: by };
+  if (at !== null && by !== null) {
+    const synced = stampOf(parsed.synced);
+    const over = seenOf(parsed.over);
+    return { selectedAt: at, selectedBy: by, ...(synced ? { synced } : {}), ...(over ? { over } : {}) };
+  }
   const bound = typeof parsed.existedBy === 'number' && Number.isFinite(parsed.existedBy) && parsed.existedBy > 0 ? parsed.existedBy : null;
   return bound !== null ? { existedBy: bound } : {};
 }
@@ -132,7 +174,7 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
   }
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown; guest?: unknown; selectedAt?: unknown; selectedBy?: unknown; existedBy?: unknown };
+    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown; guest?: unknown; selectedAt?: unknown; selectedBy?: unknown; existedBy?: unknown; synced?: unknown; over?: unknown };
     if (parsed.version !== SELECTION_VERSION || !parsed.source || typeof parsed.source !== 'object') return null;
     const s = parsed.source;
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
@@ -178,6 +220,31 @@ function stamp(record: BlobbiSelection, when?: SelectionWhen): void {
   if (!when || !Number.isFinite(when.at) || when.at <= 0 || (when.by !== 'player' && when.by !== 'remote')) return;
   record.selectedAt = Math.floor(when.at);
   record.selectedBy = when.by;
+  const synced = stampOf(when.synced);
+  const over = seenOf(when.over);
+  if (synced) record.synced = synced;
+  else delete record.synced;
+  if (over) record.over = over;
+  else delete record.over;
+}
+
+/**
+ * Companion sync: the stored choice of `d` (an owned Blobbi, by `account`) is now carried by this profile event (the
+ * game published it, or found the profile already naming it). Nothing else changes; another choice is left alone.
+ */
+export function markSelectionSynced(store: KeyValueStore, account: string, d: string, synced: ProfileStamp): void {
+  try {
+    const raw = store.get(SELECTION_KEY);
+    const parsed = raw ? (JSON.parse(raw) as BlobbiSelection) : null;
+    const src = parsed?.source as { pubkey?: string; d?: string } | undefined;
+    if (!parsed || parsed.version !== SELECTION_VERSION || parsed.account !== account || src?.pubkey !== account || src?.d !== d) return;
+    const ok = stampOf(synced);
+    if (!ok) return;
+    parsed.synced = ok;
+    store.set(SELECTION_KEY, JSON.stringify(parsed));
+  } catch {
+    /* not kept: ordered by its time instead */
+  }
 }
 
 /**
@@ -205,13 +272,13 @@ export function noteUnstampedChoice(store: KeyValueStore, now: number): number |
  * M11D.8.3: the player confirmed the stored choice (CONTINUE WITH <name> on "who comes along?"): the record is
  * stamped as the player's, now, and nothing else about it changes. A record that cannot be read is left alone.
  */
-export function markSelectionChosen(store: KeyValueStore, at: number): void {
+export function markSelectionChosen(store: KeyValueStore, at: number, over?: SeenProfile | null): void {
   try {
     const raw = store.get(SELECTION_KEY);
     const parsed = raw ? (JSON.parse(raw) as BlobbiSelection) : null;
     if (!parsed || parsed.version !== SELECTION_VERSION || !parsed.source) return;
     delete parsed.existedBy;
-    stamp(parsed, { at, by: 'player' });
+    stamp(parsed, { at, by: 'player', over });
     store.set(SELECTION_KEY, JSON.stringify(parsed));
   } catch {
     // Not stamped: the question is simply asked again next time.
