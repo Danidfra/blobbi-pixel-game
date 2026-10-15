@@ -33,7 +33,7 @@ import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
-import { decideEntry, rememberStay, stayedWith } from '../game/world-entry';
+import { entryAddress, rememberStay, runEntry, stayedWith } from '../game/world-entry';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
 import { RECIPES, canCraft, recipeById } from '../game/crafting';
@@ -396,13 +396,14 @@ function toCanvas(buf: PixelBuffer, reuse?: HTMLCanvasElement): HTMLCanvasElemen
 function saveHash(): void {
   // In Play, the link names an island only once it is being played or has a save: a reload of the title alone stays
   // a plain link (so it never looks like a shared island).
+  const menu = state.mode === 'play' && menuChosen ? '&menu=1' : '';
   if (state.mode === 'play' && !playStarted && !(live && hasSave(live.identity, storeGet))) {
-    if (location.hash !== '#mode=play') history.replaceState(null, '', '#mode=play');
+    if (location.hash !== `#mode=play${menu}`) history.replaceState(null, '', `#mode=play${menu}`);
     return;
   }
   const b = state.blobbi;
   const blobbi = b.kind === 'v3-address' ? `pubkey=${b.pubkey}&d=${encodeURIComponent(b.d)}` : `blobbi=${encodeURIComponent(b.seed)}`;
-  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}${state.options.generatedHouse === false ? '&house=none' : ''}`;
+  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}${state.options.generatedHouse === false ? '&house=none' : ''}${menu}`;
 }
 
 // ─── World mode ──────────────────────────────────────────────────────────────
@@ -484,6 +485,8 @@ let live: LiveWorld | null = null;
  * behind the title but never played is not written, so looking at the title never creates a save.
  */
 let playStarted = false;
+/** M11D.8: the player chose SETTINGS > MAIN MENU: the address says `menu` until play starts again (a reload keeps the title). */
+let menuChosen = params.has('menu');
 let liveRenderer: LiveRenderer | null = null;
 let viewRenderer: ViewRenderer | null = null;
 let bounds: WorldBounds | null = null;
@@ -921,6 +924,8 @@ settingsScreen.onMainMenu = () => {
   playStarted = false;
   title.active = true;
   title.reset();
+  menuChosen = true;
+  saveHash();
 };
 /** The canonical Blobbi walking now (chosen from MY BLOBBIS with the connected account), or null. */
 function walkingCanonical(): { address: string; name: string; stage: BlobbiStage } | null {
@@ -1090,6 +1095,7 @@ function touchWorld(): void {
  */
 function beginPlay(): void {
   title.active = false;
+  menuChosen = false;
   gameUI.close();
   if (live) {
     playStarted = true;
@@ -1268,51 +1274,67 @@ let entryTried = false;
 async function autoEnter(): Promise<void> {
   if (entryTried) return;
   entryTried = true;
-  const snap = account.snapshot();
-  const allowed = state.mode === 'play' && !linkedWorld && !params.has('menu') && !params.has('intro') && title.active && !intro;
-  if (!allowed || snap.status !== 'connected' || !snap.pubkey) return;
-  const pubkey = snap.pubkey;
-  const present = snap.method === 'vault' ? await identityService().then((svc) => svc.keeps(pubkey), () => false) : snap.signerAvailable;
-  if (!present) return;
-  const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
-  const res = await cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader(), blobbis: rd.relayBlobbiReader(), relays: rc.READ_RELAYS, timeoutMs: 4000 });
-  // The player did something meanwhile, or the account changed: they lead.
-  const after = account.snapshot();
-  if (title.touched || !title.active || intro || after.status !== 'connected' || after.pubkey !== pubkey) return;
-  const store = localStore();
-  if (!store) return;
+  const address = entryAddress(params);
+  if (!address.allowed || state.mode !== 'play') return;
+  // A link naming an island (the game's own address after a reload, or a shared one): only that island, if saved here.
+  const linked = address.linked ? (linkedIdentity ?? '') : null;
   /** The pixel seed a Blobbi of the account walks with (V3: its own; V1/V2: its world form), or null. */
   const seedOf = (b: OwnedBlobbi): string | null => {
     if (b.generation === 'v3') return b.seed;
     const form = b.worldForm ? cleanWorldFormTraits(b.worldForm) : null;
     return form && (b.generation === 'v1' || b.generation === 'v2') ? (worldFormSource(b.pubkey, b.d, b.generation, form)?.seed ?? null) : null;
   };
-  const items = res.status === 'unavailable' ? [] : res.items;
-  const mine = new Set<string>();
-  for (const b of items) {
-    const seed = seedOf(b);
-    if (seed) mine.add(seed);
-  }
-  for (const g of readGuestBlobbis(store))
-    if (g.owner === pubkey) {
-      const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
-      if (r.ok) mine.add(r.source.seed);
-    }
-  const rec = loadSelectionRecord(store);
-  const recOwner = rec?.account ?? (rec?.source.kind === 'v3-address' ? (guestBlobbi(store, rec.source.d)?.owner ?? null) : null);
-  if (rec && recOwner === pubkey) mine.add(rec.source.seed);
-  const item = res.status === 'current' ? res.blobbi : null;
-  const worlds = listWorlds(storeKeys(), storeGet);
-  const decision = decideEntry({
-    allowed: true,
-    account: { pubkey, present },
-    islands: worlds.map((w) => ({ identity: w.identity, lastSeed: lastVisitor(store, w.identity)?.seed ?? null })),
-    mine,
-    walkingSeed: state.blobbi.seed,
-    current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item) } : { status: res.status === 'current' ? 'unavailable' : res.status },
-    stayed: (island, d) => stayedWith(store, island, pubkey, d),
+  const run = await runEntry({
+    account: () => {
+      const snap = account.snapshot();
+      return snap.status === 'connected' && snap.pubkey ? { pubkey: snap.pubkey } : null;
+    },
+    present: (pubkey) => {
+      const snap = account.snapshot();
+      return snap.method === 'vault' ? identityService().then((svc) => svc.keeps(pubkey)) : Promise.resolve(snap.signerAvailable);
+    },
+    current: async (pubkey) => {
+      const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
+      return cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader(), blobbis: rd.relayBlobbiReader(), relays: rc.READ_RELAYS, timeoutMs: 4000 }).catch(() => ({ status: 'unavailable' as const }));
+    },
+    // The player did something meanwhile (a key, a touch, the intro, a menu): they lead.
+    waiting: () => state.mode === 'play' && title.active && !title.touched && !intro,
+    facts: (pubkey, present, answer) => {
+      const store = localStore();
+      if (!store) return null;
+      const items = answer.status === 'unavailable' ? [] : answer.items;
+      const mine = new Set<string>();
+      for (const b of items) {
+        const seed = seedOf(b);
+        if (seed) mine.add(seed);
+      }
+      for (const g of readGuestBlobbis(store))
+        if (g.owner === pubkey) {
+          const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
+          if (r.ok) mine.add(r.source.seed);
+        }
+      const rec = loadSelectionRecord(store);
+      const recOwner = rec?.account ?? (rec?.source.kind === 'v3-address' ? (guestBlobbi(store, rec.source.d)?.owner ?? null) : null);
+      if (rec && recOwner === pubkey) mine.add(rec.source.seed);
+      const item = answer.status === 'current' ? answer.blobbi : null;
+      return {
+        allowed: true,
+        linked,
+        account: { pubkey, present },
+        islands: listWorlds(storeKeys(), storeGet).map((w) => ({ identity: w.identity, lastSeed: lastVisitor(store, w.identity)?.seed ?? null })),
+        mine,
+        walkingSeed: state.blobbi.seed,
+        current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item) } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
+        stayed: (island, d) => stayedWith(store, island, pubkey, d),
+      };
+    },
   });
-  if (import.meta.env.DEV) console.info('[entry]', decision.kind, res.status);
+  const store = localStore();
+  if (!run || !run.answer || !store) return;
+  const { decision, answer, pubkey } = run;
+  const item = answer.status === 'current' ? answer.blobbi : null;
+  const worlds = listWorlds(storeKeys(), storeGet);
+  if (import.meta.env.DEV) console.info('[entry]', decision.kind, decision.kind === 'title' ? decision.why : '', answer.status);
   const enter = (identity: string) => {
     const w = worlds.find((x) => x.identity === identity);
     if (!w) return;

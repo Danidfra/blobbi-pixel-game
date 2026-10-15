@@ -1,0 +1,14 @@
+M11D.8 repeated reload browser check (2026-10-15T01:37:28.228Z), offline stub relays, disposable key
+PASS  1. a first-time visitor: the title (WELCOME), no account ({"title":true,"page":"welcome","island":"seed=blobbi|kind=turtle|turtle=turtle-0|variant=2|704x576|scale=1.6|palette=cozy|density=1|islands=1","seed":"blobbi-9","intro":false,"account":"guest"})
+PASS  setup: an island with Pudding, playing ({"title":false,"page":"creating","island":"seed=island-reef-6738|kind=turtle|turtle=turtle-bluff-1781|variant=4|704x560|scale=1.6|palette=cozy|density=1|islands=1|house=none","seed":"99b766cccb4b17e7337fc3b387014a1724b6348dad746158f4bf5784918018cf","intro":false,"account":"connected"})
+PASS  fast: 10/10 reloads straight into the island with Pudding
+PASS  slow: 10/10 reloads straight into the island with Pudding
+PASS  down: 10/10 reloads straight into the island with Pudding
+PASS  none: 10/10 reloads straight into the island with Pudding
+PASS  reload from inside, another current Blobbi: "who comes along?" ({"title":true,"page":"switch","island":"seed=island-reef-6738|kind=turtle|turtle=turtle-bluff-1781|variant=4|704x560|scale=1.6|palette=cozy|density=1|islands=1|house=none","seed":"99b766cccb4b17e7337fc3b387014a1724b6348dad746158f4bf5784918018cf","intro":false,"account":"connected"})
+PASS  the island's own address with #menu: the title stays ({"title":true,"page":"main","island":"seed=island-reef-6738|kind=turtle|turtle=turtle-bluff-1781|variant=4|704x560|scale=1.6|palette=cozy|density=1|islands=1|house=none","seed":"99b766cccb4b17e7337fc3b387014a1724b6348dad746158f4bf5784918018cf","intro":false,"account":"connected"})
+PASS  a link to an island not saved here: the title, the saved islands unchanged ({"title":true,"page":"main","island":"seed=someone-elses-island|kind=turtle|turtle=turtle-0|variant=2|704x576|scale=1.6|palette=cozy|density=1|islands=1","seed":"99b766cccb4b17e7337fc3b387014a1724b6348dad746158f4bf5784918018cf","intro":false,"account":"connected"}; same saves)
+PASS  a plain load: in after 2.9 s ({"title":false,"page":"main","island":"seed=island-reef-6738|kind=turtle|turtle=turtle-bluff-1781|variant=4|704x560|scale=1.6|palette=cozy|density=1|islands=1|house=none","seed":"99b766cccb4b17e7337fc3b387014a1724b6348dad746158f4bf5784918018cf","intro":false,"account":"connected"})
+PASS  after SETTINGS > MAIN MENU, 3 reloads: the main menu each time (["main","main","main"])
+PASS  CONTINUE, then a reload: straight in again ({"title":false,"page":"main","island":"seed=island-reef-6738|kind=turtle|turtle=turtle-bluff-1781|variant=4|704x560|scale=1.6|palette=cozy|density=1|islands=1|house=none","seed":"99b766cccb4b17e7337fc3b387014a1724b6348dad746158f4bf5784918018cf","intro":false,"account":"connected"})
+PASS  no EVENT frame was ever sent, over every page load (0)

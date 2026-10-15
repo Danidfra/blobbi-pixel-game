@@ -17,6 +17,12 @@
  * Blobbi apps (kind 11125 `current_companion`, read by the host) is another one that can walk, the player is asked
  * once: bring it, or stay. "Stay" is remembered for that island and that current Blobbi, so nothing is asked again
  * until the current Blobbi changes. Offline (no answer): straight in with the Blobbi of this device.
+ *
+ * A LINK NAMING AN ISLAND (`#seed=...`): while an island is played the game writes it into the address bar itself, so
+ * a reload carries one (the M11D.8 intermittent title: every reload from inside an island stopped on the title, and
+ * the next one, from the title, went in). An island named by a link is resumed only when it is saved on this device,
+ * and it is then the only candidate; the same checks apply (its last visitor and the walking Blobbi are this
+ * identity's). A link to an island not saved here keeps the title, which offers to play it, as before.
  */
 import type { KeyValueStore } from './persistence';
 
@@ -32,8 +38,10 @@ export type EntryCurrent =
   | { status: 'missing' | 'no-selection' | 'unavailable' };
 
 export interface EntryFacts {
-  /** A plain start of play: no link naming a world, no `#menu`, not a lab mode, the title untouched so far. */
+  /** A plain start of play: no `#menu`, not a lab mode, the title untouched so far. */
   allowed: boolean;
+  /** The island a link names (`#seed=...`, the game's own address after a reload, or a shared link), or null. */
+  linked?: string | null;
   /** The connected account and whether its identity is really here (vault key, or the extension present). */
   account: { pubkey: string; present: boolean } | null;
   /** Saved islands (any order). */
@@ -48,7 +56,7 @@ export interface EntryFacts {
 }
 
 export type EntryDecision =
-  | { kind: 'title'; why: 'not-allowed' | 'guest' | 'not-present' | 'not-mine' | 'nothing-to-bring' | 'walking-not-mine' }
+  | { kind: 'title'; why: 'not-allowed' | 'guest' | 'not-present' | 'linked-not-here' | 'not-mine' | 'nothing-to-bring' | 'walking-not-mine' }
   | { kind: 'enter'; island: string }
   | { kind: 'choose-island'; islands: string[] }
   | { kind: 'offer-switch'; island: string; d: string; name: string }
@@ -59,8 +67,13 @@ export function decideEntry(f: EntryFacts): EntryDecision {
   if (!f.account) return { kind: 'title', why: 'guest' };
   if (!f.account.present) return { kind: 'title', why: 'not-present' };
   const current = f.current.status === 'current' && f.current.walkable ? f.current : null;
-  if (!f.islands.length) return current ? { kind: 'welcome', d: current.d, name: current.name } : { kind: 'title', why: 'nothing-to-bring' };
-  const mine = f.islands.filter((i) => i.lastSeed !== null && f.mine.has(i.lastSeed));
+  let islands = f.islands;
+  if (f.linked != null) {
+    islands = f.islands.filter((i) => i.identity === f.linked);
+    if (!islands.length) return { kind: 'title', why: 'linked-not-here' };
+  }
+  if (!islands.length) return current ? { kind: 'welcome', d: current.d, name: current.name } : { kind: 'title', why: 'nothing-to-bring' };
+  const mine = islands.filter((i) => i.lastSeed !== null && f.mine.has(i.lastSeed));
   if (!mine.length) return { kind: 'title', why: 'not-mine' };
   if (mine.length > 1) return { kind: 'choose-island', islands: mine.map((i) => i.identity) };
   const island = mine[0].identity;
@@ -99,4 +112,44 @@ export function rememberStay(store: KeyValueStore, island: string, pubkey: strin
 export function stayedWith(store: KeyValueStore, island: string, pubkey: string, d: string): boolean {
   const c = readChoices(store)[island];
   return !!c && c.pubkey === pubkey && c.d === d;
+}
+
+// ─── The start of play: what the address allows, and the entry run in its order ─────────────────────────────────
+
+/** What the address of a page load says about an automatic entry (`#menu` and the lab's `#intro` keep the title). */
+export function entryAddress(params: { has(key: string): boolean }): { allowed: boolean; linked: boolean } {
+  return { allowed: !params.has('menu') && !params.has('intro'), linked: params.has('seed') };
+}
+
+/** What a run needs from the page (the host): every answer is read when the run reaches it, never before. */
+export interface EntryHost<R> {
+  /** The connected account now (or null). */
+  account(): { pubkey: string } | null;
+  /** Whether that identity is really here (the vault keeps its key, or the extension is present). */
+  present(pubkey: string): Promise<boolean>;
+  /** The current Blobbi across the Blobbi apps (read only, bounded in time; any failure is an answer too). */
+  current(pubkey: string): Promise<R>;
+  /** The title is still showing and the player has not led (no key, no touch, no intro, no menu). */
+  waiting(): boolean;
+  /** The decision's facts, from this device and the answer, or null when nothing can be decided. */
+  facts(pubkey: string, present: boolean, answer: R): EntryFacts | null;
+}
+
+/**
+ * One automatic entry, in order: the account, its presence, the current Blobbi; after each wait the player may have
+ * led, or the account changed or gone: the run then stops (null) and the title stays the player's. The decision (and
+ * the answer it was made with) is returned for the host to carry out; nothing here acts.
+ */
+export async function runEntry<R>(host: EntryHost<R>): Promise<{ decision: EntryDecision; answer: R | null; pubkey: string } | null> {
+  const first = host.account();
+  if (!first || !host.waiting()) return null;
+  const pubkey = first.pubkey;
+  const still = () => host.waiting() && host.account()?.pubkey === pubkey;
+  const present = await host.present(pubkey).catch(() => false);
+  if (!still()) return null;
+  if (!present) return { decision: { kind: 'title', why: 'not-present' }, answer: null, pubkey };
+  const answer = await host.current(pubkey);
+  if (!still()) return null;
+  const facts = host.facts(pubkey, present, answer);
+  return facts ? { decision: decideEntry(facts), answer, pubkey } : null;
 }
