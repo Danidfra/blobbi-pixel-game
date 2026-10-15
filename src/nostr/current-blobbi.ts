@@ -28,11 +28,11 @@ import type { BlobbiReader, BlobbonautReader, ProfileReadResult } from './relays
 
 export type CurrentBlobbiResult =
   /** The profile names this Blobbi and a relay returned it (it may still be an egg, or a V1/V2 without colours). */
-  | { status: 'current'; blobbi: OwnedBlobbi; items: OwnedBlobbi[]; partial: boolean; profileAt: number }
+  | { status: 'current'; blobbi: OwnedBlobbi; items: OwnedBlobbi[]; partial: boolean; profileAt: number; /** Companion sync: the profile event's id. */ profileId: string }
   /** The profile names a Blobbi of the owner that no relay returned (deleted, not there yet, or a relay missing). */
-  | { status: 'missing'; d: string; items: OwnedBlobbi[]; partial: boolean; profileAt: number }
+  | { status: 'missing'; d: string; items: OwnedBlobbi[]; partial: boolean; profileAt: number; profileId: string }
   /** Nothing chosen: no profile, a profile without `current_companion`, or one naming something not the owner's. */
-  | { status: 'no-selection'; reason: 'no-profile' | 'no-companion' | 'invalid-reference'; items: OwnedBlobbi[]; partial: boolean }
+  | { status: 'no-selection'; reason: 'no-profile' | 'no-companion' | 'invalid-reference'; items: OwnedBlobbi[]; partial: boolean; /** Companion sync: the profile read, when there is one. */ profile?: { id: string; createdAt: number } }
   /** No relay answered (offline, or too slow): nothing is known, nothing is decided. */
   | { status: 'unavailable' };
 
@@ -95,9 +95,10 @@ export async function resolveCurrentBlobbi(owner: string, deps: CurrentBlobbiDep
   const profile = pickBlobbonautProfile(authentic(profileRes.events), owner);
   if (!profile) return { status: 'no-selection', reason: 'no-profile', items, partial };
   const d = parseBlobbonautEvent(profile)?.currentCompanion?.trim();
-  if (!d) return { status: 'no-selection', reason: 'no-companion', items, partial };
-  if (!ownersReference(d, owner)) return { status: 'no-selection', reason: 'invalid-reference', items, partial };
+  const seen = { id: profile.id, createdAt: profile.created_at };
+  if (!d) return { status: 'no-selection', reason: 'no-companion', items, partial, profile: seen };
+  if (!ownersReference(d, owner)) return { status: 'no-selection', reason: 'invalid-reference', items, partial, profile: seen };
   const blobbi = items.find((b) => b.d === d);
-  if (!blobbi) return { status: 'missing', d, items, partial, profileAt: profile.created_at };
-  return { status: 'current', blobbi, items, partial, profileAt: profile.created_at };
+  if (!blobbi) return { status: 'missing', d, items, partial, profileAt: profile.created_at, profileId: profile.id };
+  return { status: 'current', blobbi, items, partial, profileAt: profile.created_at, profileId: profile.id };
 }

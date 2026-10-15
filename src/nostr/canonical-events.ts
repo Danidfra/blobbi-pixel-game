@@ -71,3 +71,34 @@ export function profileTemplate(owner: string, d: string, now: number, existing:
 
 /** Whether a signed 31124 is a modern canonical Blobbi by the kit's own reading (checked before publishing). */
 export const isCanonicalBlobbi = (event: { kind: number; pubkey: string; tags: string[][]; content: string; created_at: number; id: string; sig: string }): boolean => classifyBlobbiEvent(event as never) === 'modern';
+
+/**
+ * Companion sync: the owner's profile with `current_companion` = `d`, built over the newest profile (`base`): every
+ * other tag kept (the kit's `updateBlobbonautTags`), `d` added to `has` when missing (never one removed), the content
+ * as it is, a legacy 31125 carried over with the kit's canonical d, and `created_at` after the base's (a device whose
+ * clock is behind must still replace it). The same template as Blobbi Standalone's `buildCompanionProfile`.
+ */
+export function companionProfileTemplate(owner: string, d: string, now: number, base: { kind: number; created_at: number; tags: string[][]; content: string }): EventTemplate {
+  const tags = base.tags.filter((t) => t[0] !== 'current_companion').map((t) => (t[0] === 'd' && base.kind === KIND_BLOBBONAUT_PROFILE_LEGACY ? ['d', getCanonicalBlobbonautD(owner)] : [...t]));
+  const has = tags.filter((t) => t[0] === 'has' && t[1]).map((t) => t[1]);
+  const updates: Record<string, string | string[]> = { current_companion: d };
+  if (!has.includes(d)) updates.has = addPetToHas(has, d);
+  return { kind: KIND_BLOBBONAUT_PROFILE, created_at: Math.max(now, base.created_at + 1), tags: updateBlobbonautTags(tags, updates), content: base.content };
+}
+
+/** Whether `next` keeps everything of `base` but the companion (every tag as a multiset, every `has`, the content). */
+export function preservesProfile(base: { kind: number; tags: string[][]; content: string }, next: EventTemplate, d: string): boolean {
+  if (next.content !== base.content) return false;
+  if (next.tags.filter((t) => t[0] === 'current_companion').length !== 1 || !next.tags.some((t) => t[0] === 'current_companion' && t[1] === d)) return false;
+  const ignored = new Set(['current_companion', 'client', 'published_at', ...(base.kind === KIND_BLOBBONAUT_PROFILE_LEGACY ? ['d'] : [])]);
+  const count = (tags: readonly string[][]) => {
+    const m = new Map<string, number>();
+    for (const t of tags) if (!ignored.has(t[0]) && !(t[0] === 'has' && t[1] === d)) m.set(JSON.stringify(t), (m.get(JSON.stringify(t)) ?? 0) + 1);
+    return m;
+  };
+  const after = count(next.tags);
+  // A repeated `has` is one Blobbi (the kit de-duplicates it); every other tag keeps its count
+  for (const [t, n] of count(base.tags)) if ((after.get(t) ?? 0) < (JSON.parse(t)[0] === 'has' ? 1 : n)) return false;
+  return true;
+}
+

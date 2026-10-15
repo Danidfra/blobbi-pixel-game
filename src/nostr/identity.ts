@@ -10,6 +10,8 @@
  *                     identity or a Blobbi already here and never publishes
  *   register          explicit consent, a verified backup (guest), then `activate` (resumable, idempotent)
  *   findShared        M11D.7: after a restore, the identity's Blobbis already shared, read back from the relays (read only)
+ *   shareCompanion    companion sync: the player's choice of Blobbi written into their profile (`companion-share.ts`),
+ *                     signed by the account itself (its key in the vault, or the browser extension)
  */
 import { generatePetId10 } from '@blobbi-kit/core';
 import type { KeyValueStore } from '../game/persistence';
@@ -25,6 +27,7 @@ import type { BlobbiReader, ProfileReadResult } from './relays';
 import { npubEncode, shortNpub } from './keys';
 import type { EventTemplate } from './canonical-events';
 import type { NostrEvent } from 'nostr-tools/pure';
+import { shareCompanion, type ShareOutcome, type ShareRequest } from './companion-share';
 
 export interface IdentityServiceOptions {
   store: KeyValueStore;
@@ -279,6 +282,20 @@ export class IdentityService implements IdentityPort {
     if (this.publishMode === 'live' && reg.stage !== 'none' && reg.stage !== 'done') return reg.problem === 'partial' ? 'partial' : reg.problem ? 'failed' : 'pending';
     if (b.practicedAt && this.publishMode === 'rehearsal') return 'practiced';
     return b.ownerKind === 'guest' && (await this.backupVerified(b.owner)) ? 'backedUp' : 'local';
+  }
+
+  /**
+   * Companion sync: write the player's choice (`req.d`, a Blobbi of `req.owner`) into their profile. Signed by the
+   * account itself: its key in this game's vault (`vault`), or the browser extension (`nip07`; it must answer for
+   * the very same key). `stillAccount` is asked before signing and before sending: a session that is no longer that
+   * account, or no longer really here, never signs or sends.
+   */
+  async shareCompanion(req: ShareRequest, how: { method: 'vault' | 'nip07'; stillAccount: () => boolean }): Promise<ShareOutcome> {
+    let sign: ((t: EventTemplate) => Promise<NostrEvent>) | undefined;
+    if (how.method === 'vault') sign = (await this.keeps(req.owner)) ? (t) => this.o.vault.sign(req.owner, t) : undefined;
+    else sign = this.o.accountSigner;
+    if (!sign) return { kind: 'sign-failed' };
+    return shareCompanion(req, { store: this.o.store, publisher: this.o.publisher, sign, stillAccount: how.stillAccount, now: this.now, sleep: this.o.sleep });
   }
 
   async register(d: string, consent: boolean): Promise<IdentityResult<RegistrationState>> {

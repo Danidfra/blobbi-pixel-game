@@ -30,6 +30,13 @@ export const REQUIRED_RELAY = 'wss://relay.ditto.pub';
 /** Where public profiles and a player's Blobbis are read from (the same set: what is published can be found). */
 export const READ_RELAYS: readonly string[] = PUBLISH_RELAYS;
 
+/**
+ * Companion sync: the player's profile (kind 11125) is replaceable, so a new current Blobbi is written only over a
+ * profile read from EACH of these relays (every Blobbi app, this game, Blobbi Standalone and Ditto, writes profiles to
+ * both: the newest profile is on one of them). The same set as Blobbi Standalone's `PROFILE_REQUIRED_RELAYS`.
+ */
+export const PROFILE_REQUIRED_RELAYS: readonly string[] = ['wss://relay.ditto.pub', 'wss://relay.primal.net'];
+
 /** How many relays must hold an event (read back) for it to count as shared: two, or every relay if fewer. */
 export const quorumFor = (relays: readonly string[]): number => Math.min(2, relays.length);
 
