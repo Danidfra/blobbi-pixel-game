@@ -530,6 +530,17 @@ PUB-01..03 publish a disposable test Blobbi to the public relays: only after the
 | PUB-04 .. PUB-06 | NOT TESTED (need a live build) |
 | REST-01 .. REST-03, STAT-01, INV-01 | NOT TESTED |
 
+## M11D.8 and M11D.8.2: seamless entry, the loading page, the extension (ENTRY, LOAD, EXT, DITTO)
+
+Steps and expected results in [M11D.8](../milestones/M11D8.md) §7 and [M11D.8.2](../milestones/M11D8-2.md) §7.
+Automated: `tests/m11d8-*.test.ts`, `tests/m11d8-2-*.test.ts`; browser checks `scripts/m11d8-entry-browser.ts`,
+`scripts/m11d8-reload-browser.ts`; images `examples/m11d8-entry/`, `examples/m11d8-reload/`.
+
+| ID | Status |
+|---|---|
+| ENTRY-01 (reload inside an island), ENTRY-02 (MAIN MENU kept), ENTRY-03 (CONTINUE restores the entry) | PASS (2026-10-15, owner, local identity) |
+| LOAD-01 .. LOAD-02 (the loading page, slow and quick), EXT-01 .. EXT-03 (choose a Blobbi, switched, locked), DITTO-01 (Set as companion), ENTRY-04 (offline) | NOT TESTED |
+
 ## Camera and regressions M1–M3 (CAM, REG)
 
 | ID | Prerequisites | Steps | Expected result | Status | Notes |

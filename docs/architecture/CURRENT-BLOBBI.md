@@ -48,3 +48,27 @@ profile). Nothing is guessed from the Blobbis alone, and no failure ever creates
   it differs)? Today Standalone publishes on every switch, so they agree whenever a profile exists.
 - Profile tie-break: the kit has none; Pixel uses NIP-01's lower id. Worth adding to the kit so every app agrees.
 - Standalone's stale doc line (`ARCHITECTURE.md:1781-1785`) should be corrected in that repository.
+
+## 4. Ditto (M11D.8.2 audit, read only)
+
+Source: `~/Developer/ditto` at `b2e65945` (2026-10-09), not modified. The owner reported that a Blobbi selected in
+Ditto ("Boca rosa") was not recognised by Pixel. Each question of the brief, with evidence:
+
+| Question | Answer, with evidence |
+|---|---|
+| 1. Does Ditto publish kind 11125? | Yes: `KIND_BLOBBONAUT_PROFILE` is the kit's 11125 (`blobbi.ts:28`). Ditto reads both 11125 and the legacy 31125 (`src/hooks/useBlobbonautProfile.ts:87-91`, the same `#d` values Pixel asks for). |
+| 2. Does it write `current_companion`? | Only from the explicit **Set as companion** button: `src/pages/BlobbiPage.tsx` `handleSetAsCompanion` (lines 1424-1489) and `src/components/widgets/BlobbiWidget.tsx` (lines 166-200): a fresh profile read, the old tag removed, `updateBlobbonautTags(tags, { current_companion: companion.d })`, published with `prev`. Pressing the button on the CURRENT companion removes the tag ("Companion unset"). It needs an existing profile (`if (!profile) return`). **Selecting a Blobbi on the page does not publish**: `handleSelectBlobbi` (line 361) only calls `setStoredSelectedD`, the `localStorage` key `blobbi:selected:d:<pubkey>` (the kit's `getSelectedBlobbiKey`, `BlobbiPage.tsx:285-286`), and the page's selection priority is "localStorage selection always wins" (lines 290-328). The widget's companion picker does the same (`onSelectCompanion={setStoredSelectedD}`, line 248). On first load with a profile, Ditto copies the profile's companion INTO its local selection (lines 641-644), never the other way. |
+| 3. Is the reference the canonical bare d? | Yes: `companion.d`, the d of a parsed, validated authored 31124 (the collection). Ditto's own profile document (its docs/blobbi folder, kind-31125-blobbonaut-profile) describes the same. |
+| 4. The expected author? | The signed-in user (`publishEvent` signs with the user's signer); Pixel refuses any other author. |
+| 5. Which relays receive it? | Ditto's write relays: its app defaults `relay.ditto.pub`, `relay.dreamith.to` (read+write), `relay.primal.net` and `relay.damus.io` (write only) (`src/lib/appRelays.ts:30-37`), plus the user's own NIP-65 list when enabled. |
+| 6. Can Pixel retrieve it? | Yes: Pixel reads `relay.ditto.pub`, `relay.primal.net`, `relay.dreamith.to` (`src/nostr/relay-config.ts`), three of Ditto's four write relays; one answering relay is enough for the resolver (`partial` is noted). |
+| 7. Does Pixel validate and parse it? | Yes: `tests/m11d8-2-ditto.test.ts` builds profiles exactly as Ditto does (the kit's `buildBlobbonautTags` as the hatching ceremony makes them, then `updateBlobbonautTags`) and the resolver returns `current` for a set companion, `no-companion` for a page selection or an unset, `missing` when the Blobbi is not returned, and ignores other authors and forged tags. |
+| 8. Can Pixel retrieve the 31124? | Yes, the same relays, the same `#b` marker; Ditto's V3 Blobbis parse through the kit as Standalone's do. A V1/V2 Blobbi without usable colours resolves but cannot walk (`availability`), so it is not offered (M11D.2). |
+| 9. Does Pixel restore the extension identity? | It did not VERIFY it (M11D.8 §8): "present" was `window.nostr` existing at that instant. M11D.8.2 waits for a late extension (the signer's 1.5 s) and asks it for its key once per page load (`verifyExtension`); only the remembered key counts as present. |
+| 10. Does a local selection override the global current Blobbi? | In Ditto, yes, on Ditto's own device (its page selection beats the profile there, and is not published). In Pixel, no: the profile's companion is read as published, and a different walking Blobbi only leads to "who comes along?" (M11D.8 §4, scenario 6). |
+
+**Finding.** Ditto publishes the canonical current selection correctly, but only through **Set as companion**. A Blobbi
+merely selected on Ditto's page (the likely case for "Boca rosa") is not published anywhere, so no other app can see it;
+Pixel then reads `no-companion` (or the profile's older companion). This is documented, not worked around: no
+replacement protocol, no event from Pixel, kinds 11125 and 31124 unchanged. For the ecosystem (§3): Ditto's page
+selection and Standalone's device pick could publish 11125 on change, as Standalone does.
