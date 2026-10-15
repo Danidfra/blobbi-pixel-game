@@ -166,7 +166,9 @@ try {
   }
   await setting(p, 'm11d8:relays', null);
   await setting(p, 'm11d8:delay', null);
-  // A reload from inside the island while ANOTHER Blobbi is current: still asked who comes along (not the bare title).
+  // A reload from inside the island while ANOTHER Blobbi is current and the device's choice has no stamp (made
+  // before M11D.8.3): still asked who comes along (not the bare title). (A stamped, newer choice would just go in.)
+  await p.evaluate("const k = 'blobbi-pixel-lab:selected-blobbi'; const r = JSON.parse(localStorage.getItem(k)); delete r.selectedAt; delete r.selectedBy; localStorage.setItem(k, JSON.stringify(r));");
   await setting(p, 'm11d8:profile', 'mochi');
   const inside = await where(p);
   await p.reload(false);

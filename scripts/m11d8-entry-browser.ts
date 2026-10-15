@@ -116,7 +116,8 @@ try {
   await setting(p, 'm11d8:profile', 'pudding');
   await p.load();
   const first = await where(p);
-  check(first.title && first.page === 'welcome' && first.account === 'guest', `1. a first-time visitor: the title (WELCOME), no account (${JSON.stringify(first)})`);
+  const keys = await p.evaluate("return Object.keys(localStorage).filter((k) => k.startsWith('blobbi-pixel-lab:'));");
+  check(first.title && first.page === 'welcome' && first.account === 'guest', `1. a first-time visitor: the title (WELCOME), no account (${JSON.stringify(first)}; stored: ${JSON.stringify(keys)})`);
   await p.evaluate("await window.__blobbi.openIdentity('restore');");
   await p.evaluate(`window.__blobbi.identity().setLoaded(${JSON.stringify(nsec)});`);
   await p.evaluate("window.__blobbi.identity().index = 2; window.__blobbi.ui().handleKey('Enter');");
@@ -166,12 +167,16 @@ try {
   const quick = await where(p);
   check(!quick.title && quick.island === island, `2. M11D.8.2: quick worlds: in after ${((Date.now() - tq) / 1000).toFixed(1)} s, no lingering page (${JSON.stringify(quick)})`);
 
-  // ── 6. Another current Blobbi (Mochi, chosen in another app): asked once ──
+  // ── 6. Another current Blobbi (Mochi, chosen in another app) against a choice made before M11D.8.3 (no stamp):
+  //       asked once; the answers are stamped (M11D.8.3: a stamped choice newer than Mochi's would not be asked) ──
+  const SEL = 'blobbi-pixel-lab:selected-blobbi';
+  const stripStamp = () => p.evaluate(`const r = JSON.parse(localStorage.getItem('${SEL}')); delete r.selectedAt; delete r.selectedBy; localStorage.setItem('${SEL}', JSON.stringify(r));`);
+  await stripStamp();
   await setting(p, 'm11d8:profile', 'mochi');
   await p.load();
   await settle(p);
   const ask = await where(p);
-  check(ask.title && ask.page === 'switch', `6. another current Blobbi: "who comes along?" (${JSON.stringify(ask)})`);
+  check(ask.title && ask.page === 'switch', `6. another current Blobbi, a choice with no stamp: "who comes along?" (${JSON.stringify(ask)})`);
   await p.shoot('6-who-comes-along');
   await p.evaluate("const t = window.__blobbi.title(); t.index = 1; t.key('Enter');"); // CONTINUE WITH PUDDING
   await sleep(1500);
@@ -182,6 +187,7 @@ try {
   const quiet = await where(p);
   check(!quiet.title && quiet.seed === puddingSeed, `6. nothing changed since: no question again (${JSON.stringify(quiet)})`);
   await setting(p, 'blobbi-pixel-lab:entry-choice', null);
+  await stripStamp();
   await p.load();
   await settle(p);
   await p.evaluate("const t = window.__blobbi.title(); t.index = 0; t.key('Enter');"); // BRING MOCHI
