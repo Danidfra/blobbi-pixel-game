@@ -30,6 +30,7 @@ import { ConfirmGate } from '../game/world-delete';
 import { MAX_NAME, sanitizeIslandName, suggestIslandName, typingIslandName } from '../game/island-name';
 import { getLocale, LOCALES, t, upper } from '../i18n';
 import { nextLocale } from './screens/settings';
+import type { ExtensionCheck } from '../nostr/port';
 
 export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login' | 'owner' | 'arrived' | 'switch';
 
@@ -46,6 +47,8 @@ export interface TitleAccount {
   signerAvailable: boolean;
   /** M11D.4: how it is connected ('vault': an identity this game keeps; 'nip07': a browser extension). */
   method?: 'nip07' | 'vault' | null;
+  /** M11D.8.2: whether the browser extension still holds this account (checked once per page load). */
+  extension?: ExtensionCheck;
 }
 
 export interface TitleActions {
@@ -262,8 +265,12 @@ export class TitleScreen {
     }
     if (this.page === 'arrived') {
       const name = this.restoredName ?? 'Blobbi';
+      // M11D.8.2: islands saved here (none of them this Blobbi's, or the player chose it on the title): still one row away.
+      const worlds = a.worlds();
+      const islands: Item[] = worlds.length ? [{ label: upper(worlds.length > 1 ? t('title.islandsCount', { count: worlds.length }) : t('title.islands')), minor: true, run: () => this.go('islands') }] : [];
       return [
         { label: upper(t('title.arrived.go', { name })), detail: upper(t('title.arrived.goDetail', { name })), run: () => this.newAdventure() },
+        ...islands,
         ...(a.myBlobbis ? [{ label: upper(t('title.login.mine')), detail: upper(t('title.login.mineDetail')), run: () => a.myBlobbis!() }] : []),
         { label: upper(t('title.back')), run: () => this.back() },
       ];
@@ -416,7 +423,7 @@ export class TitleScreen {
   private loginRow(): Item[] {
     const acc = this.actions.account?.();
     if (!acc) return [];
-    if (acc.status === 'connected') return [{ label: upper(t('title.login.connected')), detail: upper(acc.name ? t('title.login.connectedAs', { name: acc.name }) : t('title.login.connectedAnon')), run: () => this.go('login') }];
+    if (acc.status === 'connected') return [{ label: upper(t('title.login.connected')), detail: upper(acc.extension === 'mismatch' ? t('title.login.connectedOther') : acc.name ? t('title.login.connectedAs', { name: acc.name }) : t('title.login.connectedAnon')), run: () => this.go('login') }];
     return [{ label: upper(t('title.login')), detail: upper(t('title.login.detail')), run: () => this.go('login') }];
   }
 
@@ -609,7 +616,7 @@ export class TitleScreen {
 
     const items = this.items();
     // The islands page explains the active island above its list: one row fewer fits under it.
-    const rows = this.page === 'islands' ? (items.some((i) => i.detail2) ? 3 : items.length > 2 ? 4 : 5) : this.page === 'newConfirm' || this.page === 'login' || this.page === 'arrived' || this.page === 'switch' ? 3 : 5;
+    const rows = this.page === 'islands' ? (items.some((i) => i.detail2) ? 3 : items.length > 2 ? 4 : 5) : this.page === 'arrived' ? 4 : this.page === 'newConfirm' || this.page === 'login' || this.page === 'switch' ? 3 : 5;
     if (this.index < this.scroll) this.scroll = this.index;
     if (this.index >= this.scroll + rows) this.scroll = this.index - rows + 1;
     const panelW = 184;
@@ -631,12 +638,14 @@ export class TitleScreen {
     if (this.page === 'newConfirm') y += g.para(t('title.newConfirm.body'), px, y, panelW, UI.ink, 6, SHADE) + 5;
     if (this.page === 'companion') y += g.para(t('title.companion.body'), px, y, panelW, UI.ink, 4, SHADE) + 4;
     if (this.page === 'owner') y += g.para(t('title.owner.body'), px, y, panelW, UI.ink, 5, SHADE) + 4;
-    if (this.page === 'arrived') y += g.para(t('title.arrived.body', { name: this.restoredName ?? 'Blobbi' }), px, y, panelW, UI.ink, 5, SHADE) + 4;
+    if (this.page === 'arrived') y += g.para(t(this.actions.worlds().length ? 'title.arrived.bodyIslands' : 'title.arrived.body', { name: this.restoredName ?? 'Blobbi' }), px, y, panelW, UI.ink, 5, SHADE) + 4;
     if (this.page === 'switch' && this.switchOffer) y += g.para(t('title.switch.body', { current: this.switchOffer.current, walking: this.switchOffer.walking, island: this.switchOffer.island }), px, y, panelW, UI.ink, 5, SHADE) + 4;
     if (this.page === 'login') {
       const acc = this.actions.account?.();
       const text = acc?.status === 'connected' ? (acc.name ? t('title.login.welcome', { name: acc.name }) : t('title.login.welcomeAnon')) : acc && !acc.signerAvailable ? `${t('title.login.body')} ${t('title.login.noSigner')}` : t('title.login.body');
       y += g.para(text, px, y, panelW, UI.ink, 6, SHADE) + 4;
+      // M11D.8.2: the extension holds another account now, or did not confirm this one: said before any choice.
+      if (acc?.status === 'connected' && (acc.extension === 'mismatch' || acc.extension === 'unconfirmed')) y += g.para(t(`title.login.${acc.extension}`), px, y, panelW, acc.extension === 'mismatch' ? UI.bad : UI.muted, 4, SHADE) + 4;
     }
     if (this.page === 'error') y += g.para(this.error || t('title.createError'), px, y, panelW, UI.bad, 99, SHADE) + 6;
     if (this.page === 'name') y = this.drawNameField(g, px, y, panelW, time);

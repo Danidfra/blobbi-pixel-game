@@ -10,7 +10,7 @@ import { forgetAccount, loadAccount, saveAccount, type AccountRecord, type Accou
 import { isPublicKeyHex, npubEncode, shortNpub } from './keys';
 import { pickProfile } from './profile';
 import { pickBlobbis } from './blobbis';
-import type { AccountPort, AccountSnapshot, AccountStatus, BlobbiCollectionPort, CollectionSnapshot, ConnectProblem, ProfileStatus } from './port';
+import type { AccountPort, AccountSnapshot, AccountStatus, BlobbiCollectionPort, CollectionSnapshot, ConnectProblem, ExtensionCheck, ProfileStatus } from './port';
 import type { BlobbiReader, ProfileReader } from './relays';
 import type { PublicKeySigner } from './signer';
 
@@ -48,6 +48,9 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
   private collectionTask: Promise<void> | null = null;
   private collectionAbort: AbortController | null = null;
   private readonly listeners = new Set<() => void>();
+  /** M11D.8.2: what the extension said about the remembered account on this page load (memory only). */
+  private extension: ExtensionCheck = 'unchecked';
+  private extensionTask: Promise<ExtensionCheck> | null = null;
 
   constructor(private readonly opts: AccountOptions) {
     this.now = opts.now ?? Date.now;
@@ -70,8 +73,43 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
       profileAt: r?.profile?.at ?? null,
       problem: this.problem,
       signerAvailable: this.opts.signer.available(),
+      extension: r?.method === 'nip07' && this.status === 'connected' ? this.extension : 'unchecked',
       relays: this.opts.relays,
     };
+  }
+
+  /**
+   * M11D.8.2, IS THE EXTENSION STILL THIS ACCOUNT? One `getPublicKey` (the same question CONNECT asks; the
+   * extension's own prompt may appear the first time, and most extensions remember the answer per site), compared
+   * with the remembered key. The account record is never changed by the answer: a different key is reported as
+   * `mismatch` and the player decides (CONNECT switches, explicitly). A guest or a vault identity: `unchecked`.
+   */
+  verifyExtension(timeoutMs = 6000): Promise<ExtensionCheck> {
+    const r = this.record;
+    if (!r || this.status !== 'connected' || r.method !== 'nip07') return Promise.resolve('unchecked');
+    if (this.extensionTask) return this.extensionTask;
+    const pubkey = r.pubkey;
+    this.extension = 'checking';
+    this.changed();
+    const task = (async (): Promise<ExtensionCheck> => {
+      let result: ExtensionCheck;
+      try {
+        const answer = await withTimeout(this.opts.signer.getPublicKey(), timeoutMs);
+        const got = typeof answer === 'string' ? answer.toLowerCase() : '';
+        result = got === pubkey ? 'verified' : isPublicKeyHex(got) ? 'mismatch' : 'unconfirmed';
+      } catch (e) {
+        result = e === TIMEOUT ? 'unconfirmed' : /not available/i.test(String((e as Error)?.message)) ? 'absent' : 'unconfirmed';
+      }
+      // Disconnected or switched meanwhile: this answer is about someone else now.
+      if (this.record?.pubkey !== pubkey || this.status !== 'connected') return 'unchecked';
+      this.extension = result;
+      this.changed();
+      return result;
+    })().finally(() => {
+      if (this.extensionTask === task) this.extensionTask = null;
+    });
+    this.extensionTask = task;
+    return task;
   }
 
   async connect(): Promise<void> {
@@ -110,6 +148,8 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
     if (!same) this.profileStatus = 'idle';
     saveAccount(this.opts.store, this.record);
     this.status = 'connected';
+    // M11D.8.2: the extension just answered with this very key.
+    this.extension = 'verified';
     this.changed();
     void this.refreshProfile(!same);
   }
@@ -130,6 +170,7 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
     saveAccount(this.opts.store, this.record);
     this.status = 'connected';
     this.problem = null;
+    this.extension = 'unchecked';
     this.changed();
   }
 
@@ -140,6 +181,7 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
     this.status = 'guest';
     this.problem = null;
     this.profileStatus = 'idle';
+    this.extension = 'unchecked';
     this.forgetBlobbis();
     this.changed();
   }

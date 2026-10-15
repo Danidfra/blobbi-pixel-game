@@ -239,6 +239,8 @@ export class SettingsScreen implements Screen {
     // Connected from a remembered public key while the extension is gone: say so, never pretend a live signer.
     // M11D.7: an identity this game keeps (method 'vault', e.g. a restored one) needs no extension: not said.
     if (s.status === 'connected' && s.method !== 'vault' && !s.signerAvailable) cy += g.para(t('account.signerAway'), x, cy + 1, w, UI.muted) + 3;
+    // M11D.8.2: the extension answered with another key, or did not answer: said plainly; CHECK AGAIN switches.
+    if (s.status === 'connected' && s.method === 'nip07' && (s.extension === 'mismatch' || s.extension === 'unconfirmed')) cy += g.para(t(`account.extension.${s.extension}`), x, cy + 1, w, s.extension === 'mismatch' ? UI.bad : UI.muted, 3) + 3;
     if (this.explain) cy += g.para(t('account.explanation'), x, cy + 1, w, UI.muted, 4) + 3;
     if (this.advanced && s.status === 'connected' && s.pubkey) {
       // The whole npub (two lines) to compare with the extension's, then the same key in hex.

@@ -207,7 +207,7 @@ describe('the card on screen', () => {
     vi.stubGlobal('WebSocket', wsSpy);
     const { ui, inv, draw, explored, settings, screen } = setup();
     const connect = vi.fn();
-    settings.account = { snapshot: () => ({ status: 'guest', pubkey: null, npub: null, npubShort: null, method: null, displayName: null, profile: 'idle', profileAt: null, problem: null, signerAvailable: true, relays: [] }), connect, disconnect: vi.fn(), refreshProfile: async () => {} };
+    settings.account = { snapshot: () => ({ status: 'guest', pubkey: null, npub: null, npubShort: null, method: null, displayName: null, profile: 'idle', profileAt: null, problem: null, signerAvailable: true, extension: 'unchecked', relays: [] }), connect, disconnect: vi.fn(), refreshProfile: async () => {} };
     draw();
     const box = ui.inviteBox!;
     expect(box).not.toBe(null);

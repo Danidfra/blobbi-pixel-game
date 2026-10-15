@@ -292,7 +292,7 @@ describe('who is playing', () => {
   });
 
   it('the ACCOUNT page shows the whole npub to compare, and says when the extension is gone', () => {
-    const snap = (o: Partial<AccountSnapshot>): AccountSnapshot => ({ status: 'connected', pubkey: '7e7e9c42a91bfef19fa929e5fda1b72e0ebc1a4c1141673e2794234d86addf4e', npub: 'npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg', npubShort: 'npub10elf…jptg', method: 'nip07', displayName: 'Ana', profile: 'found', profileAt: 1, problem: null, signerAvailable: false, relays: [], ...o });
+    const snap = (o: Partial<AccountSnapshot>): AccountSnapshot => ({ status: 'connected', pubkey: '7e7e9c42a91bfef19fa929e5fda1b72e0ebc1a4c1141673e2794234d86addf4e', npub: 'npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg', npubShort: 'npub10elf…jptg', method: 'nip07', displayName: 'Ana', profile: 'found', profileAt: 1, problem: null, signerAvailable: false, extension: 'unchecked', relays: [], ...o });
     let s = snap({});
     const port: AccountPort = { snapshot: () => s, connect: async () => {}, disconnect: () => {}, refreshProfile: async () => {} };
     const { ui } = setup();

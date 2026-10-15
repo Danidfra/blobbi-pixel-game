@@ -23,6 +23,13 @@
  * the next one, from the title, went in). An island named by a link is resumed only when it is saved on this device,
  * and it is then the only candidate; the same checks apply (its last visitor and the walking Blobbi are this
  * identity's). A link to an island not saved here keeps the title, which offers to play it, as before.
+ *
+ * M11D.8.2, WHILE IT IS DECIDED: the page shows the world-entry loading screen (`src/ui/entry-screen.ts`), never the
+ * menu, and only while a connected account is really being looked at; a guest, `#menu` or SETTINGS > MAIN MENU
+ * shows the title at once. With a browser extension (NIP-07) "present" now means the extension answered with THIS
+ * account's key (`verifyExtension`): another key, no answer or no extension never enters an island for the
+ * remembered account. A Blobbi chosen on the title (MY BLOBBIS) goes on with `decideChosen`: its island, the
+ * islands page, or a new adventure with it; never the menu again.
  */
 import type { KeyValueStore } from './persistence';
 
@@ -81,6 +88,19 @@ export function decideEntry(f: EntryFacts): EntryDecision {
   if (!f.mine.has(f.walkingSeed)) return { kind: 'title', why: 'walking-not-mine' };
   if (current && current.seed && current.seed !== f.walkingSeed && !f.stayed?.(island, current.d)) return { kind: 'offer-switch', island, d: current.d, name: current.name };
   return { kind: 'enter', island };
+}
+
+/**
+ * M11D.8.2, A BLOBBI CHOSEN ON THE TITLE (MY BLOBBIS, after CONNECT or on the welcome back page): where to go on with
+ * it, from this device alone (no network: the player just chose, so it is the current one here). Its island when
+ * exactly one is theirs; the islands page when several; otherwise a new adventure WITH it (`welcome`): islands that
+ * other identities or guests played last are not this player's, so a new adventure begins (they stay listed).
+ */
+export function decideChosen(f: { account: { pubkey: string; present: boolean }; islands: readonly EntryIsland[]; mine: ReadonlySet<string>; chosen: { d: string; name: string; seed: string } }): EntryDecision {
+  const mine = new Set(f.mine);
+  mine.add(f.chosen.seed);
+  const d = decideEntry({ allowed: true, linked: null, account: f.account, islands: f.islands, mine, walkingSeed: f.chosen.seed, current: { status: 'current', d: f.chosen.d, name: f.chosen.name, seed: f.chosen.seed, walkable: true } });
+  return d.kind === 'title' && (d.why === 'not-mine' || d.why === 'nothing-to-bring') ? { kind: 'welcome', d: f.chosen.d, name: f.chosen.name } : d;
 }
 
 // ─── "Stay with this Blobbi": remembered per island, for one current Blobbi ─────────────────────────────────────

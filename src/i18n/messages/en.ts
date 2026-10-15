@@ -1093,4 +1093,16 @@ export const en = {
   'title.switch.bringDetail': 'To {island}. The island stays as it is',
   'title.switch.keep': 'Continue with {name}',
   'title.switch.keepDetail': 'Nothing changes',
+  // M11D.8.2: the world-entry loading screen, the extension's account state, a new adventure with a chosen Blobbi.
+  'entry.title': 'Your Blobbi is on the way!',
+  'entry.body': 'Checking your adventures and looking for your Blobbi across connected worlds...',
+  'entry.signer': 'If your browser extension asks, confirm there.',
+  'entry.slow': 'Other worlds are slow to answer. You can wait a little longer, or go to the main menu.',
+  'entry.menu': 'Main menu',
+  'title.login.connectedOther': 'Another account in the extension',
+  'title.login.mismatch': 'Your browser extension is signed in as a different account now. CONNECT switches to it; nothing changes until you do.',
+  'title.login.unconfirmed': 'Your browser extension did not confirm this account yet. Check again, or play as a guest.',
+  'title.arrived.bodyIslands': '{name} is ready. Begin a new adventure with {name}, or go on in one of the islands on this device.',
+  'account.extension.mismatch': 'The extension is signed in as a different account now. Nothing changed: "Check the account again" switches to it.',
+  'account.extension.unconfirmed': 'The extension did not confirm this account yet (locked, or waiting for your answer).',
 } as const satisfies Record<string, Message>;

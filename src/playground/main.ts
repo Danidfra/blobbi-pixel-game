@@ -33,7 +33,8 @@ import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
-import { entryAddress, rememberStay, runEntry, stayedWith } from '../game/world-entry';
+import { decideChosen, entryAddress, rememberStay, runEntry, stayedWith, type EntryDecision } from '../game/world-entry';
+import { EntryScreen } from '../ui/entry-screen';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
 import { RECIPES, canCraft, recipeById } from '../game/crafting';
@@ -1230,7 +1231,7 @@ const title = new TitleScreen({
   // M11D.3: the optional account (the existing NIP-07 connection), MY BLOBBIS over the title, who walks now.
   account: () => {
     const s = account.snapshot();
-    return { status: s.status === 'connected' ? 'connected' : s.status === 'connecting' ? 'connecting' : 'disconnected', name: s.status === 'connected' ? s.displayName : null, signerAvailable: s.signerAvailable, method: s.method };
+    return { status: s.status === 'connected' ? 'connected' : s.status === 'connecting' ? 'connecting' : 'disconnected', name: s.status === 'connected' ? s.displayName : null, signerAvailable: s.signerAvailable, method: s.method, extension: s.extension };
   },
   restoreBackup: () => void openIdentity('restore'),
   connect: () => void account.connect(),
@@ -1255,6 +1256,31 @@ const title = new TitleScreen({
 });
 const titlePictures = new Map<string, PixelBuffer>();
 title.onSound = (n) => gameUI.onSound?.(n);
+/**
+ * M11D.8.2: the world-entry loading screen, over the title while an automatic entry is decided (`autoEnter`). MAIN
+ * MENU, ESC or its own clock give the title back; the run then changes nothing (`waiting()` is false).
+ */
+const entry = new EntryScreen(
+  {
+    portrait: () => {
+      const key = `${state.blobbi.seed}|${state.blobbiStage}`;
+      let p = entryPortraits.get(key);
+      if (!p) {
+        try {
+          p = buildBlobbiSprite(identityOfSource(state.blobbi, state.blobbiStage), REST_POSE, 14).buffer.trimmed().buffer;
+        } catch {
+          p = null;
+        }
+        entryPortraits.clear();
+        entryPortraits.set(key, p);
+      }
+      return p;
+    },
+    cancel: () => entry.end(),
+  },
+  gameUI,
+);
+const entryPortraits = new Map<string, PixelBuffer | null>();
 /** The name players see for an island: its own (saved) name, else its generated one. */
 function islandLabel(identity: string): string {
   if (live && live.identity === identity) return displayName(live.islandName, identity);
@@ -1271,70 +1297,35 @@ function islandLabel(identity: string): string {
  * `#menu` opens on it.
  */
 let entryTried = false;
-async function autoEnter(): Promise<void> {
-  if (entryTried) return;
-  entryTried = true;
-  const address = entryAddress(params);
-  if (!address.allowed || state.mode !== 'play') return;
-  // A link naming an island (the game's own address after a reload, or a shared one): only that island, if saved here.
-  const linked = address.linked ? (linkedIdentity ?? '') : null;
-  /** The pixel seed a Blobbi of the account walks with (V3: its own; V1/V2: its world form), or null. */
-  const seedOf = (b: OwnedBlobbi): string | null => {
-    if (b.generation === 'v3') return b.seed;
-    const form = b.worldForm ? cleanWorldFormTraits(b.worldForm) : null;
-    return form && (b.generation === 'v1' || b.generation === 'v2') ? (worldFormSource(b.pubkey, b.d, b.generation, form)?.seed ?? null) : null;
-  };
-  const run = await runEntry({
-    account: () => {
-      const snap = account.snapshot();
-      return snap.status === 'connected' && snap.pubkey ? { pubkey: snap.pubkey } : null;
-    },
-    present: (pubkey) => {
-      const snap = account.snapshot();
-      return snap.method === 'vault' ? identityService().then((svc) => svc.keeps(pubkey)) : Promise.resolve(snap.signerAvailable);
-    },
-    current: async (pubkey) => {
-      const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
-      return cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader(), blobbis: rd.relayBlobbiReader(), relays: rc.READ_RELAYS, timeoutMs: 4000 }).catch(() => ({ status: 'unavailable' as const }));
-    },
-    // The player did something meanwhile (a key, a touch, the intro, a menu): they lead.
-    waiting: () => state.mode === 'play' && title.active && !title.touched && !intro,
-    facts: (pubkey, present, answer) => {
-      const store = localStore();
-      if (!store) return null;
-      const items = answer.status === 'unavailable' ? [] : answer.items;
-      const mine = new Set<string>();
-      for (const b of items) {
-        const seed = seedOf(b);
-        if (seed) mine.add(seed);
-      }
-      for (const g of readGuestBlobbis(store))
-        if (g.owner === pubkey) {
-          const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
-          if (r.ok) mine.add(r.source.seed);
-        }
-      const rec = loadSelectionRecord(store);
-      const recOwner = rec?.account ?? (rec?.source.kind === 'v3-address' ? (guestBlobbi(store, rec.source.d)?.owner ?? null) : null);
-      if (rec && recOwner === pubkey) mine.add(rec.source.seed);
-      const item = answer.status === 'current' ? answer.blobbi : null;
-      return {
-        allowed: true,
-        linked,
-        account: { pubkey, present },
-        islands: listWorlds(storeKeys(), storeGet).map((w) => ({ identity: w.identity, lastSeed: lastVisitor(store, w.identity)?.seed ?? null })),
-        mine,
-        walkingSeed: state.blobbi.seed,
-        current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item) } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
-        stayed: (island, d) => stayedWith(store, island, pubkey, d),
-      };
-    },
-  });
-  const store = localStore();
-  if (!run || !run.answer || !store) return;
-  const { decision, answer, pubkey } = run;
-  const item = answer.status === 'current' ? answer.blobbi : null;
+/** The pixel seed a Blobbi of the account walks with (V3: its own; V1/V2: its world form), or null. */
+function seedOf(b: OwnedBlobbi): string | null {
+  if (b.generation === 'v3') return b.seed;
+  const form = b.worldForm ? cleanWorldFormTraits(b.worldForm) : null;
+  return form && (b.generation === 'v1' || b.generation === 'v2') ? (worldFormSource(b.pubkey, b.d, b.generation, form)?.seed ?? null) : null;
+}
+/**
+ * What this device knows for an entry decision: the saved islands with who played there last, and the seeds of this
+ * identity's Blobbis (the account's list as read, the Blobbis met here with this owner, the stored selection).
+ */
+function deviceFacts(store: NonNullable<ReturnType<typeof localStore>>, pubkey: string, items: readonly OwnedBlobbi[]): { islands: { identity: string; lastSeed: string | null }[]; mine: Set<string> } {
+  const mine = new Set<string>();
+  for (const b of items) {
+    const seed = seedOf(b);
+    if (seed) mine.add(seed);
+  }
+  for (const g of readGuestBlobbis(store))
+    if (g.owner === pubkey) {
+      const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
+      if (r.ok) mine.add(r.source.seed);
+    }
+  const rec = loadSelectionRecord(store);
+  const recOwner = rec?.account ?? (rec?.source.kind === 'v3-address' ? (guestBlobbi(store, rec.source.d)?.owner ?? null) : null);
+  if (rec && recOwner === pubkey) mine.add(rec.source.seed);
+  return { islands: listWorlds(storeKeys(), storeGet).map((w) => ({ identity: w.identity, lastSeed: lastVisitor(store, w.identity)?.seed ?? null })), mine };
+}
+/** Carry a decision out: into an island, the islands page, the two title pages, or nothing (the title as it is). */
+function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: string, store: NonNullable<ReturnType<typeof localStore>>): void {
   const worlds = listWorlds(storeKeys(), storeGet);
-  if (import.meta.env.DEV) console.info('[entry]', decision.kind, decision.kind === 'title' ? decision.why : '', answer.status);
   const enter = (identity: string) => {
     const w = worlds.find((x) => x.identity === identity);
     if (!w) return;
@@ -1360,12 +1351,90 @@ async function autoEnter(): Promise<void> {
         },
       });
     case 'welcome':
-      if (item && blobbisScreen.chooser?.choose(item)) title.arrived(decision.name);
+      // Already chosen (the player did, or the walking Blobbi is it): just the page; else choose it first.
+      if (item && (walkingCanonical()?.address === item.address || blobbisScreen.chooser?.choose(item))) title.arrived(decision.name);
       return;
     case 'title':
       return;
   }
 }
+async function autoEnter(): Promise<void> {
+  if (entryTried) return;
+  entryTried = true;
+  const address = entryAddress(params);
+  const snap = account.snapshot();
+  if (!address.allowed || state.mode !== 'play') {
+    // The title on purpose (`#menu`): still find out, quietly, whether the extension holds this account.
+    if (snap.status === 'connected' && snap.method === 'nip07') void account.verifyExtension();
+    return;
+  }
+  // A guest: the title at once (nothing to decide, no loading page).
+  if (snap.status !== 'connected' || !snap.pubkey) return;
+  // A link naming an island (the game's own address after a reload, or a shared one): only that island, if saved here.
+  const linked = address.linked ? (linkedIdentity ?? '') : null;
+  // M11D.8.2: the loading page, instead of a menu that would leave by itself.
+  entry.begin();
+  const run = await runEntry({
+    account: () => {
+      const s = account.snapshot();
+      return s.status === 'connected' && s.pubkey ? { pubkey: s.pubkey } : null;
+    },
+    present: (pubkey) => {
+      const s = account.snapshot();
+      if (s.method === 'vault') return identityService().then((svc) => svc.keeps(pubkey));
+      // M11D.8.2: a browser extension is present only when it answers with THIS account's key (never a stale one).
+      entry.phase = 'signer';
+      return account.verifyExtension(6000).then((r) => r === 'verified');
+    },
+    current: async (pubkey) => {
+      entry.phase = 'worlds';
+      const [cb, rd, rc] = await Promise.all([import('../nostr/current-blobbi'), import('../nostr/relays'), import('../nostr/relay-config')]);
+      return cb.resolveCurrentBlobbi(pubkey, { profiles: rd.relayBlobbonautReader(), blobbis: rd.relayBlobbiReader(), relays: rc.READ_RELAYS, timeoutMs: 4000 }).catch(() => ({ status: 'unavailable' as const }));
+    },
+    // The player asked for the menu (or the page gave up), or something else took over: they lead.
+    waiting: () => state.mode === 'play' && title.active && entry.waiting() && !title.touched && !intro,
+    facts: (pubkey, present, answer) => {
+      const store = localStore();
+      if (!store) return null;
+      const items = answer.status === 'unavailable' ? [] : answer.items;
+      const item = answer.status === 'current' ? answer.blobbi : null;
+      return {
+        allowed: true,
+        linked,
+        account: { pubkey, present },
+        ...deviceFacts(store, pubkey, items),
+        walkingSeed: state.blobbi.seed,
+        current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item) } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
+        stayed: (island, d) => stayedWith(store, island, pubkey, d),
+      };
+    },
+  });
+  // Whatever was decided, the loading page is over now (the title, or the island, comes at once).
+  entry.end();
+  const store = localStore();
+  if (!run || !run.answer || !store) return;
+  const { decision, answer, pubkey } = run;
+  if (import.meta.env.DEV) console.info('[entry]', decision.kind, decision.kind === 'title' ? decision.why : '', answer.status);
+  carryOut(decision, answer.status === 'current' ? answer.blobbi : null, pubkey, store);
+}
+
+/**
+ * M11D.8.2, A BLOBBI CHOSEN ON THE TITLE (MY BLOBBIS after CONNECT, or from the welcome back page): go on with it at
+ * once instead of leaving the player on the list: its island when exactly one here is theirs, the islands page when
+ * several, else WELCOME BACK with a new adventure for it (the Carrier choice). During play nothing more happens.
+ */
+blobbisScreen.onChosen = (b) => {
+  if (state.mode !== 'play' || !title.active || intro || entry.active) return;
+  const store = localStore();
+  const pubkey = connectedPubkey;
+  const seed = seedOf(b);
+  if (!store || !pubkey || !seed || b.pubkey !== pubkey) return;
+  gameUI.close();
+  const facts = deviceFacts(store, pubkey, account.blobbis().items);
+  const decision = decideChosen({ account: { pubkey, present: true }, islands: facts.islands, mine: facts.mine, chosen: { d: b.d, name: b.name, seed } });
+  if (import.meta.env.DEV) console.info('[entry] chosen', b.name, decision.kind);
+  carryOut(decision, b, pubkey, store);
+};
 
 /**
  * Make a new island (the title's CREATE ISLAND, taken once): new seeds whose identity has no save, the world
@@ -1800,7 +1869,9 @@ function titleFrame(now: number, real: number): void {
   const v = titleCamera.update(real, target, view.width, view.height, b);
   const frame = viewRenderer!.render(v, rest, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: false, goals: false, prompt: false, indicator: false, lighting: gameUI.settings.daylight });
   title.reducedMotion = gameUI.settings.reducedMotion;
-  title.render(frame, t);
+  // M11D.8.2: while an automatic entry is decided, the loading page (never the menu under it); it may give up.
+  if (entry.active) entry.render(frame, t);
+  if (!entry.active) title.render(frame, t);
   if (gameUI.capturing) gameUI.render(frame, t);
   // CREATE ISLAND: the "creating" page has been drawn once; now make the island (taken once: never twice).
   if (title.page === 'creating' && title.pendingCreate && titleCreateFrames++ >= 1) {
@@ -2102,6 +2173,12 @@ view.addEventListener('keydown', (e) => {
   }
   // The title screen owns the keyboard (unless its settings panel is open).
   if (title.active && !gameUI.capturing) {
+    // M11D.8.2: the loading page first (ESC or MAIN MENU gives the title back; nothing reaches the menu behind).
+    if (entry.active) {
+      if (!e.repeat) entry.key(e.code);
+      e.preventDefault();
+      return;
+    }
     if (!e.repeat || title.page === 'name') title.key(e.code, e.key);
     if (e.code === 'Backspace') e.preventDefault();
     return;
@@ -2147,7 +2224,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, entry: () => entry, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -2944,7 +3021,8 @@ view.addEventListener('pointerdown', (e) => {
       return;
     }
     if (title.active && !gameUI.capturing) {
-      title.pointer(sx, sy);
+      if (entry.active) entry.pointer(sx, sy);
+      else title.pointer(sx, sy);
       e.preventDefault();
       return;
     }

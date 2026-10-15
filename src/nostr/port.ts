@@ -21,6 +21,15 @@ export type ConnectProblem = 'no-signer' | 'rejected' | 'timeout' | 'invalid-key
 /** What the relays said about the player's public profile. */
 export type ProfileStatus = 'idle' | 'loading' | 'found' | 'missing' | 'invalid' | 'unavailable';
 
+/**
+ * M11D.8.2: whether the browser extension (NIP-07) still holds the remembered account. Checked once per page load
+ * before any account-specific entry (`verifyExtension`), never stored. `unchecked` for a guest or a vault identity;
+ * `verified` the extension answered with this very key; `mismatch` it answered with ANOTHER key (the player switched
+ * accounts in the extension: nothing is switched here until they press CONNECT); `unconfirmed` it did not answer in
+ * time, or the player said no (locked, or a prompt still open); `absent` no extension is installed now.
+ */
+export type ExtensionCheck = 'unchecked' | 'checking' | 'verified' | 'mismatch' | 'unconfirmed' | 'absent';
+
 export interface AccountSnapshot {
   status: AccountStatus;
   /** 64 lowercase hex characters, or null as a guest. */
@@ -38,6 +47,8 @@ export interface AccountSnapshot {
   problem: ConnectProblem | null;
   /** A browser extension signer (window.nostr) is present right now. */
   signerAvailable: boolean;
+  /** M11D.8.2: whether the extension still holds this account (see `ExtensionCheck`). */
+  extension: ExtensionCheck;
   /** The relays profiles are read from (public data only). */
   relays: readonly string[];
 }
@@ -52,6 +63,12 @@ export interface AccountPort {
   refreshProfile(force?: boolean): Promise<void>;
   /** M11C: be told when the status, the account or its profile changes (returns the way to stop listening). */
   onChange?(listener: () => void): () => void;
+  /**
+   * M11D.8.2: ask the extension which key it holds now and compare it with the remembered account (NIP-07 only; a
+   * guest or a vault identity answers `unchecked` at once). Never switches the account, never signs. The extension
+   * may show its own prompt the first time an origin asks; most remember the answer.
+   */
+  verifyExtension?(timeoutMs?: number): Promise<ExtensionCheck>;
 }
 
 // ── The player's canonical Blobbis (M11C, read-only) ───────────────────────────

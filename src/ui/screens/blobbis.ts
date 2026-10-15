@@ -69,6 +69,11 @@ export class BlobbisScreen implements Screen {
   index = 0;
   collection: BlobbiCollectionPort | null = null;
   chooser: BlobbiChooser | null = null;
+  /**
+   * M11D.8.2: the host is told when a Blobbi was chosen here (over the title it then goes on: the island, the
+   * islands page or a new adventure with it; during play nothing more happens). Only after a successful choice.
+   */
+  onChosen: ((b: OwnedBlobbi) => void) | null = null;
   /** M11D.2: the world forms already explained (none: explained every time). */
   forms: WorldFormMemory | null = null;
   /** M11D.2: the V1/V2 Blobbi whose new form is being explained (TRY THIS FORM / NOT NOW), or null. */
@@ -130,8 +135,10 @@ export class BlobbisScreen implements Screen {
       this.confirming = b;
       return;
     }
-    if (this.chooser.choose(b)) ui.say(t('blobbis.chosen', { name: b.name }));
-    else ui.say(t('blobbis.couldNotChoose'), false);
+    if (this.chooser.choose(b)) {
+      ui.say(t('blobbis.chosen', { name: b.name }));
+      this.onChosen?.(b);
+    } else ui.say(t('blobbis.couldNotChoose'), false);
   }
 
   /** TRY THIS FORM: remember the explanation was seen for this Blobbi, then bring it as for any other. */
@@ -140,8 +147,10 @@ export class BlobbisScreen implements Screen {
     this.confirming = null;
     if (!b || !this.chooser) return;
     this.forms?.accept(b.address);
-    if (this.chooser.choose(b)) ui.say(t('blobbis.chosen', { name: b.name }));
-    else ui.say(t('blobbis.couldNotChoose'), false);
+    if (this.chooser.choose(b)) {
+      ui.say(t('blobbis.chosen', { name: b.name }));
+      this.onChosen?.(b);
+    } else ui.say(t('blobbis.couldNotChoose'), false);
   }
 
   /** The world form's own picture (the sprite that will walk), as large as fits `box`, cached. */

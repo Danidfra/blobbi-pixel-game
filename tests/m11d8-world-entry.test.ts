@@ -167,7 +167,8 @@ describe('M11D.8: the title pages of a seamless entry', () => {
 
   it('the new words exist in three languages, with no em dash and no protocol words', () => {
     const keys = Object.keys(en).filter((k) => k.startsWith('title.arrived.') || k.startsWith('title.switch.'));
-    expect(keys.length).toBe(10);
+    // M11D.8.2 added `title.arrived.bodyIslands` (a chosen Blobbi with islands saved here).
+    expect(keys.length).toBe(11);
     for (const cat of [en, ptBR, es] as Record<string, string>[])
       for (const k of keys) {
         expect(cat[k], k).toBeTruthy();
