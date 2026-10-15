@@ -13,10 +13,18 @@
  * island another identity or a guest played is never entered for this one). No island at all and a current Blobbi
  * that can walk: the welcome page (a new adventure WITH that Blobbi; nothing hatches in its place).
  *
- * WITH WHOM: the Blobbi chosen on this device (the one that walks now). When the player's CURRENT Blobbi across the
- * Blobbi apps (kind 11125 `current_companion`, read by the host) is another one that can walk, the player is asked
- * once: bring it, or stay. "Stay" is remembered for that island and that current Blobbi, so nothing is asked again
- * until the current Blobbi changes. Offline (no answer): straight in with the Blobbi of this device.
+* WITH WHOM: the Blobbi chosen on this device (the one that walks now). When the player's CURRENT Blobbi across the
+ * Blobbi apps (kind 11125 `current_companion`, read by the host) is another one that can walk, M11D.8.3 compares the
+ * two CHOICES (never the Blobbis' own state events): the device's choice carries when and by whom it was made
+ * (`selectedAt`, `selectedBy`, `blobbi-selection.ts`), the current Blobbi carries the time its selection was
+ * published (the profile's `created_at`). The most recent explicit choice wins when the two can be ordered reliably
+ * (`compareSelections`): a newer remote choice brings that Blobbi in (`bring`); a newer local choice goes in as it
+ * is. When they cannot be ordered (a choice made before M11D.8.3 with no time, equal or near-equal times within
+ * `SELECTION_SKEW_MS`, a time in the future of this device's clock), the player is asked once: bring it, or stay.
+ * "Stay" is remembered for that island and that current Blobbi (and stamps the device's choice as the player's,
+ * now), so nothing is asked again until the current Blobbi changes. Offline (no answer): straight in with the
+ * Blobbi of this device. Nothing here publishes: a choice made in this game stays on this device until an explicit,
+ * consented synchronisation exists (none yet).
  *
  * A LINK NAMING AN ISLAND (`#seed=...`): while an island is played the game writes it into the address bar itself, so
  * a reload carries one (the M11D.8 intermittent title: every reload from inside an island stopped on the title, and
@@ -39,10 +47,40 @@ export interface EntryIsland {
   lastSeed: string | null;
 }
 
-/** The current Blobbi as the host resolved it (only what the decision needs). */
+/** The current Blobbi as the host resolved it (only what the decision needs). `at`: when it was chosen (ms), or null. */
 export type EntryCurrent =
-  | { status: 'current'; d: string; name: string; seed: string | null; walkable: boolean }
+  | { status: 'current'; d: string; name: string; seed: string | null; walkable: boolean; at?: number | null }
   | { status: 'missing' | 'no-selection' | 'unavailable' };
+
+/** M11D.8.3: the device's stored choice of the walking Blobbi: when (ms) and by whom, or null when it does not say. */
+export interface EntryLocalChoice {
+  at: number | null;
+  by: 'player' | 'remote' | null;
+}
+
+/**
+ * M11D.8.3: two choices within this many milliseconds of each other cannot be ordered (clocks of different devices
+ * are never exactly the same), and a choice this far in the future of this device's clock is not trusted either.
+ */
+export const SELECTION_SKEW_MS = 60_000;
+
+/** The time a current Blobbi was chosen, in ms, from the profile event's `created_at` (seconds); null when unusable. */
+export function currentSelectionAt(profileAtSeconds: number | null | undefined): number | null {
+  return typeof profileAtSeconds === 'number' && Number.isFinite(profileAtSeconds) && profileAtSeconds > 0 ? Math.floor(profileAtSeconds) * 1000 : null;
+}
+
+/**
+ * Which choice is the most recent, when that can be said reliably: `local` or `remote`; else `ambiguous` (a missing
+ * time, a time beyond `now + skew`, or the two within `skew` of each other). Times in ms; this device's clock is the
+ * only one there is, so the rule is deliberately plain: a clear gap, both in the past.
+ */
+export function compareSelections(localAt: number | null, remoteAt: number | null, now: number, skewMs = SELECTION_SKEW_MS): 'local' | 'remote' | 'ambiguous' {
+  if (localAt === null || remoteAt === null || !Number.isFinite(localAt) || !Number.isFinite(remoteAt) || !Number.isFinite(now)) return 'ambiguous';
+  if (localAt > now + skewMs || remoteAt > now + skewMs) return 'ambiguous';
+  const gap = remoteAt - localAt;
+  if (Math.abs(gap) <= skewMs) return 'ambiguous';
+  return gap > 0 ? 'remote' : 'local';
+}
 
 export interface EntryFacts {
   /** A plain start of play: no `#menu`, not a lab mode, the title untouched so far. */
@@ -60,6 +98,10 @@ export interface EntryFacts {
   current: EntryCurrent;
   /** The player already chose to stay with the walking Blobbi on this island while this Blobbi was current. */
   stayed?: (island: string, d: string) => boolean;
+  /** M11D.8.3: the device's stored choice of the walking Blobbi (when, by whom), or null when nothing is stored. */
+  local?: EntryLocalChoice | null;
+  /** M11D.8.3: this device's clock now (ms); without it no choice can be ordered. */
+  now?: number;
 }
 
 export type EntryDecision =
@@ -67,6 +109,8 @@ export type EntryDecision =
   | { kind: 'enter'; island: string }
   | { kind: 'choose-island'; islands: string[] }
   | { kind: 'offer-switch'; island: string; d: string; name: string }
+  /** M11D.8.3: the current Blobbi was chosen more recently than the device's one: it comes along, no question. */
+  | { kind: 'bring'; island: string; d: string; name: string }
   | { kind: 'welcome'; d: string; name: string };
 
 export function decideEntry(f: EntryFacts): EntryDecision {
@@ -86,7 +130,13 @@ export function decideEntry(f: EntryFacts): EntryDecision {
   const island = mine[0].identity;
   // The Blobbi that would come must be this identity's own (never another identity's, never the default visitor).
   if (!f.mine.has(f.walkingSeed)) return { kind: 'title', why: 'walking-not-mine' };
-  if (current && current.seed && current.seed !== f.walkingSeed && !f.stayed?.(island, current.d)) return { kind: 'offer-switch', island, d: current.d, name: current.name };
+  if (current && current.seed && current.seed !== f.walkingSeed) {
+    // M11D.8.3: the most recent explicit choice, when it can be told; else the player's remembered answer, else ask.
+    const order = f.now === undefined ? 'ambiguous' : compareSelections(f.local?.at ?? null, current.at ?? null, f.now);
+    if (order === 'remote') return { kind: 'bring', island, d: current.d, name: current.name };
+    if (order === 'local') return { kind: 'enter', island };
+    if (!f.stayed?.(island, current.d)) return { kind: 'offer-switch', island, d: current.d, name: current.name };
+  }
   return { kind: 'enter', island };
 }
 

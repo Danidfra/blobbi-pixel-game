@@ -34,8 +34,11 @@ export interface BlobbiChooser {
   selectedAddress(): string | null;
   /** M11D.1: the stage the chosen canonical Blobbi is drawn at, or null when none is walking. */
   selectedStage?(): BlobbiStage | null;
-  /** Bring this Blobbi to the island (only ever called for an `available` one). True when it happened. */
-  choose(blobbi: OwnedBlobbi): boolean;
+  /**
+   * Bring this Blobbi to the island (only ever called for an `available` one). True when it happened. M11D.8.3:
+   * `when` says when and by whom the choice was made; absent, it is the player's, now (this screen's own choice).
+   */
+  choose(blobbi: OwnedBlobbi, when?: { at: number; by: 'player' | 'remote' }): boolean;
   /** Back to the island's visiting Blobbi. */
   useVisitor(): void;
 }

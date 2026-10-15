@@ -23,7 +23,7 @@ import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
-import { effectiveSelection, loadSelection, loadSelectionRecord, storeGuestSelection, storeSelection } from '../game/blobbi-selection';
+import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, storeGuestSelection, storeSelection, type SelectionWhen } from '../game/blobbi-selection';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
@@ -33,7 +33,7 @@ import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
-import { decideChosen, entryAddress, rememberStay, runEntry, stayedWith, type EntryDecision } from '../game/world-entry';
+import { currentSelectionAt, decideChosen, entryAddress, rememberStay, runEntry, stayedWith, type EntryDecision } from '../game/world-entry';
 import { EntryScreen } from '../ui/entry-screen';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
@@ -801,7 +801,7 @@ identityScreen.host = {
     if (!g) return;
     const r = resolveBlobbi({ pubkey: g.owner, d: g.d });
     if (!r.ok) return;
-    storeOrNull((st) => storeGuestSelection(st, r.source, 'baby'));
+    storeOrNull((st) => storeGuestSelection(st, r.source, 'baby', playerNow()));
     applyBlobbi(r.source, 'baby');
   },
   // M11D.6: after a restore, one clear way on. On the main menu: the restored Blobbi becomes the chosen one (the
@@ -811,7 +811,7 @@ identityScreen.host = {
     const g = d ? storeOrNull((st) => guestBlobbi(st, d)) : null;
     const r = g ? resolveBlobbi({ pubkey: g.owner, d: g.d }) : null;
     if (g && r?.ok) {
-      storeOrNull((st) => storeGuestSelection(st, r.source, 'baby'));
+      storeOrNull((st) => storeGuestSelection(st, r.source, 'baby', playerNow()));
       applyBlobbi(r.source, 'baby');
     }
     if (title.active) title.afterRestore(g && r?.ok ? g.name : null);
@@ -941,7 +941,8 @@ function storeOrNull<T>(f: (store: NonNullable<ReturnType<typeof localStore>>) =
 blobbisScreen.chooser = {
   selectedAddress: () => walkingCanonical()?.address ?? null,
   selectedStage: () => walkingCanonical()?.stage ?? null,
-  choose: (b) => {
+  // M11D.8.3: `when` is the choice's moment and origin (absent: the player's, now).
+  choose: (b, when = playerNow()) => {
     // Only the connected account's own V3 adult or Baby, and only if the kit derives the same seed from its address.
     if (b.availability !== 'available' || !connectedPubkey || b.pubkey !== connectedPubkey) return false;
     if (b.stage !== 'adult' && b.stage !== 'baby') return false;
@@ -950,16 +951,18 @@ blobbisScreen.chooser = {
       const form = b.worldForm ? cleanWorldFormTraits(b.worldForm) : null;
       const source = form ? worldFormSource(b.pubkey, b.d, b.generation, form) : null;
       if (!source) return false;
-      selectBlobbi(source, { name: b.name, account: b.pubkey, stage: b.stage });
+      selectBlobbi(source, { name: b.name, account: b.pubkey, stage: b.stage }, when);
       return true;
     }
     const r = resolveBlobbi({ pubkey: b.pubkey, d: b.d });
     if (!r.ok || r.source.kind !== 'v3-address' || r.source.seed !== b.seed) return false;
-    selectBlobbi(r.source, { name: b.name, account: b.pubkey, stage: b.stage });
+    selectBlobbi(r.source, { name: b.name, account: b.pubkey, stage: b.stage }, when);
     return true;
   },
-  useVisitor: () => selectBlobbi(sourceFromSeed(DEMO_BLOBBI_SEED)),
+  useVisitor: () => selectBlobbi(sourceFromSeed(DEMO_BLOBBI_SEED), undefined, playerNow()),
 };
+/** M11D.8.3: a choice the player makes now, in this game (stamped with this device's clock). */
+const playerNow = (): SelectionWhen => ({ at: Date.now(), by: 'player' });
 /** The HUD's name for the Blobbi: a canonical Blobbi's own name; else none (the seed, as before). */
 function blobbiDisplayName(): string | null {
   // M11D.4: a Blobbi met here (its reserved owner) is known by its own name.
@@ -1324,7 +1327,7 @@ function deviceFacts(store: NonNullable<ReturnType<typeof localStore>>, pubkey: 
   return { islands: listWorlds(storeKeys(), storeGet).map((w) => ({ identity: w.identity, lastSeed: lastVisitor(store, w.identity)?.seed ?? null })), mine };
 }
 /** Carry a decision out: into an island, the islands page, the two title pages, or nothing (the title as it is). */
-function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: string, store: NonNullable<ReturnType<typeof localStore>>): void {
+function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: string, store: NonNullable<ReturnType<typeof localStore>>, currentAt: number | null = null): void {
   const worlds = listWorlds(storeKeys(), storeGet);
   const enter = (identity: string) => {
     const w = worlds.find((x) => x.identity === identity);
@@ -1343,16 +1346,23 @@ function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: str
         walking: blobbiDisplayName() ?? 'Blobbi',
         island: islandLabel(decision.island),
         bring: () => {
-          if (item && blobbisScreen.chooser?.choose(item)) enter(decision.island);
+          if (item && blobbisScreen.chooser?.choose(item, playerNow())) enter(decision.island);
         },
         keep: () => {
+          // M11D.8.3: staying is the player's choice of the walking Blobbi, now (so a later remote choice can win).
           rememberStay(store, decision.island, pubkey, decision.d, Date.now());
+          markSelectionChosen(store, Date.now());
           enter(decision.island);
         },
       });
+    case 'bring':
+      // M11D.8.3: the current Blobbi was chosen more recently in another world: it comes along, stamped with THAT
+      // choice's own time (never this device's now), so a later choice anywhere can still win.
+      if (item && blobbisScreen.chooser?.choose(item, { at: currentAt ?? Date.now(), by: 'remote' })) enter(decision.island);
+      return;
     case 'welcome':
-      // Already chosen (the player did, or the walking Blobbi is it): just the page; else choose it first.
-      if (item && (walkingCanonical()?.address === item.address || blobbisScreen.chooser?.choose(item))) title.arrived(decision.name);
+      // Already chosen (the player did, or the walking Blobbi is it): just the page; else adopt the current one.
+      if (item && (walkingCanonical()?.address === item.address || blobbisScreen.chooser?.choose(item, { at: currentAt ?? Date.now(), by: 'remote' }))) title.arrived(decision.name);
       return;
     case 'title':
       return;
@@ -1398,14 +1408,19 @@ async function autoEnter(): Promise<void> {
       if (!store) return null;
       const items = answer.status === 'unavailable' ? [] : answer.items;
       const item = answer.status === 'current' ? answer.blobbi : null;
+      // M11D.8.3: the device's choice of the walking Blobbi, when and by whom (null: made before, or not stored).
+      const rec = loadSelectionRecord(store);
+      const local = rec && rec.source.seed === state.blobbi.seed ? { at: rec.selectedAt ?? null, by: rec.selectedBy ?? null } : null;
       return {
         allowed: true,
         linked,
         account: { pubkey, present },
         ...deviceFacts(store, pubkey, items),
         walkingSeed: state.blobbi.seed,
-        current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item) } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
+        current: item ? { status: 'current', d: item.d, name: item.name, seed: seedOf(item), walkable: item.availability === 'available' && !!seedOf(item), at: answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null } : { status: answer.status === 'current' ? 'unavailable' : answer.status },
         stayed: (island, d) => stayedWith(store, island, pubkey, d),
+        local,
+        now: Date.now(),
       };
     },
   });
@@ -1415,7 +1430,7 @@ async function autoEnter(): Promise<void> {
   if (!run || !run.answer || !store) return;
   const { decision, answer, pubkey } = run;
   if (import.meta.env.DEV) console.info('[entry]', decision.kind, decision.kind === 'title' ? decision.why : '', answer.status);
-  carryOut(decision, answer.status === 'current' ? answer.blobbi : null, pubkey, store);
+  carryOut(decision, answer.status === 'current' ? answer.blobbi : null, pubkey, store, answer.status === 'current' ? currentSelectionAt(answer.profileAt) : null);
 }
 
 /**
@@ -1475,7 +1490,7 @@ function createWorld(kind: CarrierKind, name: string, companion: Companion = 'cu
     // The new Blobbi walks from now on (the choice is kept in this browser, beside the islands, never in one).
     if (reserved && store) {
       updateGuestBlobbi(store, reserved.d, { island: made.identity });
-      storeGuestSelection(store, state.blobbi, 'baby');
+      storeGuestSelection(store, state.blobbi, 'baby', playerNow());
     }
     shownName = blobbiDisplayName();
     live = made;
@@ -2391,9 +2406,9 @@ function chooseBlobbi(r: ResolvedBlobbi): void {
   showBlobbiStatus(r.notes.join(' '), false);
 }
 
-function selectBlobbi(source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }): void {
+function selectBlobbi(source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }, when: SelectionWhen = playerNow()): void {
   const store = localStore();
-  if (store) storeSelection(store, source, from);
+  if (store) storeSelection(store, source, from, when);
   applyBlobbi(source, from?.stage ?? 'adult');
 }
 

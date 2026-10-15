@@ -30,6 +30,14 @@
  * address-derived world-form seed, always beside `account`. On load it is rebuilt and refused whole unless the seed is
  * the one its address derives and the account owns it. Code before M11D.2 does not know the kind and ignores the
  * record (the visiting Blobbi walks): never another Blobbi.
+ *
+ * M11D.8.3, WHEN AND BY WHOM. Two more optional fields in the same version-1 record say when the choice was made and
+ * by whom: `selectedAt` (ms since 1970, this device's clock) and `selectedBy` ('player': a real choice in this game,
+ * MY BLOBBIS, BRING, CONTINUE WITH, a newborn, a restore; 'remote': the game adopted the player's current Blobbi from
+ * the other worlds, stamped with THAT selection's own time, kind 11125 `created_at`). They are written only by such an
+ * act: a reload, an automatic entry, a resume, a newer kind 31124 or a screen never touch them. A record without them
+ * (made before M11D.8.3) says "unknown", never "old": the entry then asks "who comes along?" as before, and the answer
+ * stamps it. Older code ignores both fields.
  */
 import type { BlobbiStage } from '../blobbi/canonical';
 import { resolveBlobbi, worldFormSource, type BlobbiSource } from '../blobbi/source';
@@ -55,6 +63,17 @@ export interface BlobbiSelection {
   account?: string;
   /** M11D.1: `baby` for a canonical Baby (absent: the adult). Only beside `account`. */
   stage?: 'baby';
+  /** M11D.8.3: when this choice was made (ms), and by whom. */
+  selectedAt?: number;
+  selectedBy?: SelectionOrigin;
+}
+
+/** M11D.8.3: who made the stored choice: the player, in this game; or the game, adopting the current Blobbi of the other worlds. */
+export type SelectionOrigin = 'player' | 'remote';
+/** M11D.8.3: the moment and the origin of a choice, for the record. */
+export interface SelectionWhen {
+  at: number;
+  by: SelectionOrigin;
 }
 
 /** A stored selection, checked: the source re-validated, the name cleaned, the account a well-formed key or absent. */
@@ -66,6 +85,16 @@ export interface SelectionRecord {
   stage?: BlobbiStage;
   /** M11D.4: a Blobbi met in this game with a reserved owner (it walks with or without a connected account). */
   guest?: boolean;
+  /** M11D.8.3: when the choice was made (ms) and by whom; null or absent when the record does not say (made before M11D.8.3). */
+  selectedAt?: number | null;
+  selectedBy?: SelectionOrigin | null;
+}
+
+/** M11D.8.3: the stored time and origin of a choice, checked: a finite positive time, a known origin; else nothing. */
+function readWhen(parsed: { selectedAt?: unknown; selectedBy?: unknown }): { selectedAt?: number; selectedBy?: SelectionOrigin } {
+  const at = typeof parsed.selectedAt === 'number' && Number.isFinite(parsed.selectedAt) && parsed.selectedAt > 0 ? parsed.selectedAt : null;
+  const by = parsed.selectedBy === 'player' || parsed.selectedBy === 'remote' ? parsed.selectedBy : null;
+  return at !== null && by !== null ? { selectedAt: at, selectedBy: by } : {};
 }
 
 export function loadSelection(store: KeyValueStore): BlobbiSource | null {
@@ -92,7 +121,7 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
   }
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown; guest?: unknown };
+    const parsed = JSON.parse(raw) as { version?: unknown; source?: Partial<Record<'kind' | 'seed' | 'pubkey' | 'd' | 'generation' | 'traits', unknown>>; name?: unknown; account?: unknown; stage?: unknown; guest?: unknown; selectedAt?: unknown; selectedBy?: unknown };
     if (parsed.version !== SELECTION_VERSION || !parsed.source || typeof parsed.source !== 'object') return null;
     const s = parsed.source;
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
@@ -114,22 +143,46 @@ export function loadSelectionRecord(store: KeyValueStore): SelectionRecord | nul
       const src = resolved.source;
       const known = src.kind === 'v3-address' ? guestBlobbi(store, src.d) : null;
       if (!known || src.kind !== 'v3-address' || known.owner !== src.pubkey || account) return null;
-      return { source: src, name: known.name, account: null, stage: parsed.stage === 'baby' ? 'baby' : 'adult', guest: true };
+      return { source: src, name: known.name, account: null, stage: parsed.stage === 'baby' ? 'baby' : 'adult', guest: true, ...readWhen(parsed) };
     }
-    return { source: resolved.source, name: account ? cleanSelectionName(parsed.name) : null, account, stage };
+    return { source: resolved.source, name: account ? cleanSelectionName(parsed.name) : null, account, stage, ...readWhen(parsed) };
   } catch {
     return null;
   }
 }
 
-export function storeSelection(store: KeyValueStore, source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }): void {
+export function storeSelection(store: KeyValueStore, source: BlobbiSource, from?: { name: string; account: string; stage?: BlobbiStage }, when?: SelectionWhen): void {
   const record: BlobbiSelection = { version: SELECTION_VERSION, source };
   if (from && ownedKind(source) && source.pubkey === from.account && KEY_HEX.test(from.account)) {
     record.name = cleanSelectionName(from.name) ?? 'Blobbi';
     record.account = from.account;
     if (from.stage === 'baby') record.stage = 'baby';
   }
+  stamp(record, when);
   store.set(SELECTION_KEY, JSON.stringify(record));
+}
+
+/** M11D.8.3: write the moment and origin of a choice into a record (nothing when not given or not sound). */
+function stamp(record: BlobbiSelection, when?: SelectionWhen): void {
+  if (!when || !Number.isFinite(when.at) || when.at <= 0 || (when.by !== 'player' && when.by !== 'remote')) return;
+  record.selectedAt = Math.floor(when.at);
+  record.selectedBy = when.by;
+}
+
+/**
+ * M11D.8.3: the player confirmed the stored choice (CONTINUE WITH <name> on "who comes along?"): the record is
+ * stamped as the player's, now, and nothing else about it changes. A record that cannot be read is left alone.
+ */
+export function markSelectionChosen(store: KeyValueStore, at: number): void {
+  try {
+    const raw = store.get(SELECTION_KEY);
+    const parsed = raw ? (JSON.parse(raw) as BlobbiSelection) : null;
+    if (!parsed || parsed.version !== SELECTION_VERSION || !parsed.source) return;
+    stamp(parsed, { at, by: 'player' });
+    store.set(SELECTION_KEY, JSON.stringify(parsed));
+  } catch {
+    // Not stamped: the question is simply asked again next time.
+  }
 }
 
 /**
@@ -144,17 +197,19 @@ export function effectiveSelection(record: SelectionRecord | null, connectedPubk
 }
 
 /** M11D.4: choose a Blobbi met in this game (its owner reserved here or the player's account), at its stage. */
-export function storeGuestSelection(store: KeyValueStore, source: BlobbiSource, stage: BlobbiStage): void {
+export function storeGuestSelection(store: KeyValueStore, source: BlobbiSource, stage: BlobbiStage, when?: SelectionWhen): void {
   if (source.kind !== 'v3-address' || !guestBlobbi(store, source.d)) return;
   const record: BlobbiSelection & { guest: true } = { version: SELECTION_VERSION, source, guest: true };
   if (stage === 'baby') record.stage = 'baby';
+  stamp(record, when);
   store.set(SELECTION_KEY, JSON.stringify(record));
 }
 
 /** M11D.3: choose a local Blobbi (met in this game) at its stage; no account, no name, no address. */
-export function storeLocalSelection(store: KeyValueStore, source: BlobbiSource, stage: BlobbiStage): void {
+export function storeLocalSelection(store: KeyValueStore, source: BlobbiSource, stage: BlobbiStage, when?: SelectionWhen): void {
   if (!isLocalBlobbiSeed(source.seed) || source.kind !== 'demo') return;
   const record: BlobbiSelection = { version: SELECTION_VERSION, source };
   if (stage === 'baby') record.stage = 'baby';
+  stamp(record, when);
   store.set(SELECTION_KEY, JSON.stringify(record));
 }

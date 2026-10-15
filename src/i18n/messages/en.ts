@@ -1095,7 +1095,7 @@ export const en = {
   'title.switch.keepDetail': 'Nothing changes',
   // M11D.8.2: the world-entry loading screen, the extension's account state, a new adventure with a chosen Blobbi.
   'entry.title': 'Your Blobbi is on the way!',
-  'entry.body': 'Checking your adventures and looking for your Blobbi across connected worlds...',
+  'entry.body': 'Finding your Blobbi across connected worlds...',
   'entry.signer': 'If your browser extension asks, confirm there.',
   'entry.slow': 'Other worlds are slow to answer. You can wait a little longer, or go to the main menu.',
   'entry.menu': 'Main menu',

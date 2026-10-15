@@ -215,7 +215,7 @@ describe('M11D.8.2: the world-entry loading screen', () => {
         expect(cat[k], k).not.toMatch(/relay|nostr|nsec|npub|31124|11125|nip/i);
       }
     expect(en['entry.title']).toBe('Your Blobbi is on the way!');
-    expect(en['entry.body']).toBe('Checking your adventures and looking for your Blobbi across connected worlds...');
+    expect(en['entry.body']).toBe('Finding your Blobbi across connected worlds...');
   });
 });
 

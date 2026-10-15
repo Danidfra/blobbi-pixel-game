@@ -44,9 +44,28 @@ export const ENTRY_GIVE_UP = 15;
 
 const W = 320;
 const H = 180;
-const SHADE = DESIGN.card;
 /** The arriving Blobbi's silhouette: a soft slate over the dimmed island. */
 const SILHOUETTE = hex('#6b7fa8');
+/** The panels' one-pixel frame. */
+const PANEL_EDGE = hex('#3a4660');
+
+/** Darken a screen rectangle towards the night blue (70%): a translucent panel without blur. */
+function darken(screen: PixelBuffer, x: number, y: number, w: number, h: number): void {
+  const x0 = Math.max(0, x);
+  const y0 = Math.max(0, y);
+  const x1 = Math.min(screen.width, x + w);
+  const y1 = Math.min(screen.height, y + h);
+  const d = screen.data;
+  for (let py = y0; py < y1; py++)
+    for (let px = x0; px < x1; px++) {
+      const i = py * screen.width + px;
+      const c = d[i];
+      const r = c & 0xff;
+      const g = (c >>> 8) & 0xff;
+      const b = (c >>> 16) & 0xff;
+      d[i] = 0xff000000 | (((b * 0.3 + 0x40 * 0.7) & 0xff) << 16) | (((g * 0.3 + 0x24 * 0.7) & 0xff) << 8) | ((r * 0.3 + 0x1b * 0.7) & 0xff);
+    }
+}
 
 export class EntryScreen {
   active = false;
@@ -56,6 +75,8 @@ export class EntryScreen {
   private startedAt: number | null = null;
   private now = 0;
   private hits: Hit[] = [];
+  /** M11D.8.3: the panels drawn behind the words (UI pixels), darkened on the screen under them. */
+  private panels: { x: number; y: number; w: number; h: number }[] = [];
 
   constructor(
     private readonly host: EntryScreenHost,
@@ -146,6 +167,8 @@ export class EntryScreen {
     const big = g.out;
     const ox = Math.floor((screen.width - big.width) / 2);
     const oy = Math.floor((screen.height - big.height) / 2);
+    // M11D.8.3: a darker, translucent panel under the words (the island still shows through; no blur, no motion).
+    for (const p of this.panels) darken(screen, ox + p.x * scale, oy + p.y * scale, p.w * scale, p.h * scale);
     screen.blit(big, ox, oy);
     this.hits = g.screenHits(ox, oy);
   }
@@ -167,11 +190,18 @@ export class EntryScreen {
     g.buf.blit(big, tx, 6);
 
     const heading = t('entry.title');
-    g.heading(heading, Math.floor((W - g.measure(heading.toUpperCase(), 'title')) / 2), 28, UI.accent, SHADE);
     const px = 50;
     const pw = W - 2 * px;
-    let y = 40;
-    y += g.para(t('entry.body'), px, y, pw, UI.ink, 4, SHADE) + 6;
+    this.panels = [];
+    // The words sit on a dark panel: the heading, then the line under it, centred.
+    const body = t('entry.body');
+    const bodyLines = g.lines(body, pw);
+    const panelTop = 24;
+    const panelH = 4 + 7 + 4 + bodyLines.length * 7 + 4;
+    this.panel(g, px - 8, panelTop, pw + 16, panelH);
+    g.heading(heading, Math.floor((W - g.measure(heading.toUpperCase(), 'title')) / 2), panelTop + 4, UI.accent);
+    let y = panelTop + 15;
+    y += g.para(body, px, y, pw, UI.ink, 4) + 10;
 
     // Three little worlds joined by travelling lights; the Blobbi arrives on the middle one.
     const worldsW = 150;
@@ -181,16 +211,33 @@ export class EntryScreen {
     this.drawArrival(g, wx + Math.round(worldsW / 2), wy - 1, still);
     y = wy + 12;
 
-    // One line about what is being waited for, when it helps.
+    // One line about what is being waited for, when it helps (on its own small panel).
     const slow = this.elapsed() >= ENTRY_SLOW_AFTER;
-    if (slow) y += g.para(t('entry.slow'), px, y, pw, UI.muted, 3, SHADE) + 3;
-    else if (this.phase === 'signer') y += g.para(t('entry.signer'), px, y, pw, UI.muted, 3, SHADE) + 3;
+    const note = slow ? t('entry.slow') : this.phase === 'signer' ? t('entry.signer') : null;
+    if (note) {
+      const lines = Math.min(3, g.lines(note, pw).length);
+      this.panel(g, px - 8, y - 3, pw + 16, lines * 7 + 6);
+      y += g.para(note, px, y, pw, UI.muted, 3) + 6;
+    }
 
     // MAIN MENU, after a moment (ESC always works).
     if (this.menuOffered()) {
       const label = t('entry.menu');
       const bw = Math.max(60, g.measure(label.toUpperCase()) + 12);
       g.button(label, Math.floor((W - bw) / 2), H - 26, () => this.giveUp(), { w: bw });
+    }
+  }
+
+  /** A panel's frame in UI pixels (its darkening happens on the screen, under it, in `render`). */
+  private panel(g: Gfx, x: number, y: number, w: number, h: number): void {
+    this.panels.push({ x, y, w, h });
+    for (let i = 0; i < w; i++) {
+      g.buf.set(x + i, y, PANEL_EDGE);
+      g.buf.set(x + i, y + h - 1, PANEL_EDGE);
+    }
+    for (let j = 0; j < h; j++) {
+      g.buf.set(x, y + j, PANEL_EDGE);
+      g.buf.set(x + w - 1, y + j, PANEL_EDGE);
     }
   }
 
