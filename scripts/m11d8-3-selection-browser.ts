@@ -212,7 +212,10 @@ try {
   await settle(p);
   const again = await where(p);
   check(!again.title && again.seed === bocaSeed, `a reload: the remembered answer holds, no question (${JSON.stringify(again)})`);
-  // Near-equal times (the same minute): asked.
+  // Near-equal times (the same minute): asked. Companion sync: the choice above was made over the future-dated profile
+  // (`over`), which no older profile can override (choice order v1, rule 6a), and relays would keep that newer one
+  // anyway; so, as for the unstamped case below, the record is made to say it was chosen without seeing a profile.
+  await p.evaluate(`const r = JSON.parse(localStorage.getItem('${SEL}')); delete r.over; localStorage.setItem('${SEL}', JSON.stringify(r));`);
   await remote(p, MOON_D, Math.floor(choiceS!.at! / 1000) + 10);
   await setting(p, 'blobbi-pixel-lab:entry-choice', null);
   await p.load();

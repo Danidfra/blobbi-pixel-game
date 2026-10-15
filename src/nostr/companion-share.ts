@@ -10,8 +10,9 @@
  *              Incomplete: nothing is built (`unsafe`).
  *   base       the newest valid profile by the owner (11125 before 31125; NIP-01 order). None: `no-profile` (a profile
  *              is never made here for a choice).
- *   order      a choice made clearly later elsewhere is never overwritten (`companion-order.ts`): `superseded`;
- *              too close to tell: `ambiguous` (the player is asked; nothing written).
+ *   order      unless this is the share right after the choice (`CHOICE_FRESH_MS`: the latest act there is), a choice
+ *              made clearly later elsewhere is never overwritten (`companion-order.ts`): `superseded`; too close to
+ *              tell: `ambiguous` (the player is asked; nothing written).
  *   build      `companionProfileTemplate` (only `current_companion` changes; the Blobbi listed in `has` if missing),
  *              checked by `preservesProfile` before signing.
  *   sign       the account's own signer; another key is refused. The signed event is STORED before it is sent
@@ -27,7 +28,7 @@ import type { NostrEvent } from 'nostr-tools/pure';
 import { verifyEvent } from 'nostr-tools/pure';
 import { parseBlobbonautEvent } from '@blobbi-kit/core';
 import type { KeyValueStore } from '../game/persistence';
-import { orderChoices, replaces, type ProfileStamp, type SeenProfile } from '../game/companion-order';
+import { CHOICE_FRESH_MS, orderChoices, replaces, type ProfileStamp, type SeenProfile } from '../game/companion-order';
 import { companionProfileTemplate, isProfile, preservesProfile, profileFilter, type EventTemplate } from './canonical-events';
 import { accepted, type Publisher, type QueryResult } from './publisher';
 import { policyMet, PROFILE_REQUIRED_RELAYS } from './relay-config';
@@ -180,7 +181,9 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
       if (!base) return { kind: 'no-profile' };
       const named = companionOf(base);
       if (named === d) return { kind: 'unchanged', profile: stamp(base) };
-      if (named) {
+      // A choice shared right after it was made is the latest act there is (`CHOICE_FRESH_MS`); a later attempt is
+      // ordered against what it finds (a choice made clearly later elsewhere is never overwritten)
+      if (named && deps.now() - req.at > CHOICE_FRESH_MS) {
         const order = orderChoices({ d, at: req.at, by: 'player', synced: null, over: req.over }, { d: named, ...stamp(base) }, deps.now());
         if (order.winner === 'global') return { kind: 'superseded', profile: { ...stamp(base), d: named } };
         if (order.winner === 'ambiguous') return { kind: 'ambiguous', profile: { ...stamp(base), d: named } };

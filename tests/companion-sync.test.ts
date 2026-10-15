@@ -212,8 +212,12 @@ describe('companion sync: the wiring in main.ts', () => {
     expect(src).toMatch(/const lookAtCompanion = \(\) => \{\s*if \(document\.visibilityState === 'visible' && entryTried && !entry\.active\) void companion\.check\(\);/);
   });
 
-  it('a remote choice comes along only in a calm moment (the frame asks; the invitation\'s calm)', () => {
-    expect(src).toMatch(/calm: \(\) => \(live && playStarted && !title\.active \? !inviteBusy\(\)/);
+  it('a remote choice comes along only in a calm moment (the frame asks): no menu, speech, timed action, teleport, cinematic', () => {
+    expect(src).toMatch(/calm: companionCalm,/);
+    const calm = fn('function companionCalm(');
+    expect(calm).toMatch(/menuOpen: gameUI\.capturing/);
+    expect(calm).toMatch(/l\.getPresenceState\(\) !== 'present'/);
+    expect(calm).toMatch(/intro: !!intro/);
     expect(src).toMatch(/updateNaming\(real\);\s*\/\/[^\n]*\n\s*companion\.tick\(\);/);
   });
 });

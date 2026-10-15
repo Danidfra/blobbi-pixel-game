@@ -1024,6 +1024,23 @@ function inviteBusy(): boolean {
     intro: !!intro,
   });
 }
+/**
+ * Companion sync: whether a Blobbi chosen in another game may come along now. Narrower than the invitation's calm: it
+ * waits for menus, speech, timed actions, a teleport or a cinematic, not for a tip or a notice (a tip can stay up for
+ * minutes on a new island, and the arrival is its own notice).
+ */
+function companionCalm(): boolean {
+  const l = live;
+  if (!l || !playStarted || title.active) return !gameUI.capturing && !intro && !entry.active;
+  return !isBusy({
+    menuOpen: gameUI.capturing,
+    bubble: !!l.bubble && l.bubble.until > l.clock.time,
+    notice: false,
+    action: !!(l.fishing || l.swing || l.restPlan || l.reveal || l.boat?.aboard || l.buildMode || l.placing || l.manage || l.moving || l.getPresenceState() !== 'present'),
+    tip: null,
+    intro: !!intro,
+  });
+}
 // At start-up the choice already follows the rule (`startupBlobbi`); this only reads the identity and the name.
 syncAccountBlobbi(false);
 
@@ -1072,13 +1089,26 @@ const companion = new CompanionSync({
   bring: (r) => void blobbisScreen.chooser?.choose(r.item as OwnedBlobbi, { at: r.createdAt * 1000, by: 'remote', synced: { id: r.id, createdAt: r.createdAt } }),
   markSynced: (d, stamp) => void storeOrNull((st) => connectedPubkey && markSelectionSynced(st, connectedPubkey, d, stamp)),
   restamp: (over) => void storeOrNull((st) => markSelectionChosen(st, Date.now(), over)),
-  // In play: the same calm as the invitation's (no menu, speech, notice, timed action, teleport, cinematic); on the
-  // title: no menu open and no entry under way.
-  calm: () => (live && playStarted && !title.active ? !inviteBusy() : !gameUI.capturing && !intro && !entry.active),
+  // In play: no menu, speech, timed action, teleport or cinematic (`companionCalm`); on the title: no menu, no entry.
+  calm: companionCalm,
   online: () => typeof navigator === 'undefined' || navigator.onLine !== false,
   now: () => Date.now(),
   notify: (kind, names) => notifyCompanion(kind, names.name, names.other),
 });
+/**
+ * The profile the player has been shown, for a choice made now: the newest of the current Blobbi last read
+ * (`companion.seen`) and the profile the walking Blobbi's own choice was carried by or agreed with (`synced`), e.g.
+ * a Blobbi brought from another app, or one already the profile's: choosing another one is choosing over that.
+ */
+function seenNow(): SeenProfile | null {
+  const rec = storeOrNull(loadSelectionRecord);
+  const src = rec?.source;
+  const own = rec?.synced && rec.account === connectedPubkey && src && (src.kind === 'v3-address' || src.kind === 'world-form') && rec.synced.createdAt > 0 ? { ...rec.synced, d: src.d } : null;
+  const seen = companion.seen;
+  if (!own) return seen;
+  if (!seen) return own;
+  return seen.createdAt > own.createdAt || (seen.createdAt === own.createdAt && seen.id <= own.id) ? seen : own;
+}
 /** A small word about the companion: a notice in play, else the UI's short message. */
 function notifyCompanion(kind: 'came' | 'not-shared' | 'offline' | 'sign-failed' | 'ask', name: string, other?: string): void {
   const place = t('blobbis.title');
@@ -1437,7 +1467,7 @@ function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: str
         keep: () => {
           // M11D.8.3: staying is the player's choice of the walking Blobbi, now (so a later remote choice can win).
           rememberStay(store, decision.island, pubkey, decision.d, Date.now());
-          markSelectionChosen(store, Date.now(), companion.seen);
+          markSelectionChosen(store, Date.now(), seenNow());
           enter(decision.island);
           // Companion sync: an explicit choice, shared with the other Blobbi games
           void companion.chosen();
@@ -2360,7 +2390,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, entry: () => entry, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced) };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, entry: () => entry, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced), companion: () => companion };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -2532,7 +2562,7 @@ function selectBlobbi(source: BlobbiSource, from?: { name: string; account: stri
   // Companion sync: the player's own choice of their account's Blobbi is made over the profile they were shown, and is
   // then shared with their other Blobbi games (a choice adopted from them, `by: 'remote'`, never is).
   const mine = when.by === 'player' && !!from?.account && from.account === connectedPubkey;
-  if (store) storeSelection(store, source, from, mine ? { ...when, over: when.over ?? companion.seen } : when);
+  if (store) storeSelection(store, source, from, mine ? { ...when, over: when.over ?? seenNow() } : when);
   applyBlobbi(source, from?.stage ?? 'adult');
   if (mine) void companion.chosen();
 }

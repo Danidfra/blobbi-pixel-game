@@ -235,7 +235,7 @@ describe('M11D.8.3: the wiring in main.ts', () => {
     // Companion sync: an adopted choice also keeps the profile event it came from (`synced`), so it is never shared again
     expect(carry).toMatch(/case 'bring':[\s\S]*choose\(item, \{ at: currentAt \?\? Date\.now\(\), by: 'remote', synced \}\)/);
     expect(carry).toMatch(/bring: \(\) => \{\s*if \(item && blobbisScreen\.chooser\?\.choose\(item, playerNow\(\)\)\)/);
-    expect(carry).toMatch(/keep: \(\) => \{[\s\S]*markSelectionChosen\(store, Date\.now\(\), companion\.seen\);/);
+    expect(carry).toMatch(/keep: \(\) => \{[\s\S]*markSelectionChosen\(store, Date\.now\(\), seenNow\(\)\);/);
     expect(src).toMatch(/choose: \(b, when = playerNow\(\)\) =>/);
     expect(src).toMatch(/function selectBlobbi\(source: BlobbiSource, from\?: [^)]*, when: SelectionWhen = playerNow\(\)\)/);
   });

@@ -127,8 +127,15 @@ describe('sharing the companion chosen in Blobbi Pixel', () => {
     expect(await shareCompanion(req(a, dOf(a, 2), { id: seen.id, createdAt: seen.created_at, d: dOf(a, 1) }, NOW - 1_800_000), deps(later, a).deps)).toMatchObject({ kind: 'superseded', profile: { d: dOf(a, 3) } });
     const close = network();
     close.seed(profile(a, { has: [dOf(a, 1), dOf(a, 2), dOf(a, 3)], companion: dOf(a, 3), at: S - 20 }));
-    expect((await shareCompanion(req(a, dOf(a, 2), { id: seen.id, createdAt: seen.created_at, d: dOf(a, 1) }, NOW - 10_000), deps(close, a).deps)).kind).toBe('ambiguous');
+    expect((await shareCompanion(req(a, dOf(a, 2), { id: seen.id, createdAt: seen.created_at, d: dOf(a, 1) }, NOW - 45_000), deps(close, a).deps)).kind).toBe('ambiguous');
     expect(sentProfiles(later).concat(sentProfiles(close))).toHaveLength(0);
+  });
+
+  it('the share right after the choice is the latest act: written over a profile made moments before, never asked', async () => {
+    const a = account();
+    const net = network();
+    net.seed(profile(a, { has: [dOf(a, 1), dOf(a, 2), dOf(a, 3)], companion: dOf(a, 3), at: S - 8 }));
+    expect((await shareCompanion(req(a, dOf(a, 2), null, NOW - 1_000), deps(net, a).deps)).kind).toBe('shared');
   });
 
   it('a profile written between the read and the send is built over, never replaced', async () => {
