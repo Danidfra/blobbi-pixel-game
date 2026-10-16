@@ -35,6 +35,8 @@ import { FRIEND_TITLES, friendLevel } from '../game/friendship';
 import { REST_POSE } from '../blobbi/pose';
 import { babyHeightFor } from '../blobbi/canonical';
 import { buildEggSprite, type EggPose } from '../blobbi/egg';
+import { stagedIdentity } from '../blobbi/identity';
+import type { RemoteView } from '../game/multiplayer/remote-players';
 import { hex as hexColour, mix as mixColour } from '../core/color';
 
 /** The window's sky over the day: blue, gold at dawn and dusk, a deep blue at night. */
@@ -165,6 +167,12 @@ export class ViewRenderer {
   private xspans: Spans | undefined;
   private yspans: Spans | undefined;
   readonly timings: ViewTimings = { world: 0, compose: 0, blobbi: 0, ui: 0, total: 0, worldPixels: 0 };
+  /**
+   * The other players' Blobbis to draw this frame (the multiplayer prototype; empty otherwise): in world pixels,
+   * drawn from their own seed and stage like this player's, behind or in front of it by depth, faded in and out.
+   */
+  remotes: readonly RemoteView[] = [];
+  private remoteSprites = new Map<string, Sprite>();
   lastBlobbi: BlobbiOnScreen | null = null;
   /** Where the teleport effect was drawn this frame (null when the Blobbi is simply present). */
   teleportAnchor: { ax: number; groundY: number } | null = null;
@@ -318,6 +326,17 @@ export class ViewRenderer {
       if ((tool?.behind ? 'behind' : 'front') === layer && tool?.tip && live.equipmentAnimation(time) !== 'raise') drawLine(screen, tx, ty, at.x + (px >> 1), at.y - 2 * px, float.bite || !float.landed ? 0 : Math.max(1, Math.round(2 * s)));
       if ((floatBehind && float.landed ? 'behind' : 'front') === layer) drawFloat(screen, at.x, at.y, px);
     };
+    // The other players (multiplayer prototype): those further back first, those nearer after this one
+    const drawRemotes = (front: boolean) => {
+      for (const r of this.remotes) {
+        if (r.y > b.y !== front) continue;
+        const rs = this.remoteSprite(r, size, time);
+        const rx = Math.floor((Math.round(r.x) - originX) * s + s / 2);
+        const ry = Math.floor((Math.round(r.y) - originY) * s + s - 1);
+        blitAtFaded(screen, rs, rx, ry, ratio, r.alpha);
+      }
+    };
+    drawRemotes(false);
     if (away) {
       // No tool in hand while teleporting; the shadow first (on the ground), then whatever of the body shows.
       const groundY = ay - Math.round(b.animator.hop(time) * s);
@@ -333,6 +352,7 @@ export class ViewRenderer {
       if (tool && !tool.behind) drawTool();
       drawFishing('front');
     }
+    drawRemotes(true);
     this.lastBlobbi = { x: ax, y: ay, size, ratio, sprite: canonical };
     const t3 = performance.now();
 
@@ -416,6 +436,20 @@ export class ViewRenderer {
     const x = Math.round(sx - buf.width / 2);
     const y = t.kind === 'bubble' ? Math.round(sy - buf.height) : Math.round(sy);
     screen.blit(buf, x, y);
+  }
+
+  /** Another player's Blobbi for this frame: its own genome and stage, its pose from what it sent, cached. */
+  private remoteSprite(r: RemoteView, size: number, time: number): Sprite {
+    const walk = (r.moving ? Math.floor(time * 10) % 6 : -1) as BlobbiPose['walk'];
+    const pose: BlobbiPose = { ...REST_POSE, view: r.view, facing: r.facing, expression: r.face, walk };
+    const key = `${r.seed}|${r.stage}|${size}|${poseKey(pose)}`;
+    let sprite = this.remoteSprites.get(key);
+    if (!sprite) {
+      if (this.remoteSprites.size > 512) this.remoteSprites.clear();
+      sprite = buildBlobbiSprite(stagedIdentity(r.seed, r.stage), pose, size);
+      this.remoteSprites.set(key, sprite);
+    }
+    return sprite;
   }
 
   private drawHud(screen: PixelBuffer, ui: number, opts: Pick<ViewUiOptions, 'identity' | 'blobbiName'> = {}): void {
@@ -625,6 +659,32 @@ interface Spans {
 }
 
 /** Blit a sprite with its anchor at (x, y); `ratio` ≠ 1 only during a camera transition (nearest-neighbour). */
+/** A 4×4 ordered-dither threshold: a fade in pixel art is pixels coming and going, not a blend. */
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+/** `blitAt` with only `alpha` (0..1) of its pixels drawn, by an ordered dither on the screen's own grid. */
+export function blitAtFaded(dst: PixelBuffer, sprite: Sprite, x: number, y: number, ratio: number, alpha: number): void {
+  if (alpha >= 1) return blitAt(dst, sprite, x, y, ratio);
+  if (alpha <= 0) return;
+  const cut = alpha * 16;
+  const src = sprite.buffer;
+  const x0 = Math.floor(x - sprite.anchorX * ratio);
+  const y0 = Math.floor(y - sprite.anchorY * ratio);
+  const w = Math.ceil(src.width * ratio);
+  const h = Math.ceil(src.height * ratio);
+  for (let j = 0; j < h; j++) {
+    const ty = y0 + j;
+    if (ty < 0 || ty >= dst.height) continue;
+    const sy = Math.min(src.height - 1, Math.floor((j + 0.5) / ratio));
+    for (let i = 0; i < w; i++) {
+      const tx = x0 + i;
+      if (tx < 0 || tx >= dst.width || BAYER4[(ty & 3) * 4 + (tx & 3)] >= cut) continue;
+      const c = src.data[sy * src.width + Math.min(src.width - 1, Math.floor((i + 0.5) / ratio))];
+      if (c >>> 24 !== 0) dst.data[ty * dst.width + tx] = c;
+    }
+  }
+}
+
 function blitAt(dst: PixelBuffer, sprite: Sprite, x: number, y: number, ratio: number): void {
   if (ratio === 1) {
     dst.blit(sprite.buffer, x - sprite.anchorX, y - sprite.anchorY);
