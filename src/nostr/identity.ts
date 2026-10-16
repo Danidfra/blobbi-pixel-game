@@ -290,12 +290,12 @@ export class IdentityService implements IdentityPort {
    * the very same key). `stillAccount` is asked before signing and before sending: a session that is no longer that
    * account, or no longer really here, never signs or sends.
    */
-  async shareCompanion(req: ShareRequest, how: { method: 'vault' | 'nip07'; stillAccount: () => boolean }): Promise<ShareOutcome> {
+  async shareCompanion(req: ShareRequest, how: { method: 'vault' | 'nip07'; stillAccount: () => boolean; maySign?: boolean }): Promise<ShareOutcome> {
     let sign: ((t: EventTemplate) => Promise<NostrEvent>) | undefined;
     if (how.method === 'vault') sign = (await this.keeps(req.owner)) ? (t) => this.o.vault.sign(req.owner, t) : undefined;
     else sign = this.o.accountSigner;
     if (!sign) return { kind: 'sign-failed' };
-    return shareCompanion(req, { store: this.o.store, publisher: this.o.publisher, sign, stillAccount: how.stillAccount, now: this.now, sleep: this.o.sleep });
+    return shareCompanion(req, { store: this.o.store, publisher: this.o.publisher, sign, stillAccount: how.stillAccount, maySign: how.maySign, now: this.now, sleep: this.o.sleep });
   }
 
   async register(d: string, consent: boolean): Promise<IdentityResult<RegistrationState>> {

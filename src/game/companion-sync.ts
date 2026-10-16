@@ -8,6 +8,9 @@
  *    shared in the background (`chosen`). Never shared: a reload, an automatic entry or resume, a choice adopted from
  *    another app, the visiting Blobbi, a Blobbi met here and not shared yet. A failure is said once, small, and
  *    retried in this visit (when the connection returns, then after 15 s, 60 s, 180 s), or by TRY AGAIN in MY BLOBBIS.
+ *    Only the player's own acts (the choice, TRY AGAIN, the answer) may ask the browser extension to sign: an automatic
+ *    retry resends a write already signed, and one that would need a new signature waits for TRY AGAIN
+ *    (`needs-signature`). The vault signs without asking anyone, so its retries may sign.
  *  - A CHOICE MADE ELSEWHERE is looked for every minute in play and when the page comes back (`check`). When the rules
  *    (`companion-order.ts`) say it is newer, it comes along by teleport, but only when the moment is calm (no menu,
  *    no speech, no timed action, no teleport, no cinematic: `calm`); until then the Blobbi of this device walks on.
@@ -30,7 +33,7 @@ export interface LocalCompanion extends EntryLocalChoice {
   name: string;
 }
 
-export type ShareResult = 'shared' | 'unchanged' | 'superseded' | 'ambiguous' | 'no-profile' | 'rehearsal' | 'unsafe' | 'partial' | 'failed' | 'sign-failed' | 'wrong-account' | 'offline';
+export type ShareResult = 'shared' | 'unchanged' | 'superseded' | 'ambiguous' | 'no-profile' | 'rehearsal' | 'unsafe' | 'partial' | 'failed' | 'sign-failed' | 'wrong-account' | 'offline' | 'needs-signature';
 
 export interface CompanionHost {
   /** The connected account, and whether its identity is really here (never a read-only session). */
@@ -38,7 +41,8 @@ export interface CompanionHost {
   /** The walking Blobbi, when it is that account's own Blobbi (else null: a visitor, a Blobbi met here). */
   local(): LocalCompanion | null;
   resolve(pubkey: string): Promise<RemoteCompanion | null>;
-  share(req: { owner: string; d: string; at: number; over: SeenProfile | null }): Promise<{ kind: ShareResult; stamp?: ProfileStamp }>;
+  /** `byPlayer`: the player's own act (it may ask the signer); else an automatic retry. */
+  share(req: { owner: string; d: string; at: number; over: SeenProfile | null; byPlayer: boolean }): Promise<{ kind: ShareResult; stamp?: ProfileStamp }>;
   /** Bring the remote choice along (stored as adopted: never shared again). */
   bring(remote: Extract<RemoteCompanion, { status: 'current' }>): void;
   /** The stored choice of `d` is now carried by this profile event. */
@@ -66,6 +70,7 @@ export class CompanionSync {
   private owner: string | null = null;
   private sharing: Promise<void> | null = null;
   private again = false;
+  private againByPlayer = false;
   private retriesLeft = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private askedAbout: string | null = null;
@@ -100,24 +105,25 @@ export class CompanionSync {
     this.ambiguity = null;
     this.waitingToBring = null;
     this.retriesLeft = RETRY_DELAYS_MS.length;
-    return this.runShare();
+    return this.runShare(true);
   }
 
   /** TRY AGAIN (MY BLOBBIS). */
   retry(): Promise<void> {
     this.present();
     this.retriesLeft = RETRY_DELAYS_MS.length;
-    return this.runShare();
+    return this.runShare(true);
   }
 
   /** The connection came back: a share still waiting in this visit goes again. */
   online(): void {
-    if (this.status.kind === 'waiting' && this.retriesLeft > 0) void this.runShare();
+    if (this.status.kind === 'waiting' && this.status.reason !== 'not-sent' && this.retriesLeft > 0) void this.runShare();
   }
 
-  private async runShare(): Promise<void> {
+  private async runShare(byPlayer = false): Promise<void> {
     if (this.sharing) {
       this.again = true;
+      this.againByPlayer ||= byPlayer;
       return this.sharing;
     }
     const acc = this.present();
@@ -133,7 +139,7 @@ export class CompanionSync {
       if (!this.host.online()) out = { kind: 'offline' };
       else {
         try {
-          out = await this.host.share({ owner: acc.pubkey, d, at: local.at ?? this.host.now(), over: local.over ?? null });
+          out = await this.host.share({ owner: acc.pubkey, d, at: local.at ?? this.host.now(), over: local.over ?? null, byPlayer });
         } catch {
           out = { kind: 'failed' };
         }
@@ -166,6 +172,11 @@ export class CompanionSync {
         case 'wrong-account':
           this.status = { kind: 'idle' };
           return;
+        case 'needs-signature':
+          // Only the player may ask the signer: TRY AGAIN (said once, as any share that waits)
+          this.status = { kind: 'waiting', reason: 'not-sent' };
+          this.host.notify('not-shared', { name: local.name });
+          return;
         default: {
           const reason = out.kind;
           this.status = { kind: 'waiting', reason };
@@ -179,11 +190,13 @@ export class CompanionSync {
       this.sharing = null;
     }
     if (this.again) {
+      const byPlayerAgain = this.againByPlayer;
       this.again = false;
-      return this.runShare();
+      this.againByPlayer = false;
+      return this.runShare(byPlayerAgain);
     }
     const now = this.status as CompanionStatus;
-    if (now.kind === 'waiting' && now.reason !== 'sign-failed' && this.retriesLeft > 0 && !this.timer) {
+    if (now.kind === 'waiting' && now.reason !== 'sign-failed' && now.reason !== 'not-sent' && this.retriesLeft > 0 && !this.timer) {
       const delay = RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - this.retriesLeft] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
       this.timer = setTimeout(() => {
         this.timer = null;

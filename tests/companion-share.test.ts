@@ -194,6 +194,28 @@ describe('sharing the companion chosen in Blobbi Pixel', () => {
     expect(pendingShare(run.store, a.pk, dOf(a, 2))).toBeNull();
   });
 
+  it('an attempt that may not sign (an automatic retry with the extension) signs nothing, and still resends a stored write', async () => {
+    const a = account();
+    const net = network();
+    net.seed(profile(a, { has: [dOf(a, 1)], companion: dOf(a, 1), at: S - 100 }));
+    net.faults.refuse = new Set(PUBLISH_RELAYS);
+    const first = deps(net, a);
+    expect((await shareCompanion(req(a, dOf(a, 2)), first.deps)).kind).toBe('failed');
+    expect(first.signed).toHaveLength(1);
+    net.faults.refuse = new Set();
+    // The stored write goes out again without a signature
+    const again = await shareCompanion(req(a, dOf(a, 2)), { ...first.deps, maySign: false });
+    expect(again.kind).toBe('shared');
+    expect(first.signed).toHaveLength(1);
+    // A choice with no stored write: nothing signed or sent
+    const other = deps(network(), a, { maySign: false });
+    const fresh = network();
+    fresh.seed(profile(a, { has: [dOf(a, 1)], companion: dOf(a, 1), at: S - 100 }));
+    expect((await shareCompanion(req(a, dOf(a, 3)), { ...other.deps, publisher: fresh.group })).kind).toBe('needs-signature');
+    expect(other.signed).toHaveLength(0);
+    expect(sentProfiles(fresh)).toHaveLength(0);
+  });
+
   it('the account gone while the relays were read again: nothing sent; the signed write stays stored for that account', async () => {
     const a = account();
     const net = network();

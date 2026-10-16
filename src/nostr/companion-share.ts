@@ -56,6 +56,8 @@ export type ShareOutcome =
   | { kind: 'rehearsal' }
   | { kind: 'sign-failed' }
   | { kind: 'wrong-account' }
+  /** A new signature is needed and this attempt may not ask for one (an automatic retry): nothing signed or sent. */
+  | { kind: 'needs-signature' }
   | { kind: 'partial'; event: NostrEvent }
   | { kind: 'failed' };
 
@@ -73,6 +75,11 @@ export interface ShareDeps {
   sign: (template: EventTemplate) => Promise<NostrEvent>;
   /** The account is still the one this share is for, and still really here (never a read-only session). */
   stillAccount: () => boolean;
+  /**
+   * Whether this attempt may sign (default yes). An automatic retry with the browser extension may not: it would show
+   * the player a request out of the blue. A stored write is still resent.
+   */
+  maySign?: boolean;
   now: () => number;
   timeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -191,6 +198,7 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
       const template = companionProfileTemplate(owner, d, Math.floor(deps.now() / 1000), base);
       if (!preservesProfile(base, template, d)) return { kind: 'failed' };
       if (!deps.stillAccount()) return { kind: 'wrong-account' };
+      if (deps.maySign === false) return { kind: 'needs-signature' };
       let signed: NostrEvent;
       try {
         signed = await deps.sign(template);

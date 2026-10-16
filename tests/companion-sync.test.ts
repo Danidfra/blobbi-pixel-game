@@ -135,6 +135,26 @@ describe('companion sync in Blobbi Pixel', () => {
     await vi.waitFor(() => expect(sync.status.kind).toBe('shared'));
   });
 
+  it("only the player's own acts may ask the signer: an automatic retry needing a new signature waits for TRY AGAIN", async () => {
+    const { state, host, sync } = setup({ share: 'unsafe' });
+    chooseHere(state, 2, 'Bo');
+    await sync.chosen();
+    expect(host.share.mock.calls[0][0]).toMatchObject({ byPlayer: true });
+    // The connection comes back: an automatic retry, which may not ask the extension to sign
+    state.shareResult = 'needs-signature';
+    sync.online();
+    await vi.waitFor(() => expect(sync.status).toEqual({ kind: 'waiting', reason: 'not-sent' }));
+    expect(host.share.mock.calls[1][0]).toMatchObject({ byPlayer: false });
+    // Nothing more by itself: neither the connection nor a timer tries again
+    sync.online();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(host.share).toHaveBeenCalledTimes(2);
+    state.shareResult = 'shared';
+    await sync.retry();
+    expect(host.share.mock.calls[2][0]).toMatchObject({ byPlayer: true });
+    expect(sync.status.kind).toBe('shared');
+  });
+
   it('a failed share is said once and retried by TRY AGAIN; a signer that said no is not retried by itself', async () => {
     const { state, host, sync } = setup({ share: 'failed' });
     chooseHere(state, 2, 'Bo');
@@ -208,6 +228,10 @@ describe('companion sync: the wiring in main.ts', () => {
     const refresh = src.slice(src.indexOf('refreshStage: (b) =>'), src.indexOf('useVisitor: () =>', src.indexOf('refreshStage: (b) =>')));
     expect(refresh).toMatch(/setSelectionStage\(st, b\.address/);
     expect(refresh).not.toMatch(/selectBlobbi|storeSelection|companion\.|markSelectionChosen|playerNow/);
+  });
+
+  it('the extension is asked to sign only for the player\'s own act; the vault (silent) may sign a retry', () => {
+    expect(src).toMatch(/maySign: req\.byPlayer \|\| method === 'vault',/);
   });
 
   it('never from a read-only session: the extension must have answered with the key, and the account must still be it', () => {

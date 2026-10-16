@@ -1087,6 +1087,8 @@ const companion = new CompanionSync({
     const svc = await identityService();
     const out = await svc.shareCompanion(req, {
       method,
+      // The extension shows the player every request: only their own act may ask it. The vault signs silently.
+      maySign: req.byPlayer || method === 'vault',
       stillAccount: () => {
         const now = companionPresent();
         return !!now && now.present && now.pubkey === req.owner;
