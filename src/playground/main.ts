@@ -25,6 +25,9 @@ import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
 import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
+import { createPresenceHost } from '../game/presence-host';
+import { cookieLeaseStore } from '../game/presence-page';
+import { HOME_APP } from '../game/world-presence';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
@@ -1140,6 +1143,47 @@ blobbisScreen.companion = {
   answer: (keep) => void companion.answer(keep),
 };
 account.onChange(() => companion.accountChanged());
+
+// ─── World presence (src/game/presence-host.ts): the account's Blobbi is here while the player plays here ───
+// It goes home when the player plays in the Blobbi home instead, or when this tab is left hidden or idle; it comes
+// back with the next key or tap here. Only an account's own Blobbi travels (a guest or local one stays). Nothing is
+// sent anywhere: the lease is a first-party cookie shared with the Blobbi home on the same site.
+const PRESENCE_OFF_KEY = 'blobbi:world-presence:v1';
+const worldPresence = createPresenceHost({
+  account: () => {
+    if (storeGetSafe(PRESENCE_OFF_KEY) === 'off') return null;
+    const c = walkingCanonical();
+    return c && connectedPubkey && c.address.startsWith(`31124:${connectedPubkey}:`) ? connectedPubkey : null;
+  },
+  blobbi: () => {
+    const l = live;
+    if (!l || !playStarted || title.active) return null;
+    return { state: () => l.getPresenceState(), enter: () => void l.enterBlobbi(), leave: () => void l.leaveBlobbi() };
+  },
+  busy: () => {
+    const l = live;
+    if (!l) return true;
+    return gameUI.capturing || (!!l.bubble && l.bubble.until > l.clock.time) || !!(l.fishing || l.swing || l.restPlan || l.reveal || l.boat?.aboard || l.buildMode || l.placing || l.manage || l.moving);
+  },
+  // The game's own journeys come first: the title, an intro, a visit's handoff, a change of Blobbi
+  paused: () => !live || !playStarted || title.active || !!intro || entry.active || visit.phase === 'departing' || visit.phase === 'returning' || !!live.swap,
+  onJourney: (kind, place) => {
+    const l = live;
+    if (!l) return;
+    const name = shownName || 'Blobbi';
+    const until = Math.max(l.clock.time, l.notices.at(-1)?.until ?? 0) + (kind === 'leave' ? 8 : 5);
+    if (kind === 'leave') l.notices.push({ heading: t('presence.heading'), title: place === HOME_APP ? t('presence.leftHome', { name }) : t('presence.leftElsewhere', { name }), text: t('presence.callBack', { name }), until });
+    else l.notices.push({ heading: t('presence.heading'), title: t('presence.back', { name }), text: t('presence.backText', { name }), until });
+  },
+  store: (pubkey) => cookieLeaseStore(pubkey),
+});
+function storeGetSafe(k: string): string | null {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+}
 /** How often the player's current Blobbi is looked at while the game is open and in front. */
 const COMPANION_LOOK_MS = 60_000;
 const lookAtCompanion = () => {
@@ -2110,6 +2154,7 @@ function playFrame(now: number): void {
   updateNaming(real);
   // Companion sync: a choice made in another Blobbi game comes along once the moment is calm
   companion.tick();
+  worldPresence.update();
   invite.update(real, { running: steps > 0 && !gameUI.capturing && document.visibilityState === 'visible', inputAge: (performance.now() - lastInputAt) / 1000, world: live, busy: inviteBusy() });
   gameUI.render(frame, now / 1000);
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
