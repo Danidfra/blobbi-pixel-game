@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { finalizeEvent, generateSecretKey, getPublicKey, type NostrEvent } from 'nostr-tools/pure';
 import { buildBlobbonautTags, buildEggTags, getCanonicalBlobbiD, updateBlobbonautTags } from '@blobbi-kit/core';
 import { compareSelections, currentSelectionAt, decideEntry, rememberStay, stayedWith, SELECTION_SKEW_MS, type EntryFacts } from '../src/game/world-entry';
-import { loadSelectionRecord, markSelectionChosen, storeGuestSelection, storeSelection, SELECTION_KEY } from '../src/game/blobbi-selection';
+import { loadSelectionRecord, markSelectionChosen, setSelectionStage, storeGuestSelection, storeSelection, SELECTION_KEY } from '../src/game/blobbi-selection';
 import { recordVisit, lastVisitor, visitedBefore } from '../src/game/island-visits';
 import { memoryStore } from '../src/game/persistence';
 import { resolveBlobbi, sourceFromSeed } from '../src/blobbi/source';
@@ -166,6 +166,21 @@ describe('M11D.8.3: the stored choice says when and by whom', () => {
     storeSelection(store, src(), { name: 'Boca rosa', account: PK });
     expect(JSON.parse(store.get(SELECTION_KEY)!)).toEqual({ version: 1, source: src(), name: 'Boca rosa', account: PK });
     expect(loadSelectionRecord(store)).not.toHaveProperty('selectedAt');
+  });
+  it('companion sync: a stage refreshed from another app changes only the stage, never the choice (time, origin, profile)', () => {
+    const store = memoryStore();
+    const synced = { id: 'c'.repeat(64), createdAt: 1_700_000_000 };
+    const over = { id: 'd'.repeat(64), createdAt: 1_699_999_000, d: 'x' };
+    storeSelection(store, src(), { name: 'Boca rosa', account: PK, stage: 'baby' }, { at: NOW - 5 * MIN, by: 'remote', synced, over });
+    const before = JSON.parse(store.get(SELECTION_KEY)!);
+    setSelectionStage(store, `31124:${PK}:${d}`, 'adult');
+    const after = JSON.parse(store.get(SELECTION_KEY)!);
+    expect(after).toEqual({ ...before, stage: undefined } as never);
+    expect(after).not.toHaveProperty('stage');
+    expect(loadSelectionRecord(store)).toMatchObject({ selectedAt: NOW - 5 * MIN, selectedBy: 'remote', synced, stage: 'adult' });
+    // Another Blobbi's address: the record is left alone
+    setSelectionStage(store, `31124:${PK}:other`, 'baby');
+    expect(JSON.parse(store.get(SELECTION_KEY)!)).toEqual(after);
   });
   it('a remote adoption carries the remote choice\'s own time; nonsense stamps are dropped', () => {
     const store = memoryStore();

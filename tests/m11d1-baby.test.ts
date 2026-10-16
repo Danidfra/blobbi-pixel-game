@@ -298,18 +298,20 @@ describe('MY BLOBBIS with Babies', () => {
     const s = new BlobbisScreen();
     s.collection = { blobbis: () => ({ status: 'ready', owner: PK, items: list, partial: false, skipped: 0, fetchedAt: 1 }), loadBlobbis: async () => {} };
     const chosen: OwnedBlobbi[] = [];
+    const refreshed: OwnedBlobbi[] = [];
     let sel = selected;
     const chooser: BlobbiChooser = {
       selectedAddress: () => sel?.address ?? null,
       selectedStage: () => sel?.stage ?? null,
       choose: (b) => (chosen.push(b), (sel = { address: b.address, stage: b.stage === 'baby' ? 'baby' : 'adult' }), true),
+      refreshStage: (b) => (refreshed.push(b), (sel = { address: b.address, stage: b.stage === 'baby' ? 'baby' : 'adult' }), true),
       useVisitor: () => (sel = null),
     };
     s.chooser = chooser;
     ui.register(s);
     ui.open('blobbis');
     const draw = () => ui.render(new PixelBuffer(960, 540), 0);
-    return { ui, s, chosen, draw, selected: () => sel };
+    return { ui, s, chosen, refreshed, draw, selected: () => sel };
   }
 
   it('choosing is explicit: Enter on a Baby brings it, as a Baby; nothing is chosen by opening the list', () => {
@@ -322,14 +324,16 @@ describe('MY BLOBBIS with Babies', () => {
     draw();
   });
 
-  it('a chosen Baby that grew up in another app is drawn as the adult once the list is read again', () => {
+  it('a chosen Baby that grew up in another app is drawn as the adult once the list is read again; that is not a choice', () => {
     const grown = { ...by('Bean'), stage: 'adult' as const };
-    const { chosen, draw, selected } = screenWith([grown], { address: grown.address, stage: 'baby' });
+    const { chosen, refreshed, draw, selected } = screenWith([grown], { address: grown.address, stage: 'baby' });
     draw();
-    expect(chosen.length).toBe(1);
+    // Companion sync: only the stage is refreshed; `choose` (the player's choice, shared with the other games) is never called
+    expect(chosen).toEqual([]);
+    expect(refreshed.map((b) => b.address)).toEqual([grown.address]);
     expect(selected()?.stage).toBe('adult');
     draw();
-    expect(chosen.length).toBe(1); // settled: no loop
+    expect(refreshed.length).toBe(1); // settled: no loop
   });
 
   it("previews a Baby as the Baby that will walk, and a V1/V2 Baby with the kit's own picture (not a swatch)", async () => {

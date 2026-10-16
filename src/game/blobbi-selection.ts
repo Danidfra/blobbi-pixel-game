@@ -229,6 +229,25 @@ function stamp(record: BlobbiSelection, when?: SelectionWhen): void {
 }
 
 /**
+ * Companion sync: the walking Blobbi grew up (or the other way round) in another app: only the stage it is drawn at
+ * changes in the stored record. Who was chosen, when, by whom, and the profile that carries it stay exactly as they
+ * were: this is not a choice, and nothing is shared for it. A record of another Blobbi (`address`) is left alone.
+ */
+export function setSelectionStage(store: KeyValueStore, address: string, stage: BlobbiStage): void {
+  try {
+    const raw = store.get(SELECTION_KEY);
+    const parsed = raw ? (JSON.parse(raw) as BlobbiSelection) : null;
+    const src = parsed?.source as { pubkey?: string; d?: string } | undefined;
+    if (!parsed || parsed.version !== SELECTION_VERSION || !src?.pubkey || !src.d || `31124:${src.pubkey}:${src.d}` !== address) return;
+    if (stage === 'baby') parsed.stage = 'baby';
+    else delete parsed.stage;
+    store.set(SELECTION_KEY, JSON.stringify(parsed));
+  } catch {
+    /* not kept: drawn at the stage just read for this visit */
+  }
+}
+
+/**
  * Companion sync: the stored choice of `d` (an owned Blobbi, by `account`) is now carried by this profile event (the
  * game published it, or found the profile already naming it). Nothing else changes; another choice is left alone.
  */

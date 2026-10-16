@@ -201,6 +201,15 @@ describe('companion sync: the wiring in main.ts', () => {
     expect(src).toMatch(/bring: \(r\) => void blobbisScreen\.chooser\?\.choose\(r\.item as OwnedBlobbi, \{ at: r\.createdAt \* 1000, by: 'remote', synced: \{ id: r\.id, createdAt: r\.createdAt \} \}\)/);
   });
 
+  it('a stage refreshed in MY BLOBBIS (a Blobbi grown up in another app) is never a choice: never stamped, never shared', () => {
+    const screen = readFileSync('src/ui/screens/blobbis.ts', 'utf8');
+    expect(screen).toMatch(/this\.chooser\.selectedStage\(\) !== walking\.stage\) this\.chooser\.refreshStage\?\.\(walking\);/);
+    expect(screen).not.toMatch(/selectedStage\(\) !== walking\.stage\) this\.chooser\.choose\(/);
+    const refresh = src.slice(src.indexOf('refreshStage: (b) =>'), src.indexOf('useVisitor: () =>', src.indexOf('refreshStage: (b) =>')));
+    expect(refresh).toMatch(/setSelectionStage\(st, b\.address/);
+    expect(refresh).not.toMatch(/selectBlobbi|storeSelection|companion\.|markSelectionChosen|playerNow/);
+  });
+
   it('never from a read-only session: the extension must have answered with the key, and the account must still be it', () => {
     expect(src).toMatch(/present: s\.method === 'vault' \|\| s\.extension === 'verified'/);
     expect(src).toMatch(/stillAccount: \(\) => \{\s*const now = companionPresent\(\);\s*return !!now && now\.present && now\.pubkey === req\.owner;/);

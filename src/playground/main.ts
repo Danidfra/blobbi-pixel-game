@@ -23,7 +23,7 @@ import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
-import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
+import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
@@ -958,6 +958,16 @@ blobbisScreen.chooser = {
     const r = resolveBlobbi({ pubkey: b.pubkey, d: b.d });
     if (!r.ok || r.source.kind !== 'v3-address' || r.source.seed !== b.seed) return false;
     selectBlobbi(r.source, { name: b.name, account: b.pubkey, stage: b.stage }, when);
+    return true;
+  },
+  // Companion sync: the walking Blobbi at the stage just read. Not a choice: never stamped as the player's, never shared
+  refreshStage: (b) => {
+    const walking = walkingCanonical();
+    if (!walking || walking.address !== b.address || b.availability !== 'available' || (b.stage !== 'adult' && b.stage !== 'baby')) return false;
+    const rec = storeOrNull(loadSelectionRecord);
+    if (!rec) return false;
+    storeOrNull((st) => setSelectionStage(st, b.address, b.stage as BlobbiStage));
+    applyBlobbi(rec.source, b.stage);
     return true;
   },
   useVisitor: () => selectBlobbi(sourceFromSeed(DEMO_BLOBBI_SEED), undefined, playerNow()),

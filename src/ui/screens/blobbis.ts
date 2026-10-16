@@ -41,6 +41,11 @@ export interface BlobbiChooser {
    * `when` says when and by whom the choice was made; absent, it is the player's, now (this screen's own choice).
    */
   choose(blobbi: OwnedBlobbi, when?: { at: number; by: 'player' | 'remote'; synced?: { id: string; createdAt: number } | null }): boolean;
+  /**
+   * Companion sync: the walking Blobbi is drawn at the stage just read (it grew up, or the other way round, in another
+   * app). Not a choice: the stored choice keeps its time, origin and profile, and nothing is shared. True when done.
+   */
+  refreshStage?(blobbi: OwnedBlobbi): boolean;
   /** Back to the island's visiting Blobbi. */
   useVisitor(): void;
 }
@@ -283,7 +288,8 @@ export class BlobbisScreen implements Screen {
     const selected = this.chooser?.selectedAddress() ?? null;
     // A chosen Baby that has grown up (or the other way round) in another app: draw it at the stage just read.
     const walking = selected ? items.find((it) => it.address === selected) : undefined;
-    if (walking && walking.availability === 'available' && this.chooser?.selectedStage && this.chooser.selectedStage() !== walking.stage) this.chooser.choose(walking);
+    // Not a choice (companion sync: `refreshStage` never shares; `choose` would count as the player's choice, now)
+    if (walking && walking.availability === 'available' && this.chooser?.selectedStage && this.chooser.selectedStage() !== walking.stage) this.chooser.refreshStage?.(walking);
     // The list: a small preview, the name, stage and generation; the one walking with you is marked.
     const listW = 132;
     const first = Math.max(0, Math.min(this.index - Math.floor(ROWS / 2), items.length - ROWS));
