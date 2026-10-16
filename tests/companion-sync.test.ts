@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { CompanionSync, type CompanionHost, type LocalCompanion, type RemoteCompanion, type ShareResult } from '../src/game/companion-sync';
+import { CompanionSync, RETRY_DELAYS_MS, type CompanionHost, type LocalCompanion, type RemoteCompanion, type ShareResult } from '../src/game/companion-sync';
 
 const ME = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
@@ -26,7 +26,7 @@ function setup(o: { local?: LocalCompanion | null; remote?: RemoteCompanion | nu
     account: () => state.account,
     local: () => state.local,
     resolve: vi.fn(async () => state.remote),
-    share: vi.fn(async (_req: { owner: string; d: string }) => ({ kind: state.shareResult, stamp: { id: id('9'), createdAt: S } })),
+    share: vi.fn(async (_req: { owner: string; d: string; byPlayer?: boolean }) => ({ kind: state.shareResult, stamp: { id: id('9'), createdAt: S } })),
     bring: vi.fn((r: Extract<RemoteCompanion, { status: 'current' }>) => {
       state.local = { d: r.d, name: r.name, at: r.createdAt * 1000, by: 'remote', synced: { id: r.id, createdAt: r.createdAt } };
     }),
@@ -153,6 +153,42 @@ describe('companion sync in Blobbi Pixel', () => {
     await sync.retry();
     expect(host.share.mock.calls[2][0]).toMatchObject({ byPlayer: true });
     expect(sync.status.kind).toBe('shared');
+  });
+
+  it('automatic retries after the player\'s attempt: the first 15 s later, then 60 s, then 180 s, then none; TRY AGAIN still works', async () => {
+    vi.useFakeTimers();
+    try {
+      const { state, host, sync } = setup({ share: 'failed' });
+      chooseHere(state, 2, 'Bo');
+      await sync.chosen();
+      const calls = () => host.share.mock.calls.length;
+      expect(calls()).toBe(1);
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(calls()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls()).toBe(2);
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(calls()).toBe(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls()).toBe(3);
+      await vi.advanceTimersByTimeAsync(179_999);
+      expect(calls()).toBe(3);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(calls()).toBe(4);
+      // Used up: none by themselves, not even when the connection returns
+      await vi.advanceTimersByTimeAsync(3_600_000);
+      sync.online();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(calls()).toBe(1 + RETRY_DELAYS_MS.length);
+      // The player's attempt and TRY AGAIN may ask the signer; the automatic ones never
+      expect(host.share.mock.calls.map((c) => c[0].byPlayer)).toEqual([true, false, false, false]);
+      state.shareResult = 'shared';
+      await sync.retry();
+      expect(sync.status.kind).toBe('shared');
+      expect(host.share.mock.calls.at(-1)![0].byPlayer).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a failed share is said once and retried by TRY AGAIN; a signer that said no is not retried by itself', async () => {

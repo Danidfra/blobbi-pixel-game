@@ -131,7 +131,9 @@ export class CompanionSync {
     if (!acc || !local || local.by !== 'player' || local.synced) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    if (this.retriesLeft > 0) this.retriesLeft--;
+    // Only an automatic run uses up one of the automatic retries (the player's own act never does): the first comes
+    // RETRY_DELAYS_MS[0] (15 s) after the player's attempt
+    if (!byPlayer && this.retriesLeft > 0) this.retriesLeft--;
     this.status = { kind: 'sharing' };
     const d = local.d;
     this.sharing = (async () => {
