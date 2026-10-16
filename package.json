@@ -14,7 +14,8 @@
     "seeds": "tsx scripts/render-seeds.ts",
     "check": "npm run typecheck && npm run test && npm run build",
     "perf": "tsx scripts/perf.ts",
-    "blobbi": "tsx scripts/blobbi-sheet.ts"
+    "blobbi": "tsx scripts/blobbi-sheet.ts",
+    "mp:relay": "tsx scripts/mp-relay.ts"
   },
   "devDependencies": {
     "@blobbi-kit/core": "0.9.0",
