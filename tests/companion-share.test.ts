@@ -194,6 +194,25 @@ describe('sharing the companion chosen in Blobbi Pixel', () => {
     expect(pendingShare(run.store, a.pk, dOf(a, 2))).toBeNull();
   });
 
+  it('the account gone while the relays were read again: nothing sent; the signed write stays stored for that account', async () => {
+    const a = account();
+    const net = network();
+    net.seed(profile(a, { has: [dOf(a, 1)], companion: dOf(a, 1), at: S - 100 }));
+    // Still here before and after signing; gone by the time it would send
+    let n = 0;
+    const run = deps(net, a, { stillAccount: () => ++n < 3 });
+    const out = await shareCompanion(req(a, dOf(a, 2)), run.deps);
+    expect(out.kind).toBe('wrong-account');
+    expect(sentProfiles(net)).toHaveLength(0);
+    expect(run.signed).toHaveLength(1);
+    expect(pendingShare(run.store, a.pk, dOf(a, 2))?.event.id).toBe(run.signed[0].id);
+    // Back, and really here: the very same event goes out, nothing signed again
+    const back = await shareCompanion(req(a, dOf(a, 2)), { ...run.deps, stillAccount: () => true });
+    expect(back.kind).toBe('shared');
+    expect(run.signed).toHaveLength(1);
+    expect(new Set(sentProfiles(net).map((e) => e.id))).toEqual(new Set([run.signed[0].id]));
+  });
+
   it('a refused signature, another key, or the account gone mid-way: nothing sent', async () => {
     const a = account();
     const b = account();

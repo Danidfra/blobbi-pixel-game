@@ -18,7 +18,7 @@
  *   sign       the account's own signer; another key is refused. The signed event is STORED before it is sent
  *              (`blobbi-pixel-lab:companion-share`): every retry sends that very event (same id: no duplicate).
  *   re-check   a second complete read just before sending: a profile written meanwhile is built over, once.
- *   send       then READ BACK: shared only when `policyMet` (two relays, relay.ditto.pub among them), as activation.
+ *   send       only while the account is still really here (checked again right before); then READ BACK: shared only when `policyMet` (two relays, relay.ditto.pub among them), as activation.
  *              Fewer: `partial` (Try again resends the same event to the relays still missing it).
  *
  * A stored write found superseded by a newer profile is dropped, never sent. REHEARSAL builds share nothing (the
@@ -214,6 +214,9 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
     if (!pending) return { kind: 'unsafe' };
   }
 
+  // The account may have gone while the relays were read (a disconnect, a switch, a read-only session): nothing goes
+  // out for it; the signed event stays stored, sent only once that very account is really here again
+  if (!deps.stillAccount()) return { kind: 'wrong-account' };
   // Send the one signed event where it is not held yet; then read it back
   const event = pending.event;
   let held = [...new Set([...pending.seenOn, ...holders(first.answer, event, owner, d, verify)])];
