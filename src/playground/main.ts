@@ -2112,6 +2112,10 @@ function playFrame(now: number): void {
   rafId = requestAnimationFrame(playFrame);
   // The text size is a drawing preference (M11B): read each frame, so a change shows at once.
   textPreference.smaller = gameUI.settings.textSize === 'small';
+  // World presence follows the account from the first frame, the title's and the intro's too: the presses that start
+  // play are the player playing here, and must be seen (a page made only once play began missed them, and the
+  // Blobbi was sent home right after its first arrival)
+  worldPresence.update();
   if (state.mode !== 'play' || !live || !liveRenderer || !world) return;
   const real = lastFrameTime ? (now - lastFrameTime) / 1000 : 1 / 60;
   lastFrameTime = now;
@@ -2154,7 +2158,6 @@ function playFrame(now: number): void {
   updateNaming(real);
   // Companion sync: a choice made in another Blobbi game comes along once the moment is calm
   companion.tick();
-  worldPresence.update();
   invite.update(real, { running: steps > 0 && !gameUI.capturing && document.visibilityState === 'visible', inputAge: (performance.now() - lastInputAt) / 1000, world: live, busy: inviteBusy() });
   gameUI.render(frame, now / 1000);
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
