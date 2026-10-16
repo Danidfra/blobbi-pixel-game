@@ -25,6 +25,11 @@ import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
 import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
+import { GENERATOR_VERSION } from '../game/archipelago';
+import { MultiplayerSession } from '../game/multiplayer/session';
+import { channelTransport } from '../game/multiplayer/channel-transport';
+import { worldRoom } from '../game/multiplayer/protocol';
+import { roomUrl, socketTransport } from '../nostr/mp-socket';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
@@ -395,17 +400,19 @@ function toCanvas(buf: PixelBuffer, reuse?: HTMLCanvasElement): HTMLCanvasElemen
   return c;
 }
 
+/** The multiplayer prototype's own link parameters, kept through every rewrite of the hash. */
+const MP_HASH = ['mp', 'mpcode', 'mprelay'].filter((k) => params.has(k)).map((k) => `&${k}=${encodeURIComponent(params.get(k)!)}`).join('');
 function saveHash(): void {
   // In Play, the link names an island only once it is being played or has a save: a reload of the title alone stays
   // a plain link (so it never looks like a shared island).
   const menu = state.mode === 'play' && menuChosen ? '&menu=1' : '';
   if (state.mode === 'play' && !playStarted && !(live && hasSave(live.identity, storeGet))) {
-    if (location.hash !== `#mode=play${menu}`) history.replaceState(null, '', `#mode=play${menu}`);
+    if (location.hash !== `#mode=play${menu}${MP_HASH}`) history.replaceState(null, '', `#mode=play${menu}${MP_HASH}`);
     return;
   }
   const b = state.blobbi;
   const blobbi = b.kind === 'v3-address' ? `pubkey=${b.pubkey}&d=${encodeURIComponent(b.d)}` : `blobbi=${encodeURIComponent(b.seed)}`;
-  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}${state.options.generatedHouse === false ? '&house=none' : ''}${menu}`;
+  location.hash = `seed=${encodeURIComponent(state.seed)}&mode=${state.mode}&${blobbi}&kind=${state.options.kind}&turtle=${encodeURIComponent(state.turtleSeed)}&variant=${state.shellVariant}${state.options.generatedHouse === false ? '&house=none' : ''}${menu}${MP_HASH}`;
 }
 
 // ─── World mode ──────────────────────────────────────────────────────────────
@@ -2064,6 +2071,45 @@ function titleFrame(now: number, real: number): void {
   ctx.drawImage(liveCanvas, 0, 0);
 }
 
+// ─── The multiplayer prototype (development only; docs/architecture/MULTIPLAYER-PROTOTYPE.md) ──────────────────
+// `#…&mp=1` joins this world's room on the development relay (`npm run mp:relay`; `mprelay=ws://host:port` names
+// another), `#…&mp=tab` joins it between this browser's tabs; `mpcode=…` makes a private room. Everyone in the same
+// generated world (same identity, same generator) meets; each sees the others' Blobbis walk. Nothing else is shared
+// (no inventory, no economy, no combat), nothing is signed, published or kept. Never in a production build.
+const MP_MODE = import.meta.env.DEV ? params.get('mp') : null;
+const MP_ID = `p-${Math.random().toString(36).slice(2, 12)}`;
+let mp: MultiplayerSession | null = null;
+let mpKey: string | null = null;
+let mpCount = 0;
+function stepMultiplayer(l: LiveWorld, nowMs: number): void {
+  if (!MP_MODE || !viewRenderer) return;
+  const room = worldRoom(l.identity, GENERATOR_VERSION, params.get('mpcode') ?? '');
+  const stage = l.blobbi.identity.stage === 'baby' ? 'baby' : 'adult';
+  const key = `${room}|${l.blobbi.seed}|${stage}|${shownName ?? ''}`;
+  if (key !== mpKey) {
+    // A new room (another world) or a new Blobbi: leave and join afresh, so the others meet the right one
+    mp?.dispose();
+    mpKey = key;
+    mpCount = 0;
+    const base = params.get('mprelay') ?? `ws://${location.hostname || '127.0.0.1'}:5188`;
+    const url = MP_MODE === 'tab' ? null : roomUrl(base, room);
+    mp = new MultiplayerSession({ transport: url ? socketTransport(url) : channelTransport(room), self: { id: MP_ID, name: (shownName ?? 'Blobbi').slice(0, 40), seed: l.blobbi.seed, stage, world: room }, now: () => performance.now() });
+  }
+  const session = mp!;
+  const pose = l.blobbi.animator.pose(l.clock.time);
+  session.tick({ x: l.blobbi.x, y: l.blobbi.y, view: pose.view, facing: pose.facing, moving: pose.walk >= 0, face: pose.expression, away: l.getPresenceState() !== 'present' || !!l.interior }, nowMs);
+  const views = l.interior ? [] : session.views(nowMs);
+  viewRenderer.remotes = views;
+  // A word when someone comes or goes (the count of those standing in this world)
+  const count = views.length;
+  if (count !== mpCount) {
+    const joined = count > mpCount;
+    mpCount = count;
+    l.notices.push({ heading: 'Together', title: joined ? 'A friend arrived' : 'A friend left', text: count ? `${count} other Blobbi${count > 1 ? 's' : ''} here` : 'Just you now', until: Math.max(l.clock.time, l.notices.at(-1)?.until ?? 0) + 3 });
+  }
+}
+if (MP_MODE) window.addEventListener('pagehide', () => mp?.dispose());
+
 function playFrame(now: number): void {
   rafId = requestAnimationFrame(playFrame);
   // The text size is a drawing preference (M11B): read each frame, so a change shows at once.
@@ -2102,6 +2148,7 @@ function playFrame(now: number): void {
   viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
   const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
+  stepMultiplayer(live, now);
   const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox, blobbiName: shownName });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
@@ -2402,7 +2449,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, entry: () => entry, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced), companion: () => companion };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, entry: () => entry, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced), companion: () => companion, mp: () => mp };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
