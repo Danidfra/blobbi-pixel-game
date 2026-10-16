@@ -119,7 +119,11 @@ a stored write superseded by a newer profile is dropped. No profile: nothing mad
 question), by the connected account whose identity is really here (its key in the vault, or the extension verified),
 for a Blobbi of its own collection. Never a reload, an automatic entry or resume, an adopted choice, a visitor or a
 Blobbi met here and not shared. Failures are said once (a notice) and retried in the visit (back online, 15/60/180 s)
-or by TRY AGAIN in MY BLOBBIS; a signer that said no is not retried by itself.
+or by TRY AGAIN in MY BLOBBIS; a signer that said no is not retried by itself. Only the player's own acts may ask the
+browser extension to sign (it shows every request): an automatic retry resends a write already signed, and one that
+would need a new signature waits for TRY AGAIN (`needs-signature`); the vault signs silently, so its retries may sign.
+The account is checked again right before anything is sent. A stage refreshed in MY BLOBBIS (a Blobbi grown up in
+another app) is not a choice: only the stored stage changes (`setSelectionStage`), never stamped, never shared.
 
 **Meeting a choice made elsewhere** (`src/game/companion-sync.ts`): the current Blobbi is read every minute while the
 game is in front, when the page comes back and when the connection returns; a newer one comes along by teleport, only
@@ -129,7 +133,15 @@ BLOBBIS asks (KEEP <here> / BRING <there>).
 
 **Audit of the existing writer.** Registration (`activation.ts`) set `current_companion` and merged over whatever
 profile the answering relays returned; it now also needs a complete read before building OVER an existing profile (a
-newer one on a silent relay could have lost what it listed) (`tests/m11d6.test.ts`).
+newer one on a silent relay could have lost what it listed) (`tests/m11d6.test.ts`). A registration resumed after
+the player chose another companion elsewhere (a profile written after the consent naming another Blobbi) lists the
+registered Blobbi in `has` and keeps that newer choice; its profile always comes after the one it replaces
+(`created_at` = max(now, base + 1)).
+
+**Choice order v1.1 (proposed, deferred).** A confirmed write of ours replaced within a short window by a profile
+naming exactly the companion our write replaced would be put to the player rather than followed silently (it may be a
+stale writer restoring an old profile). Both apps together, with the shared vectors; no tag format change, no new kind.
+Not implemented.
 
 **Kit (recommended, not done):** `orderChoices`, the template and `preservesProfile` are pure and the same in both
 apps; a `@blobbi-kit/core` release could hold them, and the kit's `fetchFreshBlobbonautProfile` could gain the NIP-01
