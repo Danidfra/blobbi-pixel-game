@@ -62,10 +62,12 @@ export const isProfile = (e: { kind: number; tags: string[][] }): boolean => isV
  * The owner's 11125 profile listing the Blobbi (merged over an existing one, never dropping a Blobbi or a tag). A
  * legacy 31125 profile is carried over into the 11125 with the kit's canonical d.
  */
-export function profileTemplate(owner: string, d: string, now: number, existing: { kind?: number; tags: string[][]; content: string } | null): EventTemplate {
+export function profileTemplate(owner: string, d: string, now: number, existing: { kind?: number; tags: string[][]; content: string } | null, opts: { keepCompanion?: boolean } = {}): EventTemplate {
   const base = existing ? existing.tags.map((t) => (t[0] === 'd' && existing.kind === KIND_BLOBBONAUT_PROFILE_LEGACY ? ['d', getCanonicalBlobbonautD(owner)] : [...t])) : buildBlobbonautTags(owner);
   const has = base.filter((t) => t[0] === 'has' && t[1]).map((t) => t[1]);
-  const tags = updateBlobbonautTags(base, { has: addPetToHas(has, d), current_companion: d });
+  // Companion sync: `keepCompanion` lists the Blobbi without making it the current one (a newer choice stands)
+  const keep = !!opts.keepCompanion && base.some((t) => t[0] === 'current_companion' && t[1]);
+  const tags = updateBlobbonautTags(base, keep ? { has: addPetToHas(has, d) } : { has: addPetToHas(has, d), current_companion: d });
   return { kind: KIND_BLOBBONAUT_PROFILE, created_at: now, tags, content: existing?.content ?? '' };
 }
 

@@ -210,6 +210,14 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
     if (e.pubkey !== f.owner || !verifyEvent(e)) return stop('wrong-signer');
     return e;
   };
+  // Companion sync: a companion chosen elsewhere AFTER the player consented to this registration is the newer act. A
+  // profile built over it (a resumed run, or one merged over just before sending) lists the Blobbi but keeps that
+  // choice; a profile from before the consent is the one this registration's Blobbi replaces as the current one.
+  const chosenSince = (p: NostrEvent | null) => {
+    const current = p?.tags.find((t) => t[0] === 'current_companion')?.[1];
+    return !!p && !!current && current !== d && p.created_at * 1000 > run.consentAt;
+  };
+  const buildProfile = (over: NostrEvent | null) => profileTemplate(f.owner, d, over ? Math.max(nowS(), over.created_at + 1) : nowS(), over, { keepCompanion: chosenSince(over) });
   const askBlobbi = () => publisher.query({ kinds: [31124], authors: [f.owner], '#d': [d], limit: 10 }, timeout);
   const askProfile = () => publisher.query(profileFilter(f.owner), timeout);
   save({});
@@ -228,7 +236,7 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
     if (needsProfile && existingProfile && !profileReadComplete(publisher, profileAnswer)) stop('unreachable');
     const blobbi = run.blobbi ?? existingBlobbi ?? (await signAs(babyStateTemplate(f, nowS())));
     if (!isCanonicalBlobbi(blobbi)) stop('not-canonical');
-    const profile = run.profile ?? (existingProfile?.kind === 11125 && lists(existingProfile, d) ? existingProfile : await signAs(profileTemplate(f.owner, d, nowS(), existingProfile)));
+    const profile = run.profile ?? (existingProfile?.kind === 11125 && lists(existingProfile, d) ? existingProfile : await signAs(buildProfile(existingProfile)));
     // What the relays already hold counts as held (an adopted Blobbi or profile is not sent again where it is).
     const seenOn = { blobbi: union(run.seenOn!.blobbi, holdersOfBlobbi(blobbiAnswer, blobbi)), profile: union(run.seenOn!.profile, holdersOfListing(profileAnswer, f.owner, d)) };
     save({ blobbi, profile, seenOn, adopted: run.adopted || (!!existingBlobbi && existingBlobbi.id === blobbi.id), stage: 'signed', lastProblem: null });
@@ -254,7 +262,7 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
       // Just before the profile goes out: a newer one made meanwhile (another app) is merged over, never replaced.
       const again = await askProfile();
       const latest = newestProfile(again.events, f.owner);
-      if (latest && latest.id !== run.profile!.id && latest.created_at >= run.profile!.created_at) save({ profile: latest.kind === 11125 && lists(latest, d) ? latest : await signAs(profileTemplate(f.owner, d, Math.max(nowS(), latest.created_at + 1), latest)) });
+      if (latest && latest.id !== run.profile!.id && latest.created_at >= run.profile!.created_at) save({ profile: latest.kind === 11125 && lists(latest, d) ? latest : await signAs(buildProfile(latest)) });
     }
     const acks = await publisher.publish(run.profile!, timeout, missing(run.seenOn!.profile));
     save({ accepted: { ...run.accepted, profile: union(run.accepted.profile, accepted(acks)) } });

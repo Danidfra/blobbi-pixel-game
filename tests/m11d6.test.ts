@@ -298,6 +298,49 @@ describe("M11D.6: the owner's profile is never rebuilt from a guess", () => {
     expect(done.profile!.tags).toContainEqual(['coins', '7']); // another app's tag kept
   }, 30_000);
 
+  it('companion sync: a resumed registration keeps a companion chosen elsewhere after the consent (the Blobbi is listed, not made current)', async () => {
+    const o = owner();
+    let refuseProfile = true;
+    const relay = memoryRelay({ mode: 'live', url: 'memory://live', refuse: (e) => e.kind === 11125 && refuseProfile });
+    const store = memoryStore();
+    let now = 1_760_000_000_000;
+    const deps = { store, publisher: relay, sign: o.sign, now: () => now, sleep: noSleep };
+    const req = { facts: { owner: o.pk, petId: 'cccccccccc', name: 'Pip', bornAt: 1 }, consent: true, backupVerified: true, ownerKind: 'account' as const, mayHaveProfile: true };
+    await expect(activate(req, deps)).rejects.toMatchObject({ problem: 'publish-failed' });
+    // Days later the player chose another Blobbi in Standalone; the registration is resumed after that
+    refuseProfile = false;
+    const chosen = getCanonicalBlobbiD(o.pk, 'eeeeeeeeee');
+    now += 3 * 86_400_000;
+    await relay.publish(finalizeEvent(profileTemplate(o.pk, chosen, Math.floor(now / 1000), null), o.sk), 1000);
+    now += 60_000;
+    const done = await activate(req, deps);
+    const tagOf = (n: string) => done.profile!.tags.filter((t) => t[0] === n).map((t) => t[1]);
+    expect(tagOf('has')).toEqual(expect.arrayContaining([chosen, getCanonicalBlobbiD(o.pk, 'cccccccccc')]));
+    expect(tagOf('current_companion')).toEqual([chosen]);
+    expect(done.profile!.created_at).toBeGreaterThan(Math.floor((now - 60_000) / 1000));
+  }, 30_000);
+
+  it('companion sync: a profile from before the consent still gets the registered Blobbi as the current one; created_at after it', async () => {
+    const o = owner();
+    const relay = memoryRelay({ mode: 'live', url: 'memory://live' });
+    const consentAt = 1_760_000_000_000;
+    const before = getCanonicalBlobbiD(o.pk, 'aaaaaaaaaa');
+    // A profile made ten minutes before the player consented, naming another Blobbi
+    const ahead = finalizeEvent(profileTemplate(o.pk, before, Math.floor(consentAt / 1000) - 600, null), o.sk);
+    await relay.publish(ahead, 1000);
+    const done = await activate({ facts: { owner: o.pk, petId: 'bbbbbbbbbb', name: 'Pip', bornAt: 1 }, consent: true, backupVerified: true, ownerKind: 'account', mayHaveProfile: true }, { store: memoryStore(), publisher: relay, sign: o.sign, now: () => consentAt, sleep: noSleep });
+    expect(done.profile!.tags.filter((t) => t[0] === 'current_companion').map((t) => t[1])).toEqual([getCanonicalBlobbiD(o.pk, 'bbbbbbbbbb')]);
+    expect(done.profile!.created_at).toBeGreaterThan(ahead.created_at);
+
+    const o2 = owner();
+    const relay2 = memoryRelay({ mode: 'live', url: 'memory://live' });
+    const future = finalizeEvent(profileTemplate(o2.pk, getCanonicalBlobbiD(o2.pk, 'aaaaaaaaaa'), Math.floor(consentAt / 1000) - 10, null), o2.sk);
+    await relay2.publish({ ...future }, 1000);
+    const later = await activate({ facts: { owner: o2.pk, petId: 'bbbbbbbbbb', name: 'Pip', bornAt: 1 }, consent: true, backupVerified: true, ownerKind: 'account', mayHaveProfile: true }, { store: memoryStore(), publisher: relay2, sign: o2.sign, now: () => consentAt - 30_000, sleep: noSleep });
+    // This device's clock is behind the profile it replaces: the registration still comes after it
+    expect(later.profile!.created_at).toBe(future.created_at + 1);
+  }, 30_000);
+
   it('a legacy 31125 profile is carried into the 11125 with the canonical d, every tag kept', () => {
     const pk = getPublicKey(generateSecretKey());
     const legacy = { kind: 31125, tags: [['d', `blobbonaut-${pk.slice(0, 8)}`], ['b', 'blobbi:ecosystem:v1'], ['has', 'blobbi-old'], ['xp', '120']], content: 'hello' };
