@@ -21,17 +21,24 @@ session and no signature: play's entry always has the Blobbi here.
 
 **Turning it on.** Either of these works:
 
-- a build with `VITE_BLOBBI_WORLD_TRAVEL=nostr` **and** `VITE_BLOBBI_PUBLISH=live`
-  (M16.2). World travel signs and publishes the experimental kinds to the
-  public travel relays, so a rehearsal build never runs it, whatever the
-  travel flag says. A build with only the travel flag compiles it off;
-  checked in the built bundle;
+- a public beta build:
+  `VITE_BLOBBI_WORLD_TRAVEL=nostr VITE_BLOBBI_PUBLISH=live npm run build`.
+  World travel signs and publishes the experimental kinds to the public travel
+  relays, so it only ships in a LIVE build (which also publishes registration
+  live: a rehearsal build promises that nothing leaves the device). The build
+  says `World travel: ON in this build…`. The travel flag without
+  `VITE_BLOBBI_PUBLISH=live`, or an unknown value (`on`, `true`, a typo),
+  **stops the build** with the reason (`src/game/travel-build.ts`, checked by
+  `vite.config.ts`), so it is never quietly off; the page applies the same
+  rule at run time (`worldTravelMode`);
 - a development server with `#world-travel=nostr` in the page address, or
   `localStorage['blobbi:world-travel:v1'] = 'nostr'`. A production build
   ignores both page flags.
 
-This is independent of the registration's publish mode: rehearsal stays
-rehearsal for registration.
+On a development server the page switches are independent of the
+registration's publish mode (rehearsal stays rehearsal for registration), and
+the server warns when `VITE_BLOBBI_WORLD_TRAVEL=nostr` makes moves go to the
+PUBLIC travel relays.
 
 **Who travels.** Only the connected account's own walking Blobbi, at
 `31124:<pubkey>:<d>`. A guest or a local Blobbi has no session and walks
