@@ -1195,7 +1195,7 @@ const worldPresence = createPresenceHost({
 });
 
 // ─── M16: world travel on Nostr (src/game/travel-host.ts, src/nostr/world-travel.ts) ───
-// The Blobbi's canonical World is its World Location (kind 31126, provisional): when it is in Blobbi Home (on any
+// The Blobbi's canonical World is its World Location (kind 31126, experimental): when it is in Blobbi Home (on any
 // device), it is not walking here, and a few interactions in play (three within 20 s, the kit's count) call it over
 // with one signed event; "Call {name} here" in Settings > Account calls it at once. Off by
 // default: the build (`VITE_BLOBBI_WORLD_TRAVEL=nostr`) or, on a development server only, `#world-travel=nostr` or

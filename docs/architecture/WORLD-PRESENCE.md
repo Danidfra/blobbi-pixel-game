@@ -34,7 +34,7 @@ before.
 
 ## World travel on Nostr (M16)
 
-**Status: implemented, off by default (the kinds are provisional).** With it
+**Status: implemented, off by default (the kinds are experimental, `@blobbi-kit/core` 0.11.0).** With it
 on, the Blobbi's place is its **World Location** on Nostr (kind 31126; the
 protocol is `@blobbi-kit/core`'s world travel, specified in the kit's
 `packages/blobbi-core/WORLD-TRAVEL.md`). The place is the same on every
@@ -44,7 +44,7 @@ written**. With it off, v1 runs exactly as before.
 **Turning it on.** Either of these works:
 
 - a build with `VITE_BLOBBI_WORLD_TRAVEL=nostr` **and** `VITE_BLOBBI_PUBLISH=live`
-  (M16.2). World travel signs and publishes the provisional kinds to the
+  (M16.2). World travel signs and publishes the experimental kinds to the
   public travel relays, so a rehearsal build never runs it, whatever the
   travel flag says. A build with only the travel flag compiles it off;
   checked in the built bundle;
@@ -216,6 +216,6 @@ Tests: `tests/world-travel.test.ts`.
     so. With no session yet (the network module still loading, or failed),
     the Blobbi is never shown here by default. When the wait ends with no
     session, a notice says its place could not be checked.
-  - The session itself (kit 0.11.0-m16.4) still hears a relay slower than its
+  - The session itself (kit 0.11.0) still hears a relay slower than its
     timeout, and backs off its retries (5, 10, 20, 40 and 60 s). An
     `unreachable` place turns into `confirmed` by itself, shown as history.
