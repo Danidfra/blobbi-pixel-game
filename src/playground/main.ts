@@ -1487,6 +1487,12 @@ function beginPlay(): void {
     saveHash();
     touchWorld();
     if (live.intro.state === 'pending' && !live.visitor) {
+      // M16.1: not known to be here (away, or its place not known yet): absent from the very first frame, so the
+      // intro alone brings it in (its own arrival), never a glimpse before the cinematic takes over
+      if (worldTravel && !worldTravel.here() && live.teleport.state !== 'absent') {
+        live.teleport.cancelTransition();
+        live.teleport.state = 'absent';
+      }
       startWorldIntro();
       return;
     }
