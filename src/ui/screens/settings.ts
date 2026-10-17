@@ -50,6 +50,18 @@ export class SettingsScreen implements Screen {
   /** M11D.5: choose the walking Blobbi's name (shown while it waits for one). */
   onName: (() => void) | null = null;
   onIdentity: ((page: 'activate' | 'restore') => void) | null = null;
+  /**
+   * M16, world travel (only while it runs for the connected account's own Blobbi): call the Blobbi here from another
+   * Blobbi world (the player's explicit request), and the opt-in Active Presence ("show when I play"). Without it the
+   * rows are not shown.
+   */
+  travel: {
+    name(): string;
+    /** Whether the Blobbi is here, and the presence status (`off`, `on`, `paused-prompting`, `declined`, `unavailable`); null without a session. */
+    state(): { here: boolean; presence: string } | null;
+    callHere(): void;
+    setPresence(on: boolean): void;
+  } | null = null;
   /** M11D.3: back to the main menu (the island is saved first; the playground sets it while playing). */
   onMainMenu: (() => void) | null = null;
   /** Whether MAIN MENU applies now (only while playing, never from the title itself). */
@@ -148,11 +160,32 @@ export class SettingsScreen implements Screen {
       ];
     return [
       ...(this.onMyBlobbis ? [{ label: t('account.myBlobbis'), run: () => this.onMyBlobbis?.() }] : []),
+      ...this.travelRows(ui),
       ...identityRows,
       { label: t('account.disconnect'), run: () => (acc.disconnect(), (this.index = 0), ui.say(t('account.disconnected'))) },
       { label: t('account.checkAgain'), run: () => void acc.connect() },
       { label: t(this.advanced ? 'account.hideAdvanced' : 'account.advanced'), run: () => (this.advanced = !this.advanced) },
       help,
+    ];
+  }
+
+  /** M16: CALL <NAME> HERE while it is elsewhere, and SHOW WHEN I PLAY (Active Presence, off unless the player turns it on). */
+  private travelRows(ui: GameUI): Row[] {
+    const tr = this.travel;
+    const st = tr?.state();
+    if (!tr || !st) return [];
+    const name = tr.name();
+    const on = st.presence !== 'off';
+    const label = st.presence === 'paused-prompting' ? t('account.presencePaused') : st.presence === 'declined' ? t('account.presenceDeclined') : t('account.presence', { state: onOff(on && st.presence !== 'unavailable') });
+    return [
+      ...(st.here ? [] : [{ label: t('account.callHere', { name }), run: () => (tr.callHere(), ui.close()) }]),
+      {
+        label,
+        run: () => {
+          // Paused or refused: turning it on again is a new try; on: off
+          tr.setPresence(st.presence !== 'on');
+        },
+      },
     ];
   }
 

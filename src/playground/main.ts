@@ -26,6 +26,8 @@ import { loadAccount } from '../nostr/account-store';
 import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
 import { createPresenceHost } from '../game/presence-host';
+import { activePresenceKey, createTravelHost, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
+import { WORLD_HOME, createWorldTravel, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
 import { cookieLeaseStore } from '../game/presence-page';
 import { HOME_APP } from '../game/world-presence';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
@@ -1149,8 +1151,20 @@ account.onChange(() => companion.accountChanged());
 // back with the next key or tap here. Only an account's own Blobbi travels (a guest or local one stays). Nothing is
 // sent anywhere: the lease is a first-party cookie shared with the Blobbi home on the same site.
 const PRESENCE_OFF_KEY = 'blobbi:world-presence:v1';
+/** The game's own moment, which a departure waits for (world presence v1 and world travel alike). */
+function presenceBusy(): boolean {
+  const l = live;
+  if (!l) return true;
+  return gameUI.capturing || (!!l.bubble && l.bubble.until > l.clock.time) || !!(l.fishing || l.swing || l.restPlan || l.reveal || l.boat?.aboard || l.buildMode || l.placing || l.manage || l.moving);
+}
+/** The game's own journeys come first: the title, an intro, a visit's handoff, a change of Blobbi. */
+function presencePaused(): boolean {
+  return !live || !playStarted || title.active || !!intro || entry.active || visit.phase === 'departing' || visit.phase === 'returning' || !!live.swap;
+}
 const worldPresence = createPresenceHost({
   account: () => {
+    // M16: with world travel on Nostr, the cookie lease is never read or written
+    if (travelMode === 'nostr') return null;
     if (storeGetSafe(PRESENCE_OFF_KEY) === 'off') return null;
     const c = walkingCanonical();
     return c && connectedPubkey && c.address.startsWith(`31124:${connectedPubkey}:`) ? connectedPubkey : null;
@@ -1160,13 +1174,8 @@ const worldPresence = createPresenceHost({
     if (!l || !playStarted || title.active) return null;
     return { state: () => l.getPresenceState(), enter: () => void l.enterBlobbi(), leave: () => void l.leaveBlobbi() };
   },
-  busy: () => {
-    const l = live;
-    if (!l) return true;
-    return gameUI.capturing || (!!l.bubble && l.bubble.until > l.clock.time) || !!(l.fishing || l.swing || l.restPlan || l.reveal || l.boat?.aboard || l.buildMode || l.placing || l.manage || l.moving);
-  },
-  // The game's own journeys come first: the title, an intro, a visit's handoff, a change of Blobbi
-  paused: () => !live || !playStarted || title.active || !!intro || entry.active || visit.phase === 'departing' || visit.phase === 'returning' || !!live.swap,
+  busy: presenceBusy,
+  paused: presencePaused,
   onJourney: (kind, place) => {
     const l = live;
     if (!l) return;
@@ -1177,6 +1186,136 @@ const worldPresence = createPresenceHost({
   },
   store: (pubkey) => cookieLeaseStore(pubkey),
 });
+
+// ─── M16: world travel on Nostr (src/game/travel-host.ts, src/nostr/world-travel.ts) ───
+// The Blobbi's canonical World is its World Location (kind 31126, provisional): when it is in Blobbi Home (on any
+// device), it is not walking here, and the player's first press in play calls it over with one signed event. Off by
+// default: the build (`VITE_BLOBBI_WORLD_TRAVEL=nostr`) or, on a development server only, `#world-travel=nostr` or
+// `localStorage['blobbi:world-travel:v1'] = 'nostr'` turns it on. Only the connected account's own walking Blobbi
+// travels; the network module is loaded only in this mode, and a session starts only once it is.
+const travelMode = worldTravelMode({ buildMode: import.meta.env.VITE_BLOBBI_WORLD_TRAVEL, dev: import.meta.env.DEV, hash: params, stored: storeGetSafe(WORLD_TRAVEL_SWITCH_KEY) });
+let travelNet: typeof import('../nostr/world-travel') | null = null;
+if (travelMode === 'nostr') void import('../nostr/world-travel').then((m) => (travelNet = m));
+/** The account is still the one a session is for, and really here (its key in the vault, or the extension answered). */
+const travelAccount = (owner: string): boolean => {
+  const s = account.snapshot();
+  return s.status === 'connected' && s.pubkey === owner && (s.method === 'vault' || s.extension === 'verified');
+};
+function travelNotice(heading: string, body: string, seconds = 6): void {
+  const l = live;
+  if (!l || !playStarted || title.active) return;
+  l.notices.push({ heading: t('travel.heading'), title: heading, text: body, until: Math.max(l.clock.time, l.notices.at(-1)?.until ?? 0) + seconds });
+}
+const travelName = () => shownName || 'Blobbi';
+const placeWords = (place: string, name: string) => (place === WORLD_HOME ? t('travel.awayHome', { name }) : t('travel.awayElsewhere', { name }));
+let travelPhase = 'idle';
+let travelPresence = 'off';
+let travelAwayShown = -1;
+const worldTravel: TravelHost | null =
+  travelMode === 'nostr'
+    ? createTravelHost({
+        account: () => {
+          if (!travelNet || !connectedPubkey) return null;
+          const c = walkingCanonical();
+          const prefix = `31124:${connectedPubkey}:`;
+          if (!c || !c.address.startsWith(prefix) || account.snapshot().status !== 'connected') return null;
+          return { owner: connectedPubkey, d: c.address.slice(prefix.length) };
+        },
+        session: (owner, d, hooks) => {
+          const net = travelNet!;
+          let session: ReturnType<typeof createWorldTravel> | null = null;
+          const relays = net.pixelTravelRelays({ onReconnect: () => void session?.refresh() });
+          const signer = (): WorldTravelSigner | null => {
+            if (!travelAccount(owner)) return null;
+            const method = account.snapshot().method === 'vault' ? 'vault' : 'nip07';
+            return { mode: method === 'vault' ? 'silent' : 'prompt', sign: async (tpl) => (await identityService()).signAsAccount(owner, method, tpl) as never };
+          };
+          session = createWorldTravel({
+            owner,
+            d,
+            world: 'blobbi-pixel',
+            relays,
+            verify: net.verifyTravelEvent as never,
+            signer,
+            stillAccount: () => travelAccount(owner) && connectedPubkey === owner,
+            store: net.travelStore(),
+            lock: net.webLock(),
+            presenceEnabled: storeGetSafe(activePresenceKey(owner)) === 'on',
+            isActive: hooks.isActive,
+          });
+          travelPhase = 'idle';
+          travelAwayShown = -1;
+          return { session, setVisible: (v) => relays.setVisible(v) };
+        },
+        blobbi: () => {
+          const l = live;
+          if (!l || !playStarted || title.active) return null;
+          return { state: () => l.getPresenceState(), enter: () => void l.enterBlobbi(), leave: () => void l.leaveBlobbi(), settle: (st) => void l.settleBlobbi(st) };
+        },
+        busy: presenceBusy,
+        paused: presencePaused,
+        playing: () => !!live && playStarted && !title.active && !gameUI.capturing,
+        onJourney: (kind, place) => {
+          const name = travelName();
+          if (kind === 'leave') travelNotice(place === WORLD_HOME ? t('travel.leftHome', { name }) : t('travel.leftElsewhere', { name }), t('travel.callBack', { name }), 8);
+          else travelNotice(t('travel.back', { name }), t('travel.backText', { name }), 5);
+        },
+        onOutcome: (out, snap) => {
+          const name = travelName();
+          if (out === 'declined') travelNotice(t('travel.declined', { name }), t('travel.declinedText', { name }), 8);
+          else if (out === 'unreachable') travelNotice(t('travel.unreachable', { name }), t('travel.unreachableText'), 8);
+          else if (out === 'contended' || out === 'stale') travelNotice(t('travel.justMoved', { name }), t('travel.justMovedText', { name }), 6);
+          else if (out === 'moved' && !snap.here) travelNotice(t('travel.onTheWay', { name }), t('travel.onTheWayText'), 4);
+        },
+        onChange: (snap: WorldTravelSnapshot) => {
+          const phase = snap.travel.phase;
+          if (phase === 'signing' && travelPhase !== 'signing' && account.snapshot().method !== 'vault') travelNotice(t('travel.approve'), t('travel.approveText', { name: travelName() }), 6);
+          travelPhase = phase;
+          // Presence paused because the signer asked the player: say so once (the settings row says how to retry)
+          if (snap.presence.status === 'paused-prompting' && travelPresence !== 'paused-prompting') travelNotice(t('account.presencePaused'), t('account.presenceExplain'), 6);
+          travelPresence = snap.presence.status;
+        },
+      })
+    : null;
+/** Once per change of place met while away (the world opened with the Blobbi elsewhere): say where, and how to call it. */
+function travelAwayNotice(): void {
+  const snap = worldTravel?.snapshot();
+  if (!snap || snap.here || snap.status === 'loading' || snap.travel.phase !== 'idle' || travelAwayShown === snap.change.key || presencePaused()) return;
+  if (live?.getPresenceState() !== 'absent') return;
+  travelAwayShown = snap.change.key;
+  const name = travelName();
+  travelNotice(placeWords(snap.place, name), snap.presence.there ? t('travel.playingThere', { name }) : t('travel.callBack', { name }), 8);
+}
+settingsScreen.travel = worldTravel
+  ? {
+      name: travelName,
+      state: () => {
+        const snap = worldTravel.snapshot();
+        return snap ? { here: snap.here, presence: snap.presence.status } : null;
+      },
+      callHere: () => void worldTravel.callHere(),
+      setPresence: (on) => {
+        const owner = worldTravel.snapshot()?.owner;
+        if (!owner) return;
+        try {
+          if (on) localStorage.setItem(activePresenceKey(owner), 'on');
+          else localStorage.removeItem(activePresenceKey(owner));
+        } catch {
+          /* kept for this session only */
+        }
+        worldTravel.setPresenceEnabled(on);
+      },
+    }
+  : null;
+// A development aid for the browser checks (never in a production build: `import.meta.env.DEV` is false there)
+if (import.meta.env.DEV) {
+  (window as unknown as { __blobbiWorldTravel?: unknown }).__blobbiWorldTravel = {
+    mode: travelMode,
+    snapshot: () => worldTravel?.snapshot() ?? null,
+    shown: () => (live && playStarted ? live.getPresenceState() : null),
+    callHere: () => worldTravel?.callHere() ?? Promise.resolve(null),
+  };
+}
 function storeGetSafe(k: string): string | null {
   try {
     return localStorage.getItem(k);
@@ -2116,6 +2255,8 @@ function playFrame(now: number): void {
   // play are the player playing here, and must be seen (a page made only once play began missed them, and the
   // Blobbi was sent home right after its first arrival)
   worldPresence.update();
+  worldTravel?.update();
+  travelAwayNotice();
   if (state.mode !== 'play' || !live || !liveRenderer || !world) return;
   const real = lastFrameTime ? (now - lastFrameTime) / 1000 : 1 / 60;
   lastFrameTime = now;
