@@ -1422,7 +1422,10 @@ function beginPlay(): void {
     // M11D.3: a Blobbi coming back to an island it knows arrives in about half the time.
     live.teleport.pace = knownHere(live) ? QUICK_PACE : 1;
     live.teleport.state = 'absent';
-    live.enterBlobbi();
+    // M16: a Blobbi already known to be in another World does not arrive with play (it would appear and vanish at
+    // once); it stays away until the player calls it over. Still loading: it arrives, and a later answer settles it
+    const travelling = worldTravel?.snapshot();
+    if (!travelling || travelling.status === 'loading' || travelling.here) live.enterBlobbi();
     noteVisit(live);
   }
   view.focus();

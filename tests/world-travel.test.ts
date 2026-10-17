@@ -252,6 +252,40 @@ describe('world travel in Pixel: the player’s press', () => {
     expect(sign.asked).toEqual([]);
   });
 
+  it('the press that starts play (NEW ADVENTURE, CONTINUE) calls it over, even into an intro the game drives', async () => {
+    const { p, sign, state, host, net } = setup();
+    state.playing = false;
+    host.update();
+    await flush();
+    p.press(); // the title's ENTER, before play
+    state.playing = true;
+    state.paused = true; // the intro cinematic brings the Blobbi in itself
+    host.update();
+    await flush();
+    expect(sign.asked).toEqual([31126]);
+    expect(sent(net, 31126)).toHaveLength(1);
+    expect(host.here()).toBe(true);
+  });
+
+  it('play starting with no press (a startup that goes straight into an island) never travels, nor a press long before', async () => {
+    const { p, sign, state, host } = setup();
+    state.playing = false;
+    host.update();
+    await flush(60_000);
+    state.playing = true;
+    host.update();
+    await flush(10_000);
+    expect(sign.asked).toEqual([]);
+    state.playing = false;
+    host.update();
+    p.press();
+    await flush(5_000);
+    state.playing = true;
+    host.update();
+    await flush(10_000);
+    expect(sign.asked).toEqual([]);
+  });
+
   it('a press while the game drives the teleport (an intro, a visit) waits; the next press after it travels', async () => {
     const { p, sign, state } = setup();
     await flush();

@@ -68,6 +68,8 @@ export interface TravelHost {
 }
 
 const INPUTS = ['pointerdown', 'keydown'] as const;
+/** A press this recent when play begins is the press that began it. */
+export const PLAY_START_PRESS_MS = 2_000;
 
 export function createTravelHost(deps: TravelHostDeps): TravelHost {
   const doc = deps.doc ?? document;
@@ -87,6 +89,9 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
   let sync: TravelSync | null = null;
   let unsubscribe: (() => void) | null = null;
   let lastInputAt: number | null = null;
+  /** The last trusted press anywhere (the title's and menus' too): the press that starts play is the player's choice. */
+  let lastPressAt: number | null = null;
+  let wasPlaying = false;
   let visibleSince: number | null = visible() ? now() : null;
   let disposed = false;
 
@@ -113,6 +118,7 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
   const onInput = (e: Event) => {
     if (disposed || !handle) return;
     if (!isMeaningfulInput({ trusted: e.isTrusted, visible: visible(), focused: focused() || visible() })) return;
+    lastPressAt = now();
     if (!deps.playing()) return;
     lastInputAt = now();
     const s = handle.session.snapshot();
@@ -133,6 +139,15 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
   return {
     update() {
       if (disposed) return;
+      // Play starting because of a press (NEW ADVENTURE WITH BAMBU, CONTINUE...) is the player choosing to play with
+      // this Blobbi here: it is called over, as a press in play would. An entry with no press (a startup that goes
+      // straight into an island) never travels: nothing signs on load
+      const playing = deps.playing();
+      if (playing && !wasPlaying && handle && lastPressAt !== null && now() - lastPressAt < PLAY_START_PRESS_MS) {
+        const s = handle.session.snapshot();
+        if (!s.here && (s.travel.phase === 'idle' || s.travel.phase === 'failed')) void request(false);
+      }
+      wasPlaying = playing;
       const a = deps.account();
       if (a?.owner === owner && a?.d === d) return;
       stop();
