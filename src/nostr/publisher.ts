@@ -160,3 +160,21 @@ export function relayPublisher(relays: readonly string[] = PUBLISH_RELAYS): Publ
     },
   };
 }
+
+/**
+ * M16, WORLD TRAVEL: send one signed event to ONE relay (Nostrify `NRelay1`, opened for it and closed after).
+ * Resolves when the relay accepted it or already held it (`duplicate:`); rejects otherwise. Used only by world
+ * travel's relays (`world-travel.ts`), for a World Location the player asked for and the optional Active Presence.
+ */
+export async function sendToRelay(url: string, event: NostrEvent, signal: AbortSignal): Promise<void> {
+  const { NRelay1 } = await import('@nostrify/nostrify');
+  const relay = new NRelay1(url, { backoff: false, idleTimeout: false });
+  try {
+    await relay.event(event as never, { signal });
+  } catch (error) {
+    if (reasonOf(error) === 'duplicate') return;
+    throw error;
+  } finally {
+    void relay.close().catch(() => {});
+  }
+}

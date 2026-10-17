@@ -285,6 +285,21 @@ export class IdentityService implements IdentityPort {
   }
 
   /**
+   * M16, world travel: sign one World Location or Active Presence as the account itself, its key in this game's
+   * vault (`vault`, silent) or the browser extension (`nip07`; the extension shows its own prompt, and must answer
+   * for the very same key). Rejects when there is no way to sign as `owner`, or the signer answered for another key.
+   */
+  async signAsAccount(owner: string, method: 'vault' | 'nip07', template: EventTemplate): Promise<NostrEvent> {
+    let sign: ((t: EventTemplate) => Promise<NostrEvent>) | undefined;
+    if (method === 'vault') sign = (await this.keeps(owner)) ? (t) => this.o.vault.sign(owner, t) : undefined;
+    else sign = this.o.accountSigner;
+    if (!sign) throw new Error('no signer for this account');
+    const event = await sign(template);
+    if (event.pubkey !== owner) throw new Error('the signer answered for another account');
+    return event;
+  }
+
+  /**
    * Companion sync: write the player's choice (`req.d`, a Blobbi of `req.owner`) into their profile. Signed by the
    * account itself: its key in this game's vault (`vault`), or the browser extension (`nip07`; it must answer for
    * the very same key). `stillAccount` is asked before signing and before sending: a session that is no longer that
