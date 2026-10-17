@@ -63,21 +63,80 @@ loads no network library.
   location kept in localStorage). If it is elsewhere, the Blobbi is simply
   not there (`LiveWorld.settleBlobbi`, no departure replayed), and a notice
   says where it is.
-- **The player's first press or key in play** (trusted, visible, focused,
-  play started, not paused by the game's own journeys) calls it over. That
-  signs one World Location and publishes it, and the arrival plays after the
-  departure window. If it is already here, nothing is published. A press
-  within 5 s of a move elsewhere does not undo it. After a refusal, presses
-  ask nothing again for a minute. **Settings > Account > Call {name} here**
-  is the explicit request.
+- **Three interactions call it over (M16.1).** Each meaningful input in play
+  (a trusted press or key, in a visible, focused page, play started, not
+  paused by the game's own journeys) is passed to the kit's
+  `session.interact({ repeat })`. While the Blobbi is elsewhere, the kit
+  counts them. The **third within a rolling 20 s window** starts a casual
+  move: it signs one World Location and publishes it, and the arrival
+  follows. The threshold is the kit's default; Pixel has no setting for it.
+  - A held key's auto-repeat (`KeyboardEvent.repeat`) is never counted.
+    Inputs less than 1 s apart are one gesture, so walking with a held key
+    is one interaction, and walking by taps counts one per burst. Frames,
+    timers, focus, visibility, loading and scripts' (untrusted) events never
+    count.
+  - The first counted interaction may show a short notice, "{name} noticed
+    you", but only when no other notice is showing. At the spot where the
+    Blobbi would stand, one or two faint motes rise while the count runs (the
+    *noticed* cue).
+  - A move within 5 s of a move elsewhere does not undo it (`contended`).
+  - A refusal by the signer suspends casual following for the session
+    (`snapshot.follow.suspended`). Only an explicit request moves it then,
+    and a successful one resumes following.
+  - **Settings > Account > Call {name} here** is explicit and immediate
+    (`session.travel({ explicit: true })`).
+  - A new account or a new walking Blobbi is a new session, so its count
+    starts at zero.
 - **The press that starts play** (NEW ADVENTURE WITH BAMBU, CONTINUE, an island
-  opened from the list) counts the same way. Play beginning within 2 s of a
-  trusted press calls the Blobbi over, so the entry or the intro shows it
-  arriving. A Blobbi already known to be elsewhere skips the entry arrival
-  until it is called, so it never appears and then vanishes. Play that begins
-  with no press, such as a startup that goes straight into an island, never
-  travels. (Found in the cross-device browser run: the entry's arrival
-  showed the Blobbi, and the sync then took it away.)
+  opened from the list) counts as **one** interaction, never as a move by
+  itself: play beginning within 2 s of a trusted press calls `interact` once.
+  On a fresh device the place is not known yet, so that interaction is held
+  until it is (at most 10 s) rather than lost. Play that begins with no press,
+  such as a startup that goes straight into an island, never counts. A Blobbi
+  already known to be elsewhere skips the entry arrival, so it never appears
+  and then vanishes.
+- **Loading: the place not known yet (M16.2).** The kit's
+  `snapshot.resolution` is `pending` while the first look is under way and
+  this device kept no location. Pixel also treats "world travel on, an
+  account connected with its own walking Blobbi, but no session yet" (the
+  network module loads lazily) as not known. While it is not known:
+  - play's entry arrival is **held** (`entryDecision` in `travel-host.ts`).
+    The Blobbi is neither shown here nor sent away, and the travel sync is
+    paused;
+  - a small **"looking for {name}..."** cue shows at the spot: three faint
+    motes twinkling in turn, with a one-line caption under them. There is no
+    overlay, and menus and the rest of the game work as usual;
+  - nothing counts and nothing signs.
+
+  The hold ends once the place is known, and never later than
+  `ENTRY_HOLD_MAX_MS` (6 s: the relays' 4 s timeout plus the module's load).
+  - **Here** (`confirmed` or `cached`): the Blobbi arrives with the game's
+    usual entry teleport, from the spot the cue marked. Entering play is the
+    game's own journey, so it reads as "found it, here it comes" rather than
+    a pop.
+  - **Elsewhere:** the entry is skipped, and the away notice says where.
+  - **No relay answered** (`unreachable`): the kept location stands, or the
+    protocol's default place (Blobbi Home) if there is none. A notice says
+    so honestly: "The relays did not answer...". It never loads forever.
+  - **No session could start in time:** the Blobbi walks freely, as with
+    world travel off.
+
+  A reload shows the kept location at once (`cached`), so the entry does not
+  wait.
+- **Arrival timing (M16.2).** Pixel passes `arrivalLeadMs` = 1900 ms (1140
+  with reduced motion, which runs the teleport at 0.6). That is
+  `ARRIVE.rebuildStart` in `src/game/teleport.ts`: the pixels fall from the
+  sky for 1.9 s, and then the body starts to rebuild, which is the moment the
+  Blobbi is first seen. The kit starts the arrival that much early, so the
+  falling pixels overlap the 2 s departure window instead of adding to it.
+  The Blobbi forms at the kit's `formAt`, no sooner than its 1.5 s minimum
+  after the act. While a move is under way (the kit's `travelView` says
+  `coming`: checking, signing, publishing, or waiting for the arrival), a
+  **calling** cue plays at the spot: bright motes rising in a small column
+  over a pale glint on the ground. The teleport's own arrival then takes
+  over. So each transfer reads as cue, then arrival. The cue is drawn only
+  while the Blobbi is absent, and both are pure functions of time, so there
+  is nothing to replay and no loop after a reconnect.
 - **A move made elsewhere** (Blobbi Home on any device) arrives on the stream
   or the next look. The Blobbi departs with the game's teleport once the
   game's moment ends (the same busy and paused rules as v1).
@@ -118,7 +177,11 @@ session is read-only.
   moves the Blobbi.
 
 **Development aid.** On a dev server only, `window.__blobbiWorldTravel` is
-installed: `{ mode, snapshot(), shown(), callHere() }`. A test pins it behind
+installed: `{ mode, snapshot(), shown(), callHere(), looking(), coming(),
+held(), cue() }`. `snapshot()` includes `resolution` and `follow`. `looking()`
+means the "looking for" state (the place not known). `coming()` is the kit's
+`coming` view. `held()` means play's entry is held, and `cue()` names the cue
+drawn now (`looking`, `noticed`, `calling` or null). A test pins it behind
 `import.meta.env.DEV`, and the production build does not contain it.
 
 Tests: `tests/world-travel.test.ts`.
