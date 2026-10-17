@@ -3,7 +3,8 @@
  * real keys and signatures, several in-memory relays, and a pretend page (trusted and untrusted inputs, visibility).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type NostrEvent } from 'nostr-tools/pure';
 import { WORLD_HOME, WORLD_PIXEL, buildWorldLocationTemplate, createWorldTravel, parseWorldLocation, type ShownBlobbi, type ShownState, type TravelOutcome, type WorldTravelRelays, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
 import { ENTRY_HOLD_MAX_MS, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, type TravelHostDeps } from '../src/game/travel-host';
@@ -790,9 +791,18 @@ describe('the switch, the settings rows and the dev aid', () => {
     expect(worldTravelMode({ dev: true, hash: none, stored: 'on' })).toBe('off');
   });
 
-  it('the v1 cookie lease is not used while world travel is on (its account() answers nobody)', () => {
+  it('Nostr is the only model of where the Blobbi is: no cookie anywhere in the game, and travel off loads no network', () => {
+    const files = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : /\.ts$/.test(e.name) ? [join(dir, e.name)] : []));
+    for (const f of files('src')) expect(readFileSync(f, 'utf8'), f).not.toMatch(/document\.cookie|cookieStore/);
     const main = readFileSync('src/playground/main.ts', 'utf8');
-    expect(main).toMatch(/if \(travelMode === 'nostr'\) return null;\n\s+if \(storeGetSafe\(PRESENCE_OFF_KEY\)/);
+    expect(main).not.toMatch(/presence-host|presence-page|world-presence'/);
+    // The network half is loaded only when world travel is on
+    const loads = main.split('\n').filter((l) => l.includes("void import('../nostr/world-travel')") || l.includes("await import('../nostr/world-travel')"));
+    expect(loads).toEqual(["if (travelMode === 'nostr') void import('../nostr/world-travel').then((m) => (travelNet = m));"]);
+    // Travel off: no host at all, and play's entry always has the Blobbi here (normal play, nothing signed or sent)
+    expect(main).toMatch(/const worldTravel: TravelHost \| null =\n\s+travelMode === 'nostr'\n\s+\? createTravelHost\(/);
+    expect(main).toMatch(/function entryHere\(\): boolean \{\n\s+if \(!worldTravel \|\| !travelCandidate\(\)\) return true;/);
   });
 
   it('the browser-check aid exists only behind import.meta.env.DEV', () => {

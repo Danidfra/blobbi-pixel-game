@@ -25,11 +25,8 @@ import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
 import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
-import { createPresenceHost } from '../game/presence-host';
 import { activePresenceKey, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
 import { WORLD_HOME, createWorldTravel, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
-import { cookieLeaseStore } from '../game/presence-page';
-import { HOME_APP } from '../game/world-presence';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
@@ -1147,18 +1144,14 @@ blobbisScreen.companion = {
 };
 account.onChange(() => companion.accountChanged());
 
-// ─── World presence (src/game/presence-host.ts): the account's Blobbi is here while the player plays here ───
-// It goes home when the player plays in the Blobbi home instead, or when this tab is left hidden or idle; it comes
-// back with the next key or tap here. Only an account's own Blobbi travels (a guest or local one stays). Nothing is
-// sent anywhere: the lease is a first-party cookie shared with the Blobbi home on the same site.
-const PRESENCE_OFF_KEY = 'blobbi:world-presence:v1';
+// ─── The game's moments that a world-travel journey waits for, or stands aside from ───
 /**
  * M16.2: the entry arrival held back while world travel does not know yet where the Blobbi is (a fresh device's first
  * look at the relays, the network module still loading): it is neither shown here nor sent away until the answer.
  * Bounded (`ENTRY_HOLD_MAX_MS`): the game never waits on the network for longer than the relays' timeout and a little.
  */
 let entryHold: { since: number } | null = null;
-/** The game's own moment, which a departure waits for (world presence v1 and world travel alike). */
+/** The game's own moment, which a world-travel departure waits for. */
 function presenceBusy(): boolean {
   const l = live;
   if (!l) return true;
@@ -1168,31 +1161,6 @@ function presenceBusy(): boolean {
 function presencePaused(): boolean {
   return !live || !playStarted || title.active || !!intro || entry.active || visit.phase === 'departing' || visit.phase === 'returning' || !!live.swap || !!entryHold;
 }
-const worldPresence = createPresenceHost({
-  account: () => {
-    // M16: with world travel on Nostr, the cookie lease is never read or written
-    if (travelMode === 'nostr') return null;
-    if (storeGetSafe(PRESENCE_OFF_KEY) === 'off') return null;
-    const c = walkingCanonical();
-    return c && connectedPubkey && c.address.startsWith(`31124:${connectedPubkey}:`) ? connectedPubkey : null;
-  },
-  blobbi: () => {
-    const l = live;
-    if (!l || !playStarted || title.active) return null;
-    return { state: () => l.getPresenceState(), enter: () => void l.enterBlobbi(), leave: () => void l.leaveBlobbi() };
-  },
-  busy: presenceBusy,
-  paused: presencePaused,
-  onJourney: (kind, place) => {
-    const l = live;
-    if (!l) return;
-    const name = shownName || 'Blobbi';
-    const until = Math.max(l.clock.time, l.notices.at(-1)?.until ?? 0) + (kind === 'leave' ? 8 : 5);
-    if (kind === 'leave') l.notices.push({ heading: t('presence.heading'), title: place === HOME_APP ? t('presence.leftHome', { name }) : t('presence.leftElsewhere', { name }), text: t('presence.callBack', { name }), until });
-    else l.notices.push({ heading: t('presence.heading'), title: t('presence.back', { name }), text: t('presence.backText', { name }), until });
-  },
-  store: (pubkey) => cookieLeaseStore(pubkey),
-});
 
 // ─── M16: world travel on Nostr (src/game/travel-host.ts, src/nostr/world-travel.ts) ───
 // The Blobbi's canonical World is its World Location (kind 31126, experimental): when it is in Blobbi Home (on any
@@ -2355,10 +2323,8 @@ function playFrame(now: number): void {
   rafId = requestAnimationFrame(playFrame);
   // The text size is a drawing preference (M11B): read each frame, so a change shows at once.
   textPreference.smaller = gameUI.settings.textSize === 'small';
-  // World presence follows the account from the first frame, the title's and the intro's too: the presses that start
-  // play are the player playing here, and must be seen (a page made only once play began missed them, and the
-  // Blobbi was sent home right after its first arrival)
-  worldPresence.update();
+  // World travel follows the account from the first frame, the title's and the intro's too: the presses that start
+  // play are the player playing here, and must be seen
   worldTravel?.update();
   resolveEntryHold();
   travelAwayNotice();

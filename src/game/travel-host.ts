@@ -3,14 +3,14 @@
  * kind 31126; `@blobbi-kit/core`'s world-travel). When it is elsewhere (Blobbi Home on any device), it is not walking
  * here; a few interactions with this World call it over (M16.1: the kit's `interact`, three distinct ones within
  * 20 s, then one signed World Location), "Call {name} here" calls it at once, and a move made elsewhere sends it away
- * with the game's own teleport. Replaces world presence v1's cookie lease while world travel is on (the
- * cookie is then never read or written); with it off, `presence-host.ts` runs exactly as before.
+ * with the game's own teleport. It is the only model of where the Blobbi is (the cookie-based world presence v1 was
+ * removed): with world travel off, the Blobbi simply walks here, and nothing about its place is read, kept or sent.
  *
  * The host only wires it. Who may travel (the connected account's own walking Blobbi), the session (relays, signer,
  * store; `src/nostr/world-travel.ts`), the teleport (`LiveWorld.leaveBlobbi` / `enterBlobbi` / `settleBlobbi`) and the
  * words are the playground's. Nothing here reaches the network.
  *
- * Rules kept from v1: only a real input (a trusted press or key in a visible, focused page) is the player's act, and
+ * Rules: only a real input (a trusted press or key in a visible, focused page) is the player's act, and
  * only once play has started (the title's and menus' own presses are not); focus, visibility, a timer, a frame or a
  * remote change never count. A held key's auto-repeat (`KeyboardEvent.repeat`) is never counted, and inputs less than
  * a second apart are one gesture (the kit's gap), so walking with a held key is one interaction and walking by taps
