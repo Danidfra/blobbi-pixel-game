@@ -63,6 +63,9 @@ export interface QueryOptions {
   /**
    * M11D.8.4: once one relay has answered, how long the others still get (ms). Without it every relay is waited for
    * until the caller aborts. Either way the answers that DID arrive are kept: a slow relay never erases them.
+   * M16.2: only an answer WITH events starts the grace. An empty answer is not evidence that the slower relays hold
+   * nothing (a relay that never saw the player answers first, and empty): before, it cut the relays that hold the
+   * profile off after 1.5 s, and a fresh device with slow relays read "no profile".
    */
   graceMs?: number;
   /** The connection to use (tests); default `NRelay1`, opened for the request and closed after. */
@@ -103,7 +106,7 @@ export async function queryRelays(relays: readonly string[], filter: Record<stri
         if (both.aborted) return;
         reachable++;
         events.push(...got);
-        if (o.graceMs !== undefined && grace === undefined && reachable < relays.length) grace = setTimeout(() => (stop.abort(), finish()), o.graceMs);
+        if (o.graceMs !== undefined && grace === undefined && got.length > 0 && reachable < relays.length) grace = setTimeout(() => (stop.abort(), finish()), o.graceMs);
       } catch {
         // Not reached (refused, failed, aborted): counted as not answering.
       } finally {

@@ -93,6 +93,8 @@ export async function resolveCurrentBlobbi(owner: string, deps: CurrentBlobbiDep
   const partial = profileRes.reachable < deps.relays.length || !blobbiRes || blobbiRes.reachable < deps.relays.length;
   const items = blobbiRes && blobbiRes.reachable > 0 ? pickBlobbis(authentic(blobbiRes.events), owner).items : [];
   const profile = pickBlobbonautProfile(authentic(profileRes.events), owner);
+  // M16.2: "no profile" from only some of the relays is not knowledge (the others may hold it): nothing is decided
+  if (!profile && profileRes.reachable < deps.relays.length) return { status: 'unavailable' };
   if (!profile) return { status: 'no-selection', reason: 'no-profile', items, partial };
   const d = parseBlobbonautEvent(profile)?.currentCompanion?.trim();
   const seen = { id: profile.id, createdAt: profile.created_at };

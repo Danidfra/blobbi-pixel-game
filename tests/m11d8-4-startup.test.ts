@@ -326,3 +326,46 @@ describe('M11D.8.4: the order rule itself', () => {
     expect(decideEntry({ ...base, local: { at: null, by: null, existedBy: NOW - 20 * MIN } })).toEqual(BRING_MOON);
   });
 });
+
+describe('M16.2: slow relays never read as "no profile"', () => {
+  it('ROOT CAUSE: an empty relay answering first no longer cuts off the slower relays that hold the profile', async () => {
+    // relay.dreamith.to never saw this player (answers at once, empty); the two that hold the profile take 400 ms
+    const all = () => [boca, moon, profileNaming(MOON_D, T0)];
+    const sent: NostrEvent[][] = [];
+    const conn = (url: string): RelayConnection => ({
+      query: (filters, { signal }) =>
+        new Promise((resolve, reject) => {
+          const kinds = (filters[0] as { kinds: number[] }).kinds;
+          const empty = url.includes('dreamith');
+          const timer = setTimeout(() => {
+            const got = empty ? [] : all().filter((e) => kinds.includes(e.kind));
+            sent.push(got);
+            resolve(got);
+          }, empty ? 5 : 400);
+          signal.addEventListener('abort', () => (clearTimeout(timer), reject(new DOMException('aborted', 'AbortError'))), { once: true });
+        }),
+      close: () => {},
+    });
+    const res = await resolveCurrentBlobbi(OWNER, { relays: READ_RELAYS, timeoutMs: 6000, profiles: relayBlobbonautReader({ open: conn, graceMs: 150 }), blobbis: relayBlobbiReader({ open: conn, graceMs: 150 }) });
+    expect(res.status).toBe('current');
+    expect(res.status === 'current' && res.blobbi.name).toBe('Moon');
+  });
+
+  it('the grace still applies once a relay answered WITH events (one slow relay does not hold the entry)', async () => {
+    const r = relaysWith(() => [boca, moon, profileNaming(MOON_D, T0)], { 'relay.dreamith.to': { hang: true } });
+    const started = Date.now();
+    const res = await r.resolve(5_000, 100);
+    expect(res.status).toBe('current');
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('no profile from only some relays (the others did not answer in time) is "unavailable", never "no profile"', async () => {
+    const r = relaysWith(() => [], { 'relay.ditto.pub': { hang: true }, 'relay.primal.net': { hang: true } });
+    expect(await r.resolve(200)).toEqual({ status: 'unavailable' });
+  });
+
+  it('no profile from every relay is still "no profile" (a player who never chose)', async () => {
+    const r = relaysWith(() => []);
+    expect(await r.resolve(300)).toMatchObject({ status: 'no-selection', reason: 'no-profile', partial: false });
+  });
+});
