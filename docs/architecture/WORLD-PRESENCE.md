@@ -70,6 +70,14 @@ loads no network library.
   within 5 s of a move elsewhere does not undo it. After a refusal, presses
   ask nothing again for a minute. **Settings > Account > Call {name} here**
   is the explicit request.
+- **The press that starts play** (NEW ADVENTURE WITH BAMBU, CONTINUE, an island
+  opened from the list) counts the same way. Play beginning within 2 s of a
+  trusted press calls the Blobbi over, so the entry or the intro shows it
+  arriving. A Blobbi already known to be elsewhere skips the entry arrival
+  until it is called, so it never appears and then vanishes. Play that begins
+  with no press, such as a startup that goes straight into an island, never
+  travels. (Found in the cross-device browser run: the entry's arrival
+  showed the Blobbi, and the sync then took it away.)
 - **A move made elsewhere** (Blobbi Home on any device) arrives on the stream
   or the next look. The Blobbi departs with the game's teleport once the
   game's moment ends (the same busy and paused rules as v1).
