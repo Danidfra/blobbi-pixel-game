@@ -151,6 +151,17 @@ export class TeleportController {
   }
 
   /**
+   * M16: be present or absent at once, with no transition (a place already known when the world opens, or a move
+   * that happened long ago: nothing is replayed).
+   */
+  settle(state: 'present' | 'absent'): PresenceState {
+    this.state = state;
+    this.seeds = [];
+    this.emitted.clear();
+    return this.state;
+  }
+
+  /**
    * Turn a transition around mid-way: a departure becomes an arrival (and the other way), resuming from the same
    * visible fraction so the sprite never jumps.
    */

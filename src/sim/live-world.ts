@@ -4539,6 +4539,17 @@ export class LiveWorld {
     return this.teleport.cancelTransition();
   }
 
+  /** M16: present or absent at once, no transition (a historical change of place). */
+  settleBlobbi(state: 'present' | 'absent'): PresenceState {
+    if (state === 'absent' && this.teleport.state === 'present') {
+      this.swing = null;
+      this.fishing = null;
+      this.stopPlacing();
+      this.buildMode = null;
+    }
+    return this.teleport.settle(state);
+  }
+
   /** Reverse a transition mid-way. */
   reverseTransition(): boolean {
     return this.teleport.reverse(this.clock.time);
