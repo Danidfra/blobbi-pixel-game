@@ -1240,11 +1240,27 @@ function resolveEntryHold(): void {
     entryHold = null;
     return;
   }
-  const decision = entryDecision({ unknown: travelPlaceUnknown(), here: worldTravel?.here() ?? true, heldFor: performance.now() - entryHold.since });
+  const decision = entryDecision({ unknown: travelPlaceUnknown(), here: entryHere(), heldFor: performance.now() - entryHold.since });
   if (decision === 'wait') return;
   entryHold = null;
+  // The wait ran out with no session at all: say so (once), rather than show the Blobbi in a World it may not be in
+  if (decision === 'skip' && !worldTravel?.snapshot() && !travelNoSessionShown) {
+    travelNoSessionShown = true;
+    const name = travelName();
+    travelNotice(t('travel.unchecked', { name }), t('travel.uncheckedAway', { name }), 8);
+  }
   if (decision === 'enter' && l.getPresenceState() === 'absent') l.enterBlobbi();
 }
+/**
+ * M16.2: whether play's entry may show the Blobbi here. A Blobbi world travel follows (the connected account's own)
+ * is here only when its session says so: with no session yet (the network module still loading, or failed to), it is
+ * never assumed to be here; it is shown once the session answers. Anyone else's Blobbi (a guest, a local one) walks.
+ */
+function entryHere(): boolean {
+  if (!worldTravel || !travelCandidate()) return true;
+  return worldTravel.snapshot()?.here ?? false;
+}
+let travelNoSessionShown = false;
 const placeWords = (place: string, name: string) => (place === WORLD_HOME ? t('travel.awayHome', { name }) : t('travel.awayElsewhere', { name }));
 let travelPhase = 'idle';
 let travelPresence = 'off';
@@ -1504,7 +1520,7 @@ function beginPlay(): void {
     // once); it stays away until the player calls it over. Its place not known yet (a fresh device): the arrival is
     // held, with a small "looking for" cue at the spot, until the first answer (`resolveEntryHold`, bounded)
     entryHold = null;
-    const decision = entryDecision({ unknown: travelPlaceUnknown(), here: worldTravel?.here() ?? true, heldFor: 0 });
+    const decision = entryDecision({ unknown: travelPlaceUnknown(), here: entryHere(), heldFor: 0 });
     if (decision === 'wait') entryHold = { since: performance.now() };
     else if (decision === 'enter') live.enterBlobbi();
     noteVisit(live);

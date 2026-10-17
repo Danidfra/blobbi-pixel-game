@@ -801,9 +801,12 @@ describe('the switch, the settings rows and the dev aid', () => {
   it('play’s entry no longer shows a Blobbi whose place is still loading; Pixel passes its teleport’s arrival lead', () => {
     const main = readFileSync('src/playground/main.ts', 'utf8');
     expect(main).not.toMatch(/status === 'loading' \|\| travelling\.here\) live\.enterBlobbi\(\)/);
-    expect(main).toMatch(/const decision = entryDecision\(\{ unknown: travelPlaceUnknown\(\), here: worldTravel\?\.here\(\) \?\? true, heldFor: 0 \}\);\n\s+if \(decision === 'wait'\) entryHold = /);
+    expect(main).toMatch(/const decision = entryDecision\(\{ unknown: travelPlaceUnknown\(\), here: entryHere\(\), heldFor: 0 \}\);\n\s+if \(decision === 'wait'\) entryHold = /);
     expect(main).toMatch(/arrivalLeadMs: \(\) => Math\.round\(ARRIVE\.rebuildStart \* 1000/);
     expect(main).toMatch(/playStartExplicit: \(\) => !!intro && introMode === 'world'/);
+    // M16.2: an account's Blobbi with no session yet is never assumed here by play's entry
+    expect(main).toMatch(/function entryHere\(\): boolean \{\n  if \(!worldTravel \|\| !travelCandidate\(\)\) return true;\n  return worldTravel\.snapshot\(\)\?\.here \?\? false;/);
+    expect(main).not.toMatch(/entryDecision\(\{ unknown: travelPlaceUnknown\(\), here: worldTravel\?\.here\(\) \?\? true/);
     // The held entry pauses the sync (nothing settled or replayed behind the game's back)
     expect(main).toMatch(/!!live\.swap \|\| !!entryHold;/);
   });
