@@ -285,9 +285,14 @@ export function travelCueFor(o: { absent: boolean; looking: boolean; view: Trave
   return null;
 }
 
-/** Whether world travel on Nostr runs in this page (M16; off by default, the kinds are provisional). */
-export function worldTravelMode(o: { buildMode?: string; dev: boolean; hash: URLSearchParams; stored: string | null }): 'nostr' | 'off' {
-  if (o.buildMode === 'nostr') return 'nostr';
+/**
+ * Whether world travel on Nostr runs in this page (M16; off by default, the kinds are provisional). M16.2: world
+ * travel signs and publishes to the public travel relays, so a production build runs it only when the build is also
+ * a LIVE publishing one (`VITE_BLOBBI_PUBLISH=live`): a rehearsal build never writes the provisional kinds, whatever
+ * `VITE_BLOBBI_WORLD_TRAVEL` says. A development server keeps its explicit switches (the developer's choice).
+ */
+export function worldTravelMode(o: { buildMode?: string; dev: boolean; hash: URLSearchParams; stored: string | null; publishLive?: boolean }): 'nostr' | 'off' {
+  if (o.buildMode === 'nostr') return o.dev || o.publishLive === true ? 'nostr' : 'off';
   if (!o.dev) return 'off';
   return o.hash.get('world-travel') === 'nostr' || o.stored === 'nostr' ? 'nostr' : 'off';
 }

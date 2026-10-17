@@ -780,7 +780,11 @@ describe('the switch, the settings rows and the dev aid', () => {
     const flag = new URLSearchParams('world-travel=nostr');
     expect(worldTravelMode({ dev: false, hash: none, stored: null })).toBe('off');
     expect(worldTravelMode({ dev: false, hash: flag, stored: 'nostr' })).toBe('off');
-    expect(worldTravelMode({ buildMode: 'nostr', dev: false, hash: none, stored: null })).toBe('nostr');
+    // M16.2: a production build travels only when it also publishes live (a rehearsal build never writes 31126/21124)
+    expect(worldTravelMode({ buildMode: 'nostr', dev: false, hash: none, stored: null })).toBe('off');
+    expect(worldTravelMode({ buildMode: 'nostr', dev: false, hash: none, stored: null, publishLive: false })).toBe('off');
+    expect(worldTravelMode({ buildMode: 'nostr', dev: false, hash: none, stored: null, publishLive: true })).toBe('nostr');
+    expect(worldTravelMode({ buildMode: 'nostr', dev: true, hash: none, stored: null })).toBe('nostr');
     expect(worldTravelMode({ dev: true, hash: flag, stored: null })).toBe('nostr');
     expect(worldTravelMode({ dev: true, hash: none, stored: 'nostr' })).toBe('nostr');
     expect(worldTravelMode({ dev: true, hash: none, stored: 'on' })).toBe('off');

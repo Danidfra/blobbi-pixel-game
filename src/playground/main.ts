@@ -1201,7 +1201,7 @@ const worldPresence = createPresenceHost({
 // default: the build (`VITE_BLOBBI_WORLD_TRAVEL=nostr`) or, on a development server only, `#world-travel=nostr` or
 // `localStorage['blobbi:world-travel:v1'] = 'nostr'` turns it on. Only the connected account's own walking Blobbi
 // travels; the network module is loaded only in this mode, and a session starts only once it is.
-const travelMode = worldTravelMode({ buildMode: import.meta.env.VITE_BLOBBI_WORLD_TRAVEL, dev: import.meta.env.DEV, hash: params, stored: storeGetSafe(WORLD_TRAVEL_SWITCH_KEY) });
+const travelMode = worldTravelMode({ buildMode: import.meta.env.VITE_BLOBBI_WORLD_TRAVEL, dev: import.meta.env.DEV, hash: params, stored: storeGetSafe(WORLD_TRAVEL_SWITCH_KEY), publishLive: import.meta.env.VITE_BLOBBI_PUBLISH === 'live' });
 let travelNet: typeof import('../nostr/world-travel') | null = null;
 if (travelMode === 'nostr') void import('../nostr/world-travel').then((m) => (travelNet = m));
 /** The account is still the one a session is for, and really here (its key in the vault, or the extension answered). */

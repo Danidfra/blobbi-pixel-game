@@ -43,7 +43,11 @@ written**. With it off, v1 runs exactly as before.
 
 **Turning it on.** Either of these works:
 
-- a build with `VITE_BLOBBI_WORLD_TRAVEL=nostr`;
+- a build with `VITE_BLOBBI_WORLD_TRAVEL=nostr` **and** `VITE_BLOBBI_PUBLISH=live`
+  (M16.2). World travel signs and publishes the provisional kinds to the
+  public travel relays, so a rehearsal build never runs it, whatever the
+  travel flag says. A build with only the travel flag compiles it off;
+  checked in the built bundle;
 - a development server with `#world-travel=nostr` in the page address, or
   `localStorage['blobbi:world-travel:v1'] = 'nostr'`. A production build
   ignores both page flags.
@@ -195,3 +199,23 @@ drawn now (`looking`, `noticed`, `calling` or null). A test pins it behind
 `import.meta.env.DEV`, and the production build does not contain it.
 
 Tests: `tests/world-travel.test.ts`.
+
+## M16.2: slow relays
+
+- **Reading the account's Blobbi** (`src/nostr/relays.ts`,
+  `current-blobbi.ts`):
+  - The 1.5 s grace starts only after an answer that contains events. A relay
+    that never saw the player answers first, and empty. Before this fix that
+    empty answer cut off the slower relays holding the profile, so a fresh
+    device read "no profile" and NEW ADVENTURE hatched a new local Blobbi
+    instead of the account's own.
+  - "No profile" from only some of the relays is now `unavailable`: nothing is
+    decided.
+- **Play's entry** (`entryHere` in `main.ts`):
+  - An account's own Blobbi is here only once its world-travel session says
+    so. With no session yet (the network module still loading, or failed),
+    the Blobbi is never shown here by default. When the wait ends with no
+    session, a notice says its place could not be checked.
+  - The session itself (kit 0.11.0-m16.4) still hears a relay slower than its
+    timeout, and backs off its retries (5, 10, 20, 40 and 60 s). An
+    `unreachable` place turns into `confirmed` by itself, shown as history.
