@@ -95,6 +95,16 @@ loads no network library.
   such as a startup that goes straight into an island, never counts. A Blobbi
   already known to be elsewhere skips the entry arrival, so it never appears
   and then vanishes.
+- **A new island's birth intro is explicit.** The intro is a cinematic of this
+  very Blobbi, so the trusted press that starts it (NEW ADVENTURE WITH {name})
+  calls it here at once (`playStartExplicit`), never as one interaction. An
+  intro with no press moves nothing. A Blobbi not known to be here is absent
+  from the intro's first frame, so only the intro's own arrival brings it in.
+  If the call is refused or fails, the Blobbi leaves with its journey when the
+  intro ends. (Found in the cross-device browser run: with only a count, the
+  intro showed a Blobbi that belonged elsewhere, then took it away.) The kit
+  (m16.3) also keeps a Blobbi that is already shown while a move here is
+  under way.
 - **Loading: the place not known yet (M16.2).** The kit's
   `snapshot.resolution` is `pending` while the first look is under way and
   this device kept no location. Pixel also treats "world travel on, an
