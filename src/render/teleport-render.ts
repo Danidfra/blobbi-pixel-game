@@ -9,7 +9,7 @@
  */
 import { PixelBuffer, type Sprite } from '../core/pixel';
 import { hex, mix } from '../core/color';
-import { SKY, type TeleportController } from '../game/teleport';
+import { SKY, type TeleportController, type TeleportParticle } from '../game/teleport';
 
 export const TELEPORT_COLOURS = { core: hex('#fffbe6'), mid: hex('#a8f0ff'), faint: hex('#7aa8ff') } as const;
 const TONES = [TELEPORT_COLOURS.core, TELEPORT_COLOURS.mid, TELEPORT_COLOURS.faint];
@@ -146,6 +146,86 @@ export function drawTeleportParticles(screen: PixelBuffer, t: TeleportController
     // A blue halo: the glow of the bright ones, and contrast on light ground for every pixel when they are small.
     if (p.tone === 0 || s <= 2) square(x, y, size + 2 * Math.max(1, Math.floor(unit / 2)), TELEPORT_COLOURS.faint);
     square(x, y, size, TONES[p.tone]);
+    drawn++;
+  });
+  return drawn;
+}
+
+/**
+ * M16.2, THE BLOBBI'S PLACE BEFORE IT SHOWS, drawn at the spot it would stand on (only while it is absent here):
+ *
+ *   looking  the place is not known yet (a fresh device's first look at the relays): a few faint motes twinkle in
+ *            turn over the spot, never the Blobbi itself (it may be elsewhere). Ends within the relay timeout.
+ *   noticed  it is elsewhere and the player's interactions are being counted (`amount`, 0..1): one or two motes rise
+ *            slowly from the ground, a hint that it is paying attention.
+ *   calling  a move here is under way (checking, signing, publishing, waiting for the arrival): bright motes rise in a
+ *            small column with a glint on the ground, until the teleport's own arrival takes over (pixels falling
+ *            from the sky at the same spot). Cue, then arrival: never both, never replayed.
+ *
+ * A pure function of time like the teleport itself (nothing simulated, nothing to clean up), in the teleport's
+ * colours and square pixels. Reduced motion keeps fewer, slower motes.
+ */
+export type TravelCueKind = 'looking' | 'noticed' | 'calling';
+
+export function travelCueMotes(kind: TravelCueKind, now: number, height: number, halfWidth: number, amount = 1, reduced = false): TeleportParticle[] {
+  const out: TeleportParticle[] = [];
+  if (kind === 'looking') {
+    // Motes in turn: each lives in its own slot of time, at a spot picked for that slot
+    const n = reduced ? 2 : 3;
+    const slot = reduced ? 0.9 : 0.6;
+    for (let i = 0; i < n; i++) {
+      const t = now / slot + i / n;
+      const k = Math.floor(t);
+      const f = t - k;
+      const alpha = f < 0.5 ? f * 2 : (1 - f) * 2;
+      out.push({ dx: (hash(i, k, 3) * 2 - 1) * halfWidth * 1.3, z: 2 + hash(i, k, 5) * height * 0.8, trail: [], tone: (i === 0 ? 1 : 2) as 1 | 2, alpha });
+    }
+  } else if (kind === 'noticed') {
+    const n = amount >= 0.6 ? 2 : 1;
+    const period = reduced ? 3 : 2.2;
+    for (let i = 0; i < n; i++) {
+      const f = (now / period + i / 2) % 1;
+      out.push({ dx: (i ? 0.45 : -0.35) * halfWidth, z: f * height * 0.9, trail: [], tone: 2, alpha: Math.min(1, (1 - f) * 2) * 0.8 });
+    }
+  } else {
+    const n = reduced ? 4 : 8;
+    const period = reduced ? 1.6 : 1.1;
+    for (let i = 0; i < n; i++) {
+      const f = (now / period + i / n) % 1;
+      const a = (i / n) * Math.PI * 2 + now * 2;
+      const rise = (u: number) => u * height * 1.3;
+      out.push({ dx: Math.cos(a) * halfWidth * (1 - f * 0.6), z: rise(f), trail: reduced ? [] : [rise(Math.max(0, f - 0.05))], tone: (i % 3 === 0 ? 0 : 1) as 0 | 1, alpha: Math.min(1, (1 - f) * 2.5) });
+    }
+  }
+  return out;
+}
+
+/** Draws a cue's motes (and, while calling, a glint on the ground) at the spot's anchor on the screen. */
+export function drawTravelCue(screen: PixelBuffer, kind: TravelCueKind, now: number, ax: number, groundY: number, s: number, height: number, halfWidth: number, amount = 1, reduced = false): number {
+  if (kind === 'calling') {
+    // A small pale glint on the ground, pulsing gently (lighter, never a dark shadow: nothing has landed yet)
+    const pulse = 0.5 + 0.5 * Math.sin(now * 5);
+    const r = halfWidth * s * (0.55 + 0.15 * pulse);
+    const ry = Math.max(1, r * 0.38);
+    for (let y = Math.max(0, Math.floor(groundY - ry)); y <= Math.min(screen.height - 1, Math.ceil(groundY + ry)); y++)
+      for (let x = Math.max(0, Math.floor(ax - r)); x <= Math.min(screen.width - 1, Math.ceil(ax + r)); x++) {
+        const d = ((x - ax) / r) ** 2 + ((y - groundY) / ry) ** 2;
+        if (d > 1 || hash(x, y, Math.floor(now * 8)) > 0.35 * (1 - d * 0.6)) continue;
+        const i = y * screen.width + x;
+        screen.data[i] = mix(screen.data[i], TELEPORT_COLOURS.mid, 0.45);
+      }
+  }
+  const motes = travelCueMotes(kind, now, height, halfWidth, amount, reduced);
+  const size = Math.max(1, Math.round(s * (kind === 'calling' ? 1 : 0.75)));
+  const square = (x: number, y: number, n: number, c: number) => screen.fillRect(Math.round(x - n / 2), Math.round(y - n / 2), n, n, c);
+  let drawn = 0;
+  motes.forEach((p, i) => {
+    // Fade by dither, as the teleport's own pixels do (crisp pixels only)
+    if (p.alpha < 1 && hash(i, 11, Math.floor(now * 20)) > p.alpha) return;
+    const x = ax + p.dx * s;
+    for (const z of p.trail) square(x, groundY - z * s, Math.max(1, size - 1), TELEPORT_COLOURS.faint);
+    if (p.tone === 0) square(x, groundY - p.z * s, size + 2, TELEPORT_COLOURS.faint);
+    square(x, groundY - p.z * s, size, TONES[p.tone]);
     drawn++;
   });
   return drawn;

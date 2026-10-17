@@ -25,7 +25,7 @@ import { BASIC_KINDS, RESOURCE_ITEM } from '../game/resources';
 import type { LiveWorld } from '../sim/live-world';
 import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { InteriorRenderer } from './interior-render';
-import { drawTeleportParticles, drawTeleportShadow, teleportSprite } from './teleport-render';
+import { drawTeleportParticles, drawTeleportShadow, drawTravelCue, teleportSprite, type TravelCueKind } from './teleport-render';
 import { applyLight, dayAt, hourAt } from '../game/daylight';
 import { goalCard, identityChip, pinnedCard, statusCard, timeChip, toastCard, ToastFeed, type StatusInfo } from '../ui/hud';
 import { UiSurface, textPreference } from '../ui/surface';
@@ -139,6 +139,11 @@ export interface ViewUiOptions {
   promptAvoid?: { x: number; y: number; w: number; h: number } | null;
   /** M11C: the Blobbi's name for the status card (a canonical Blobbi's own name); else the seed, when short. */
   blobbiName?: string | null;
+  /**
+   * M16.2: world travel's cue at the spot the Blobbi would stand on, drawn only while it is absent here (looking for
+   * it, noticing the player, being called over); `label` is a small caption under the spot.
+   */
+  travelCue?: { kind: TravelCueKind; amount?: number; label?: string } | null;
 }
 
 export const DEFAULT_VIEW_UI: ViewUiOptions = { hud: true, indicator: true, uiScale: 2, goals: true, prompt: true, lighting: true };
@@ -170,6 +175,8 @@ export class ViewRenderer {
   teleportAnchor: { ax: number; groundY: number } | null = null;
   /** Teleport pixels drawn in the last frame (tests and dev tools). */
   teleportParticles = 0;
+  /** M16.2: motes of world travel's cue drawn last frame (tests, browser checks). */
+  travelCueDrawn = 0;
   /** The room renderer, made the first time the Blobbi goes indoors. */
   room: InteriorRenderer | null = null;
 
@@ -352,6 +359,14 @@ export class ViewRenderer {
     }
     // The teleport's travelling pixels fly in front of everything (they are up in the air).
     this.teleportParticles = this.teleportAnchor ? drawTeleportParticles(screen, tp, time, this.teleportAnchor.ax, this.teleportAnchor.groundY, s) : 0;
+    // M16.2: world travel's cue at the empty spot (the teleport's own arrival takes over from it)
+    const cue = ui.travelCue;
+    this.travelCueDrawn = 0;
+    if (cue && this.teleportAnchor && tp.state === 'absent') {
+      const { ax: cx, groundY: cy } = this.teleportAnchor;
+      this.travelCueDrawn = drawTravelCue(screen, cue.kind, time, cx, cy, s, tp.height, tp.halfWidth, cue.amount ?? 1, this.reducedMotion);
+      if (cue.label) this.drawText(screen, { kind: 'label', text: cue.label, x: 0, y: 0, color: hex('#a8f0ff'), background: hex('#1b1f2a') }, cx, cy + 3 * ui.uiScale, ui.uiScale);
+    }
     const t4 = performance.now();
 
     // ── 5. Text, HUD and the camera indicator at the UI scale ─────────────
