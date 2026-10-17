@@ -26,7 +26,7 @@ import { loadAccount } from '../nostr/account-store';
 import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
 import { createPresenceHost } from '../game/presence-host';
-import { activePresenceKey, createTravelHost, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
+import { activePresenceKey, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
 import { WORLD_HOME, createWorldTravel, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
 import { cookieLeaseStore } from '../game/presence-page';
 import { HOME_APP } from '../game/world-presence';
@@ -51,7 +51,8 @@ import { OBJECTIVES, currentObjective } from '../game/objectives';
 import { isHungry, isTired } from '../game/care';
 import { isLargeRock } from '../game/rocks';
 import { ViewCamera, CAMERA_CYCLE, CAMERA_MODES, DEFAULT_CAMERA_MODE, isCameraMode, worldBounds, type CameraModeId, type WorldBounds } from '../render/view-camera';
-import { ViewRenderer, DEFAULT_VIEW_UI } from '../render/view-renderer';
+import { ViewRenderer, DEFAULT_VIEW_UI, type ViewUiOptions } from '../render/view-renderer';
+import { ARRIVE } from '../game/teleport';
 import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { GameUI, hudScale, readStoredSettings, settingsRecord } from '../ui/game-ui';
@@ -1151,6 +1152,12 @@ account.onChange(() => companion.accountChanged());
 // back with the next key or tap here. Only an account's own Blobbi travels (a guest or local one stays). Nothing is
 // sent anywhere: the lease is a first-party cookie shared with the Blobbi home on the same site.
 const PRESENCE_OFF_KEY = 'blobbi:world-presence:v1';
+/**
+ * M16.2: the entry arrival held back while world travel does not know yet where the Blobbi is (a fresh device's first
+ * look at the relays, the network module still loading): it is neither shown here nor sent away until the answer.
+ * Bounded (`ENTRY_HOLD_MAX_MS`): the game never waits on the network for longer than the relays' timeout and a little.
+ */
+let entryHold: { since: number } | null = null;
 /** The game's own moment, which a departure waits for (world presence v1 and world travel alike). */
 function presenceBusy(): boolean {
   const l = live;
@@ -1159,7 +1166,7 @@ function presenceBusy(): boolean {
 }
 /** The game's own journeys come first: the title, an intro, a visit's handoff, a change of Blobbi. */
 function presencePaused(): boolean {
-  return !live || !playStarted || title.active || !!intro || entry.active || visit.phase === 'departing' || visit.phase === 'returning' || !!live.swap;
+  return !live || !playStarted || title.active || !!intro || entry.active || visit.phase === 'departing' || visit.phase === 'returning' || !!live.swap || !!entryHold;
 }
 const worldPresence = createPresenceHost({
   account: () => {
@@ -1189,7 +1196,8 @@ const worldPresence = createPresenceHost({
 
 // ─── M16: world travel on Nostr (src/game/travel-host.ts, src/nostr/world-travel.ts) ───
 // The Blobbi's canonical World is its World Location (kind 31126, provisional): when it is in Blobbi Home (on any
-// device), it is not walking here, and the player's first press in play calls it over with one signed event. Off by
+// device), it is not walking here, and a few interactions in play (three within 20 s, the kit's count) call it over
+// with one signed event; "Call {name} here" in Settings > Account calls it at once. Off by
 // default: the build (`VITE_BLOBBI_WORLD_TRAVEL=nostr`) or, on a development server only, `#world-travel=nostr` or
 // `localStorage['blobbi:world-travel:v1'] = 'nostr'` turns it on. Only the connected account's own walking Blobbi
 // travels; the network module is loaded only in this mode, and a session starts only once it is.
@@ -1207,20 +1215,46 @@ function travelNotice(heading: string, body: string, seconds = 6): void {
   l.notices.push({ heading: t('travel.heading'), title: heading, text: body, until: Math.max(l.clock.time, l.notices.at(-1)?.until ?? 0) + seconds });
 }
 const travelName = () => shownName || 'Blobbi';
+/** The connected account's own walking Blobbi, which world travel follows (whether or not its session runs yet). */
+function travelCandidate(): { owner: string; d: string } | null {
+  if (travelMode !== 'nostr' || !connectedPubkey) return null;
+  const c = walkingCanonical();
+  const prefix = `31124:${connectedPubkey}:`;
+  if (!c || !c.address.startsWith(prefix) || account.snapshot().status !== 'connected') return null;
+  return { owner: connectedPubkey, d: c.address.slice(prefix.length) };
+}
+/** The Blobbi's place is not known yet: its first look is under way, or its session is about to start. */
+function travelPlaceUnknown(): boolean {
+  return !!worldTravel && placeUnknown({ candidate: !!travelCandidate(), view: worldTravel.view()?.kind ?? null });
+}
+/** "Looking for {name}": the place is not known, and the game is waiting for it (never with no session in sight). */
+const travelLooking = (): boolean => travelPlaceUnknown() && (worldTravel?.view() !== null || !!entryHold);
+/**
+ * The held entry (`entryDecision`), once the place is known: here, the Blobbi arrives as play's own journey would have
+ * (from the spot the "looking" cue marked); elsewhere, it stays away (the away notice says where).
+ */
+function resolveEntryHold(): void {
+  if (!entryHold) return;
+  const l = live;
+  if (!l || !playStarted || title.active) {
+    entryHold = null;
+    return;
+  }
+  const decision = entryDecision({ unknown: travelPlaceUnknown(), here: worldTravel?.here() ?? true, heldFor: performance.now() - entryHold.since });
+  if (decision === 'wait') return;
+  entryHold = null;
+  if (decision === 'enter' && l.getPresenceState() === 'absent') l.enterBlobbi();
+}
 const placeWords = (place: string, name: string) => (place === WORLD_HOME ? t('travel.awayHome', { name }) : t('travel.awayElsewhere', { name }));
 let travelPhase = 'idle';
 let travelPresence = 'off';
 let travelAwayShown = -1;
+let travelNoticedShown = -1;
+let travelUnreachableShown = false;
 const worldTravel: TravelHost | null =
   travelMode === 'nostr'
     ? createTravelHost({
-        account: () => {
-          if (!travelNet || !connectedPubkey) return null;
-          const c = walkingCanonical();
-          const prefix = `31124:${connectedPubkey}:`;
-          if (!c || !c.address.startsWith(prefix) || account.snapshot().status !== 'connected') return null;
-          return { owner: connectedPubkey, d: c.address.slice(prefix.length) };
-        },
+        account: () => (travelNet ? travelCandidate() : null),
         session: (owner, d, hooks) => {
           const net = travelNet!;
           let session: ReturnType<typeof createWorldTravel> | null = null;
@@ -1242,9 +1276,15 @@ const worldTravel: TravelHost | null =
             lock: net.webLock(),
             presenceEnabled: storeGetSafe(activePresenceKey(owner)) === 'on',
             isActive: hooks.isActive,
+            // The teleport's arrival (src/game/teleport.ts ARRIVE): pixels fall from the sky for 1.9 s before the body
+            // starts to rebuild, the moment it is seen here. The kit starts the arrival that much early, so the wait
+            // for the departure window and the falling pixels overlap (reduced motion runs it at 0.6)
+            arrivalLeadMs: Math.round(ARRIVE.rebuildStart * 1000 * (gameUI.settings.reducedMotion ? 0.6 : 1)),
           });
           travelPhase = 'idle';
           travelAwayShown = -1;
+          travelNoticedShown = -1;
+          travelUnreachableShown = false;
           return { session, setVisible: (v) => relays.setVisible(v) };
         },
         blobbi: () => {
@@ -1267,6 +1307,12 @@ const worldTravel: TravelHost | null =
           else if (out === 'contended' || out === 'stale') travelNotice(t('travel.justMoved', { name }), t('travel.justMovedText', { name }), 6);
           else if (out === 'moved' && !snap.here) travelNotice(t('travel.onTheWay', { name }), t('travel.onTheWayText'), 4);
         },
+        onCounted: (snap) => {
+          // The first interaction counted while it is away: a short word, only when nothing else is being said
+          if (snap.follow.count !== 1 || travelNoticedShown === snap.change.key || (live?.notices.length ?? 1) > 0) return;
+          travelNoticedShown = snap.change.key;
+          travelNotice(t('travel.noticed', { name: travelName() }), t('travel.noticedText', { name: travelName() }), 3);
+        },
         onChange: (snap: WorldTravelSnapshot) => {
           const phase = snap.travel.phase;
           if (phase === 'signing' && travelPhase !== 'signing' && account.snapshot().method !== 'vault') travelNotice(t('travel.approve'), t('travel.approveText', { name: travelName() }), 6);
@@ -1280,11 +1326,29 @@ const worldTravel: TravelHost | null =
 /** Once per change of place met while away (the world opened with the Blobbi elsewhere): say where, and how to call it. */
 function travelAwayNotice(): void {
   const snap = worldTravel?.snapshot();
-  if (!snap || snap.here || snap.status === 'loading' || snap.travel.phase !== 'idle' || travelAwayShown === snap.change.key || presencePaused()) return;
+  if (!snap || snap.status === 'loading' || snap.travel.phase !== 'idle' || presencePaused()) return;
+  const name = travelName();
+  // No relay answered the first look: say so once, with the place shown (the last one kept here, or the default)
+  if (snap.resolution === 'unreachable' && snap.here && !travelUnreachableShown && live?.getPresenceState() === 'present') {
+    travelUnreachableShown = true;
+    travelNotice(t('travel.unchecked', { name }), t('travel.uncheckedHere', { name }), 6);
+    return;
+  }
+  if (snap.here || travelAwayShown === snap.change.key) return;
   if (live?.getPresenceState() !== 'absent') return;
   travelAwayShown = snap.change.key;
-  const name = travelName();
-  travelNotice(placeWords(snap.place, name), snap.presence.there ? t('travel.playingThere', { name }) : t('travel.callBack', { name }), 8);
+  if (snap.resolution === 'unreachable') travelUnreachableShown = true;
+  const text = snap.resolution === 'unreachable' ? t('travel.uncheckedAway', { name }) : snap.presence.there ? t('travel.playingThere', { name }) : t('travel.callBack', { name });
+  travelNotice(placeWords(snap.place, name), text, 8);
+}
+/** What world travel shows at the empty spot this frame (see `drawTravelCue`), or null. */
+function travelCue(): ViewUiOptions['travelCue'] {
+  const l = live;
+  if (!worldTravel || !l || l.inside) return null;
+  const looking = travelLooking();
+  if (!looking && presencePaused()) return null;
+  const cue = travelCueFor({ absent: l.getPresenceState() === 'absent', looking, view: worldTravel.view()?.kind ?? null, follow: worldTravel.snapshot()?.follow ?? null });
+  return cue && cue.kind === 'looking' ? { ...cue, label: t('travel.looking', { name: travelName() }) } : cue;
 }
 settingsScreen.travel = worldTravel
   ? {
@@ -1314,6 +1378,11 @@ if (import.meta.env.DEV) {
     snapshot: () => worldTravel?.snapshot() ?? null,
     shown: () => (live && playStarted ? live.getPresenceState() : null),
     callHere: () => worldTravel?.callHere() ?? Promise.resolve(null),
+    // M16.2, UI-only state: the place not known yet ("looking for"), a move here under way, the cue drawn now
+    looking: () => travelLooking(),
+    coming: () => worldTravel?.view()?.kind === 'coming',
+    held: () => !!entryHold,
+    cue: () => travelCue()?.kind ?? null,
   };
 }
 function storeGetSafe(k: string): string | null {
@@ -1423,9 +1492,12 @@ function beginPlay(): void {
     live.teleport.pace = knownHere(live) ? QUICK_PACE : 1;
     live.teleport.state = 'absent';
     // M16: a Blobbi already known to be in another World does not arrive with play (it would appear and vanish at
-    // once); it stays away until the player calls it over. Still loading: it arrives, and a later answer settles it
-    const travelling = worldTravel?.snapshot();
-    if (!travelling || travelling.status === 'loading' || travelling.here) live.enterBlobbi();
+    // once); it stays away until the player calls it over. Its place not known yet (a fresh device): the arrival is
+    // held, with a small "looking for" cue at the spot, until the first answer (`resolveEntryHold`, bounded)
+    entryHold = null;
+    const decision = entryDecision({ unknown: travelPlaceUnknown(), here: worldTravel?.here() ?? true, heldFor: 0 });
+    if (decision === 'wait') entryHold = { since: performance.now() };
+    else if (decision === 'enter') live.enterBlobbi();
     noteVisit(live);
   }
   view.focus();
@@ -2259,6 +2331,7 @@ function playFrame(now: number): void {
   // Blobbi was sent home right after its first arrival)
   worldPresence.update();
   worldTravel?.update();
+  resolveEntryHold();
   travelAwayNotice();
   if (state.mode !== 'play' || !live || !liveRenderer || !world) return;
   const real = lastFrameTime ? (now - lastFrameTime) / 1000 : 1 / 60;
@@ -2294,7 +2367,7 @@ function playFrame(now: number): void {
   viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
   const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
-  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox, blobbiName: shownName });
+  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox, blobbiName: shownName, travelCue: travelCue() });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;

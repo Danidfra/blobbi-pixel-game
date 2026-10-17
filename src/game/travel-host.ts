@@ -1,8 +1,9 @@
 /**
  * M16, WORLD TRAVEL in Blobbi Pixel: the account's Blobbi has ONE canonical World on Nostr (its World Location,
  * kind 31126; `@blobbi-kit/core`'s world-travel). When it is elsewhere (Blobbi Home on any device), it is not walking
- * here; the player's first press in play calls it over (one signed World Location), and a move made elsewhere sends
- * it away with the game's own teleport. Replaces world presence v1's cookie lease while world travel is on (the
+ * here; a few interactions with this World call it over (M16.1: the kit's `interact`, three distinct ones within
+ * 20 s, then one signed World Location), "Call {name} here" calls it at once, and a move made elsewhere sends it away
+ * with the game's own teleport. Replaces world presence v1's cookie lease while world travel is on (the
  * cookie is then never read or written); with it off, `presence-host.ts` runs exactly as before.
  *
  * The host only wires it. Who may travel (the connected account's own walking Blobbi), the session (relays, signer,
@@ -10,10 +11,13 @@
  * words are the playground's. Nothing here reaches the network.
  *
  * Rules kept from v1: only a real input (a trusted press or key in a visible, focused page) is the player's act, and
- * only once play has started (the title's and menus' own presses are not); focus, visibility, a timer or a remote
- * change never travel. A departure waits for the game's moment; the game's own journeys come first (paused).
+ * only once play has started (the title's and menus' own presses are not); focus, visibility, a timer, a frame or a
+ * remote change never count. A held key's auto-repeat (`KeyboardEvent.repeat`) is never counted, and inputs less than
+ * a second apart are one gesture (the kit's gap), so walking with a held key is one interaction and walking by taps
+ * is one per burst. The press that starts play (NEW ADVENTURE, CONTINUE) counts once, never as a move
+ * by itself. A departure waits for the game's moment; the game's own journeys come first (paused).
  */
-import { isMeaningfulInput, isPlayedNow, syncTravel, type ShownBlobbi, type TravelOutcome, type TravelSync, type WorldTravelSession, type WorldTravelSnapshot } from '@blobbi-kit/core';
+import { isMeaningfulInput, isPlayedNow, syncTravel, travelView, type InteractOutcome, type ShownBlobbi, type TravelOutcome, type TravelSync, type TravelViewKind, type WorldTravelSession, type WorldTravelSnapshot } from '@blobbi-kit/core';
 
 export interface TravelSessionHandle {
   session: WorldTravelSession;
@@ -40,6 +44,8 @@ export interface TravelHostDeps {
   onJourney(kind: 'enter' | 'leave', place: string): void;
   /** What a request to come here came to (a notice for the player), with where the Blobbi is now. */
   onOutcome(outcome: TravelOutcome, snapshot: WorldTravelSnapshot): void;
+  /** An interaction was counted toward bringing the Blobbi over, not yet enough (`snapshot.follow`). Optional. */
+  onCounted?(snapshot: WorldTravelSnapshot): void;
   /** The session changed (the travel phase, presence, the place). */
   onChange?(snapshot: WorldTravelSnapshot): void;
   /** Test seams. */
@@ -55,8 +61,10 @@ export interface TravelHost {
   update(): void;
   /** Look again now (the game's moment ended). */
   check(): void;
-  /** The player asked for it explicitly (a button): come here, even right after a move elsewhere. */
+  /** The player asked for it explicitly (a button): come here at once, even right after a move elsewhere. */
   callHere(): Promise<TravelOutcome | null>;
+  /** What the game shows of the Blobbi's place (the kit's `travelView`), or null while there is no session. */
+  view(): { kind: TravelViewKind; unreachable: boolean } | null;
   /** The session's snapshot, or null while there is none. */
   snapshot(): WorldTravelSnapshot | null;
   /** Whether the Blobbi belongs here now (true while there is no session: a guest or a local Blobbi walks freely). */
@@ -70,6 +78,11 @@ export interface TravelHost {
 const INPUTS = ['pointerdown', 'keydown'] as const;
 /** A press this recent when play begins is the press that began it. */
 export const PLAY_START_PRESS_MS = 2_000;
+/**
+ * The press that began play is counted once the place is known (a fresh device's first look, the network module
+ * loading): no later than this after the press, else it is dropped (it was the title's, long ago).
+ */
+export const PLAY_START_OWED_MS = 10_000;
 
 export function createTravelHost(deps: TravelHostDeps): TravelHost {
   const doc = deps.doc ?? document;
@@ -92,6 +105,8 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
   /** The last trusted press anywhere (the title's and menus' too): the press that starts play is the player's choice. */
   let lastPressAt: number | null = null;
   let wasPlaying = false;
+  /** When the press that began play was made, while it is still to be counted (the place not known yet). */
+  let owedPlayStart: number | null = null;
   let visibleSince: number | null = visible() ? now() : null;
   let disposed = false;
 
@@ -107,6 +122,39 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
     d = null;
   };
 
+  /** A session for the account's walking Blobbi, and the sync that keeps it on screen in line with it. */
+  const start = (a: { owner: string; d: string }) => {
+    owner = a.owner;
+    d = a.d;
+    handle = deps.session(a.owner, a.d, { isActive: () => isPlayedNow({ visible: visible(), lastInputAt, now: now() }) });
+    handle.session.setVisible(visible());
+    handle.setVisible?.(visible());
+    const session = handle.session;
+    unsubscribe = session.subscribe((s) => deps.onChange?.(s));
+    sync = syncTravel({
+      source: session,
+      blobbi: {
+        state: () => deps.blobbi()?.state() ?? (session.snapshot().here ? 'present' : 'absent'),
+        enter: () => deps.blobbi()?.enter(),
+        leave: () => deps.blobbi()?.leave(),
+        settle: (state) => {
+          const b = deps.blobbi();
+          if (!b) return;
+          if (b.settle) b.settle(state);
+          else if (state === 'present') b.enter();
+          else b.leave();
+        },
+      },
+      busy: () => deps.busy(),
+      paused: () => deps.paused() || !deps.blobbi(),
+      page: () => ({ visible: visibleSince !== null, visibleSince }),
+      onJourney: (kind, place) => deps.onJourney(kind, place),
+      now,
+      setTimer: deps.setTimer,
+      clearTimer: deps.clearTimer,
+    });
+  };
+
   const request = async (explicit: boolean): Promise<TravelOutcome | null> => {
     const h = handle;
     if (!h) return null;
@@ -115,17 +163,29 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
     return out;
   };
 
+  /** One interaction with this World (the kit counts it while the Blobbi is elsewhere, and moves it on the third). */
+  const interact = async (repeat: boolean): Promise<InteractOutcome | null> => {
+    const h = handle;
+    if (!h) return null;
+    const out = await h.session.interact({ repeat });
+    if (handle !== h || disposed) return out;
+    if (out === 'counted') deps.onCounted?.(h.session.snapshot());
+    else if (out !== 'ignored') deps.onOutcome(out, h.session.snapshot());
+    return out;
+  };
+
   const onInput = (e: Event) => {
-    if (disposed || !handle) return;
+    if (disposed) return;
     if (!isMeaningfulInput({ trusted: e.isTrusted, visible: visible(), focused: focused() || visible() })) return;
     lastPressAt = now();
-    if (!deps.playing()) return;
+    if (!handle || !deps.playing()) return;
     lastInputAt = now();
-    const s = handle.session.snapshot();
-    handle.session.noteActivity();
-    // Not here and nothing under way: the player playing here calls it over (a casual request: the kit never undoes a
-    // move just made elsewhere, and asks nothing again soon after a refusal)
-    if (!s.here && (s.travel.phase === 'idle' || s.travel.phase === 'failed') && !deps.paused()) void request(false);
+    // While the game drives the teleport itself (an intro, a visit's handoff, a swap) the press is activity only
+    if (deps.paused()) {
+      handle.session.noteActivity();
+      return;
+    }
+    void interact((e as KeyboardEvent).repeat === true);
   };
   const onVisibility = () => {
     visibleSince = visible() ? now() : null;
@@ -140,50 +200,29 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
     update() {
       if (disposed) return;
       // Play starting because of a press (NEW ADVENTURE WITH BAMBU, CONTINUE...) is the player choosing to play with
-      // this Blobbi here: it is called over, as a press in play would. An entry with no press (a startup that goes
-      // straight into an island) never travels: nothing signs on load
+      // this Blobbi here: ONE interaction, as a press in play is (never a move by itself). An entry with no press (a
+      // startup that goes straight into an island) never counts: nothing signs on load
       const playing = deps.playing();
-      if (playing && !wasPlaying && handle && lastPressAt !== null && now() - lastPressAt < PLAY_START_PRESS_MS) {
-        const s = handle.session.snapshot();
-        if (!s.here && (s.travel.phase === 'idle' || s.travel.phase === 'failed')) void request(false);
-      }
+      if (playing && !wasPlaying && lastPressAt !== null && now() - lastPressAt < PLAY_START_PRESS_MS) owedPlayStart = lastPressAt;
+      if (!playing) owedPlayStart = null;
       wasPlaying = playing;
       const a = deps.account();
-      if (a?.owner === owner && a?.d === d) return;
-      stop();
-      if (!a) return;
-      owner = a.owner;
-      d = a.d;
-      handle = deps.session(a.owner, a.d, { isActive: () => isPlayedNow({ visible: visible(), lastInputAt, now: now() }) });
-      handle.session.setVisible(visible());
-      handle.setVisible?.(visible());
-      const session = handle.session;
-      unsubscribe = session.subscribe((s) => deps.onChange?.(s));
-      sync = syncTravel({
-        source: session,
-        blobbi: {
-          state: () => deps.blobbi()?.state() ?? (session.snapshot().here ? 'present' : 'absent'),
-          enter: () => deps.blobbi()?.enter(),
-          leave: () => deps.blobbi()?.leave(),
-          settle: (state) => {
-            const b = deps.blobbi();
-            if (!b) return;
-            if (b.settle) b.settle(state);
-            else if (state === 'present') b.enter();
-            else b.leave();
-          },
-        },
-        busy: () => deps.busy(),
-        paused: () => deps.paused() || !deps.blobbi(),
-        page: () => ({ visible: visibleSince !== null, visibleSince }),
-        onJourney: (kind, place) => deps.onJourney(kind, place),
-        now,
-        setTimer: deps.setTimer,
-        clearTimer: deps.clearTimer,
-      });
+      if (a?.owner !== owner || a?.d !== d) {
+        // Another account or Blobbi: a new session (its count starts over); a press owed to the old one is dropped
+        if (owner !== null) owedPlayStart = null;
+        stop();
+        if (a) start(a);
+      }
+      // The press that began play, counted once the place is known (a fresh device asks the relays first)
+      if (owedPlayStart !== null && now() - owedPlayStart > PLAY_START_OWED_MS) owedPlayStart = null;
+      if (owedPlayStart !== null && handle && handle.session.snapshot().resolution !== 'pending') {
+        owedPlayStart = null;
+        void interact(false);
+      }
     },
     check: () => sync?.check(),
     callHere: () => request(true),
+    view: () => (handle ? travelView(handle.session.snapshot()) : null),
     snapshot: () => handle?.session.snapshot() ?? null,
     here: () => handle?.session.snapshot().here ?? true,
     shown: () => deps.blobbi()?.state() ?? null,
@@ -196,6 +235,41 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
       doc.removeEventListener('visibilitychange', onVisibility);
     },
   };
+}
+
+/**
+ * M16.2, PLAY'S ENTRY WHILE THE PLACE IS NOT KNOWN. A fresh device does not know where the account's Blobbi is until
+ * the relays answer its first look (the kit's `resolution: 'pending'`, or no session yet while the network module
+ * loads): showing the entry arrival then would show the Blobbi walking here and take it away a moment later. So the
+ * entry waits ('wait', with a small "looking for" cue), for no longer than `ENTRY_HOLD_MAX_MS`; then the Blobbi
+ * arrives ('enter': it is here, or no session could start and it walks freely as with world travel off) or stays
+ * away ('skip').
+ */
+export const ENTRY_HOLD_MAX_MS = 6_000;
+
+/** The place is not known: world travel follows this Blobbi (`candidate`) and its view is 'looking' or not there yet. */
+export function placeUnknown(o: { candidate: boolean; view: TravelViewKind | null }): boolean {
+  return o.candidate && (o.view ?? 'looking') === 'looking';
+}
+
+/** What play's entry does now (`heldFor`: how long it has waited, ms). */
+export function entryDecision(o: { unknown: boolean; here: boolean; heldFor: number }): 'enter' | 'skip' | 'wait' {
+  if (o.unknown && o.heldFor < ENTRY_HOLD_MAX_MS) return 'wait';
+  return o.here ? 'enter' : 'skip';
+}
+
+/**
+ * The cue drawn at the empty spot while the Blobbi is absent here (`drawTravelCue`): 'looking' while its place is not
+ * known, 'calling' while a move here is under way (the kit's 'coming': checking, signing, publishing, waiting for the
+ * arrival), 'noticed' while it is elsewhere and interactions are being counted; nothing otherwise (and never while it
+ * shows: the teleport's own arrival takes over from the cue).
+ */
+export function travelCueFor(o: { absent: boolean; looking: boolean; view: TravelViewKind | null; follow: { count: number; needed: number; suspended: boolean } | null }): { kind: 'looking' | 'noticed' | 'calling'; amount?: number } | null {
+  if (!o.absent) return null;
+  if (o.looking) return { kind: 'looking' };
+  if (o.view === 'coming') return { kind: 'calling' };
+  if (o.view === 'away' && o.follow && o.follow.count > 0 && !o.follow.suspended) return { kind: 'noticed', amount: o.follow.count / o.follow.needed };
+  return null;
 }
 
 /** Whether world travel on Nostr runs in this page (M16; off by default, the kinds are provisional). */
