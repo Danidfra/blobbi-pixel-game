@@ -17,7 +17,7 @@
     "blobbi": "tsx scripts/blobbi-sheet.ts"
   },
   "devDependencies": {
-    "@blobbi-kit/core": "file:../blobbi-kit-m16-packs/blobbi-kit-core-0.11.0-m16.3.tgz",
+    "@blobbi-kit/core": "file:../blobbi-kit-m16-packs/blobbi-kit-core-0.11.0-m16.4.tgz",
     "@blobbi-kit/renderer": "^0.6.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.20.1",
