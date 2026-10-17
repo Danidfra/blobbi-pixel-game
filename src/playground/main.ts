@@ -1279,7 +1279,8 @@ const worldTravel: TravelHost | null =
             // The teleport's arrival (src/game/teleport.ts ARRIVE): pixels fall from the sky for 1.9 s before the body
             // starts to rebuild, the moment it is seen here. The kit starts the arrival that much early, so the wait
             // for the departure window and the falling pixels overlap (reduced motion runs it at 0.6)
-            arrivalLeadMs: Math.round(ARRIVE.rebuildStart * 1000 * (gameUI.settings.reducedMotion ? 0.6 : 1)),
+            // Read at each arrival, so turning reduced motion on or off mid-session keeps the fall and the wait in step
+            arrivalLeadMs: () => Math.round(ARRIVE.rebuildStart * 1000 * (gameUI.settings.reducedMotion ? 0.6 : 1)),
           });
           travelPhase = 'idle';
           travelAwayShown = -1;
@@ -1313,6 +1314,8 @@ const worldTravel: TravelHost | null =
           travelNoticedShown = snap.change.key;
           travelNotice(t('travel.noticed', { name: travelName() }), t('travel.noticedText', { name: travelName() }), 3);
         },
+        // A new island's birth intro shows this very Blobbi: NEW ADVENTURE WITH {name} is an explicit call here
+        playStartExplicit: () => !!intro && introMode === 'world',
         onChange: (snap: WorldTravelSnapshot) => {
           const phase = snap.travel.phase;
           if (phase === 'signing' && travelPhase !== 'signing' && account.snapshot().method !== 'vault') travelNotice(t('travel.approve'), t('travel.approveText', { name: travelName() }), 6);
@@ -2195,6 +2198,10 @@ function finishWorldIntro(target: LiveWorld, r: IntroResult): void {
   done?.dispose();
   if (live !== target) return;
   target.setIntro(r.skipped ? 'skipped' : 'done');
+  // M16.1: the intro showed the Blobbi being born here, but it belongs to another World (the call was refused or
+  // failed): it leaves with its journey rather than vanishing from one frame to the next
+  // (a move here still under way, `coming`, is not "away": the kit's sync keeps it shown until it lands)
+  if (worldTravel?.view()?.kind === 'away' && target.getPresenceState() === 'present') target.leaveBlobbi();
   // The birth was seen (or skipped): it never plays again; and the Blobbi has now been on this island.
   if (isLocalBlobbiSeed(target.blobbi.seed)) storeOrNull((st) => markBorn(st, target.blobbi.seed, Date.now()));
   const born = target.blobbi.source;

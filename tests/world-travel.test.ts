@@ -163,6 +163,8 @@ interface Setup {
   /** The walking Blobbi's state when the world opens (play's entry held: absent). */
   shown?: ShownState;
   store?: Map<string, string>;
+  /** Play beginning now needs this Blobbi here (a new island's birth intro). */
+  explicitStart?: () => boolean;
 }
 function setup(o: Setup = {}) {
   const net = o.net ?? network();
@@ -188,6 +190,7 @@ function setup(o: Setup = {}) {
     onJourney: (k, place) => journeys.push(`${k}:${place}`),
     onOutcome: (out: TravelOutcome, _s: WorldTravelSnapshot) => outcomes.push(out),
     onCounted: (snap) => counted.push(snap.follow.count),
+    playStartExplicit: o.explicitStart,
     doc: p.doc,
     win: p.win,
   });
@@ -366,6 +369,33 @@ describe('world travel in Pixel: three interactions call it over (M16.1)', () =>
     await interactions(p, 2);
     expect(sign.asked).toEqual([31126]);
     expect(sent(net, 31126)).toHaveLength(1);
+  });
+
+  it('the press that starts a new island’s birth intro (it shows this Blobbi) is an explicit call: one move at once', async () => {
+    const { p, sign, state, host, net } = setup({ explicitStart: () => true });
+    state.playing = false;
+    host.update();
+    await flush();
+    p.press(); // NEW ADVENTURE WITH BAMBU
+    state.playing = true;
+    state.paused = true; // the intro plays
+    host.update();
+    await flush(50);
+    expect(sign.asked).toEqual([31126]);
+    expect(sent(net, 31126)).toHaveLength(1);
+    expect(host.snapshot()!.place).toBe(WORLD_PIXEL);
+  });
+
+  it('an intro beginning with no press (a startup straight into a pending intro) is never a move', async () => {
+    const { sign, state, host } = setup({ explicitStart: () => true });
+    state.playing = false;
+    host.update();
+    await flush(5_000);
+    state.playing = true;
+    state.paused = true;
+    host.update();
+    await flush(5_000);
+    expect(sign.asked).toEqual([]);
   });
 
   it('the press that starts play on a fresh device is counted once the place is known, not lost to the first look', async () => {
@@ -772,7 +802,8 @@ describe('the switch, the settings rows and the dev aid', () => {
     const main = readFileSync('src/playground/main.ts', 'utf8');
     expect(main).not.toMatch(/status === 'loading' \|\| travelling\.here\) live\.enterBlobbi\(\)/);
     expect(main).toMatch(/const decision = entryDecision\(\{ unknown: travelPlaceUnknown\(\), here: worldTravel\?\.here\(\) \?\? true, heldFor: 0 \}\);\n\s+if \(decision === 'wait'\) entryHold = /);
-    expect(main).toMatch(/arrivalLeadMs: Math\.round\(ARRIVE\.rebuildStart \* 1000/);
+    expect(main).toMatch(/arrivalLeadMs: \(\) => Math\.round\(ARRIVE\.rebuildStart \* 1000/);
+    expect(main).toMatch(/playStartExplicit: \(\) => !!intro && introMode === 'world'/);
     // The held entry pauses the sync (nothing settled or replayed behind the game's back)
     expect(main).toMatch(/!!live\.swap \|\| !!entryHold;/);
   });

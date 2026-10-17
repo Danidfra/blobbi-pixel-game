@@ -46,6 +46,12 @@ export interface TravelHostDeps {
   onOutcome(outcome: TravelOutcome, snapshot: WorldTravelSnapshot): void;
   /** An interaction was counted toward bringing the Blobbi over, not yet enough (`snapshot.follow`). Optional. */
   onCounted?(snapshot: WorldTravelSnapshot): void;
+  /**
+   * Whether the play now beginning needs this very Blobbi here (a new island's birth intro, NEW ADVENTURE WITH
+   * {name}): the trusted press that began it is then an explicit request (a move at once), not one interaction.
+   * Read once, as play begins. Default: never.
+   */
+  playStartExplicit?(): boolean;
   /** The session changed (the travel phase, presence, the place). */
   onChange?(snapshot: WorldTravelSnapshot): void;
   /** Test seams. */
@@ -107,6 +113,7 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
   let wasPlaying = false;
   /** When the press that began play was made, while it is still to be counted (the place not known yet). */
   let owedPlayStart: number | null = null;
+  let owedExplicit = false;
   let visibleSince: number | null = visible() ? now() : null;
   let disposed = false;
 
@@ -203,7 +210,10 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
       // this Blobbi here: ONE interaction, as a press in play is (never a move by itself). An entry with no press (a
       // startup that goes straight into an island) never counts: nothing signs on load
       const playing = deps.playing();
-      if (playing && !wasPlaying && lastPressAt !== null && now() - lastPressAt < PLAY_START_PRESS_MS) owedPlayStart = lastPressAt;
+      if (playing && !wasPlaying && lastPressAt !== null && now() - lastPressAt < PLAY_START_PRESS_MS) {
+        owedPlayStart = lastPressAt;
+        owedExplicit = deps.playStartExplicit?.() ?? false;
+      }
       if (!playing) owedPlayStart = null;
       wasPlaying = playing;
       const a = deps.account();
@@ -217,7 +227,10 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
       if (owedPlayStart !== null && now() - owedPlayStart > PLAY_START_OWED_MS) owedPlayStart = null;
       if (owedPlayStart !== null && handle && handle.session.snapshot().resolution !== 'pending') {
         owedPlayStart = null;
-        void interact(false);
+        // An explicit start (the birth intro needs the Blobbi here) moves it at once; else it is one interaction
+        if (owedExplicit && !handle.session.snapshot().here) void request(true);
+        else void interact(false);
+        owedExplicit = false;
       }
     },
     check: () => sync?.check(),
