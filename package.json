@@ -2,6 +2,7 @@
   "name": "blobbi-pixel-lab",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "description": "Experimental laboratory for fully procedural, living top-down pixel art: islands, vegetation, structures, a procedural pixel Blobbi, procedural animation and growth. Research prototype for a possible @blobbi-kit/pixel; not a game and not a package.",
   "scripts": {
