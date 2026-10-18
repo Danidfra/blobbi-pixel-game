@@ -253,7 +253,9 @@ describe('companion sync: the wiring in main.ts', () => {
   it("shares only the player's own choice of the connected account's Blobbi; an adopted choice never", () => {
     const select = fn('function selectBlobbi(');
     expect(select).toMatch(/const mine = when\.by === 'player' && !!from\?\.account && from\.account === connectedPubkey;/);
-    expect(select).toMatch(/if \(mine\) void companion\.chosen\(\);/);
+    expect(select).toMatch(/if \(mine\) shareChoice\(\);/);
+    // shareChoice shares now, or once the extension confirms the account (2026-10-18): still companion.chosen
+    expect(src).toMatch(/function shareChoice\(\): void \{\n  if \(!signerReady\(\)\) askSignerAgain\('companion'\);\n  void companion\.chosen\(\);\n\}/);
     expect(src).toMatch(/bring: \(r\) => void blobbisScreen\.chooser\?\.choose\(r\.item as OwnedBlobbi, \{ at: r\.createdAt \* 1000, by: 'remote', synced: \{ id: r\.id, createdAt: r\.createdAt \} \}\)/);
   });
 

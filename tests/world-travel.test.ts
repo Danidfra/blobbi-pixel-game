@@ -166,6 +166,8 @@ interface Setup {
   store?: Map<string, string>;
   /** Play beginning now needs this Blobbi here (a new island's birth intro). */
   explicitStart?: () => boolean;
+  /** Whether a signature can be asked for now (the page's extension check); absent: always. */
+  signerReady?: () => boolean;
 }
 function setup(o: Setup = {}) {
   const net = o.net ?? network();
@@ -176,6 +178,7 @@ function setup(o: Setup = {}) {
   const outcomes: TravelOutcome[] = [];
   const counted: number[] = [];
   const journeys: string[] = [];
+  const noSigner: string[] = [];
   // As the playground's guarded localStorage (the kit keeps a signed move there for its resend)
   const kept = o.store ?? new Map<string, string>();
   const store = { get: (k: string) => kept.get(k) ?? null, set: (k: string, v: string) => void kept.set(k, v), remove: (k: string) => void kept.delete(k) };
@@ -192,12 +195,14 @@ function setup(o: Setup = {}) {
     onOutcome: (out: TravelOutcome, _s: WorldTravelSnapshot) => outcomes.push(out),
     onCounted: (snap) => counted.push(snap.follow.count),
     playStartExplicit: o.explicitStart,
+    signerReady: o.signerReady,
+    onNoSigner: (k) => noSigner.push(k),
     doc: p.doc,
     win: p.win,
   });
   host.update();
   hosts.push(host);
-  return { net, sign, p, w, state, host, outcomes, journeys, counted, kept };
+  return { net, sign, p, w, state, host, outcomes, journeys, counted, kept, noSigner };
 }
 let hosts: ReturnType<typeof createTravelHost>[] = [];
 const flush = (ms = 20) => vi.advanceTimersByTimeAsync(ms);
@@ -942,5 +947,56 @@ describe('signing a move as the account (IdentityService.signAsAccount)', () => 
     expect((await make(sk).signAsAccount(OWNER, 'nip07', tpl)).pubkey).toBe(OWNER);
     await expect(make(other).signAsAccount(OWNER, 'nip07', tpl)).rejects.toThrow();
     await expect(make(sk).signAsAccount(OWNER, 'vault', tpl)).rejects.toThrow();
+  });
+});
+
+describe('world travel in Pixel: the extension has not confirmed the account yet (2026-10-18)', () => {
+  it('a press that would count is never dropped in silence: the page is asked to reconnect; nothing counted or signed', async () => {
+    let ready = false;
+    const { p, sign, noSigner, counted, net, host } = setup({ signerReady: () => ready });
+    await flush(2_000);
+    expect(host.here()).toBe(false); // no World Location: Blobbi Home
+    await interactions(p, 3, 2_000);
+    expect(noSigner).toEqual(['interact', 'interact', 'interact']);
+    expect(counted).toEqual([]);
+    expect(sign.asked).toEqual([]);
+    expect(sent(net, 31126)).toEqual([]);
+    // Confirmed (the person approved the extension's prompt): the next presses count and bring it over, one move
+    ready = true;
+    await interactions(p, 3, ARRIVAL);
+    expect(sign.asked).toEqual([31126]);
+    expect(host.here()).toBe(true);
+  });
+
+  it('Call here without a confirmed account asks to reconnect (explicit), signs nothing; once ready it moves once', async () => {
+    let ready = false;
+    const { sign, noSigner, host } = setup({ signerReady: () => ready });
+    await flush(2_000);
+    expect(await host.callHere()).toBeNull();
+    expect(noSigner).toEqual(['explicit']);
+    expect(sign.asked).toEqual([]);
+    ready = true;
+    expect(await host.callHere()).toBe('moved');
+    await flush(ARRIVAL);
+    expect(sign.asked).toEqual([31126]);
+  });
+
+  it('nothing is asked while the Blobbi is here or its place is not known yet (no reconnect word on load)', async () => {
+    const net = network();
+    moveElsewhere(net, WORLD_PIXEL, Date.now() - 60_000);
+    const { p, noSigner, sign } = setup({ net, signerReady: () => false });
+    await flush(2_000);
+    await interactions(p, 3, 500);
+    expect(noSigner).toEqual([]);
+    expect(sign.asked).toEqual([]);
+  });
+
+  it('the page wires it: signer readiness, a reconnect that never signs, and the deferred Call here and choice', () => {
+    const main = readFileSync('src/playground/main.ts', 'utf8');
+    expect(main).toMatch(/signerReady,\s*\n\s*onNoSigner: \(kind\) => askSignerAgain\(kind\)/);
+    expect(main).toMatch(/void account\.verifyExtension\(SIGNER_CHECK_MS\)/);
+    expect(main).toMatch(/if \(w\.call\) void worldTravel\?\.callHere\(\)/);
+    expect(main).not.toMatch(/void companion\.chosen\(\);\n\s*\}\,\n\s*\}\);\n\s*case 'bring'/); // the keep path shares through shareChoice
+    expect(main.match(/shareChoice\(\)/g)!.length).toBeGreaterThanOrEqual(3);
   });
 });

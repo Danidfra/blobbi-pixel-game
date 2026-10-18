@@ -1146,11 +1146,74 @@ function notifyCompanion(kind: 'came' | 'not-shared' | 'offline' | 'sign-failed'
 }
 blobbisScreen.companion = {
   waiting: () => companion.status.kind === 'waiting',
-  retry: () => void companion.retry(),
+  retry: () => (signerReady() ? void companion.retry() : askSignerAgain('companion')),
   question: () => (companion.ambiguity ? { here: companion.ambiguity.here.name, there: companion.ambiguity.there.name } : null),
   answer: (keep) => void companion.answer(keep),
 };
 account.onChange(() => companion.accountChanged());
+
+/**
+ * 2026-10-18, THE EXTENSION ASKED AGAIN WHEN A SIGNATURE IS NEEDED. On a page load the extension gets a short wait to
+ * confirm the remembered account (`verifyExtension`); a first visit's permission prompt is often answered later, by a
+ * person, and its answer still settles the account when it comes (`account.ts`). Meanwhile a move here (world travel)
+ * or a companion choice that needs a signature is never dropped in silence: the extension is asked again, with time
+ * for a person (`SIGNER_CHECK_MS`; a prompt still open is waited for, never doubled), the player is told, and what
+ * they asked for (Call here, their choice) is done once that very account is confirmed, within the wait. A casual
+ * interaction is not replayed: the next ones count. Nothing here signs (`getPublicKey` only), nothing on page load.
+ */
+const SIGNER_CHECK_MS = 120_000;
+const SIGNER_NOTICE_GAP_MS = 20_000;
+let signerNoticeAt = -Infinity;
+let afterSigner: { owner: string; until: number; call: boolean; share: boolean } | null = null;
+function signerReady(): boolean {
+  const s = account.snapshot();
+  return s.status === 'connected' && (s.method === 'vault' || s.extension === 'verified');
+}
+function askSignerAgain(kind: 'interact' | 'explicit' | 'companion'): void {
+  const s = account.snapshot();
+  if (s.status !== 'connected' || !s.pubkey || s.method !== 'nip07') return;
+  if (kind !== 'interact') {
+    const same = afterSigner?.owner === s.pubkey ? afterSigner : null;
+    afterSigner = { owner: s.pubkey, until: Date.now() + SIGNER_CHECK_MS, call: kind === 'explicit' || !!same?.call, share: kind === 'companion' || !!same?.share };
+  }
+  if (kind === 'explicit' || Date.now() - signerNoticeAt > SIGNER_NOTICE_GAP_MS) {
+    signerNoticeAt = Date.now();
+    const name = travelName();
+    if (s.extension === 'mismatch') signerSay(t('travel.signerMismatch'), t('travel.signerMismatchText', { name }));
+    else if (s.extension === 'absent') signerSay(t('travel.signerAbsent'), t('travel.signerAbsentText', { name }));
+    else signerSay(t('travel.signerWait'), t('travel.signerWaitText', { name }));
+  }
+  // Another key in the extension: asking again changes nothing until the player switches it (CONNECT)
+  if (s.extension !== 'mismatch') void account.verifyExtension(SIGNER_CHECK_MS);
+}
+/** Small and passing: a notice in play, else a line on the screen that is open. */
+function signerSay(heading: string, text: string): void {
+  if (live && playStarted && !title.active) travelNotice(heading, text, 8);
+  else gameUI.say(`${heading}. ${text}`, false);
+}
+account.onChange(() => {
+  const w = afterSigner;
+  if (!w) return;
+  const s = account.snapshot();
+  if (s.status !== 'connected' || s.pubkey !== w.owner || Date.now() > w.until) {
+    afterSigner = null; // another account, a disconnect, or too late: nothing is done for the old request
+    return;
+  }
+  if (s.extension === 'verified') {
+    afterSigner = null;
+    signerSay(t('travel.signerBack'), t('travel.signerBackText', { name: travelName() }));
+    if (w.call) void worldTravel?.callHere();
+    if (w.share) void companion.retry();
+  } else if (s.extension === 'unconfirmed' || s.extension === 'absent' || s.extension === 'mismatch') {
+    afterSigner = null; // refused, gone, or another key: told, nothing signed
+    signerSay(t('travel.signerDeclined'), t('travel.signerDeclinedText', { name: travelName() }));
+  }
+});
+/** A companion choice of the player's: shared now, or once the extension confirms the account (never silently not). */
+function shareChoice(): void {
+  if (!signerReady()) askSignerAgain('companion');
+  void companion.chosen();
+}
 
 // ─── The game's moments that a world-travel journey waits for, or stands aside from ───
 /**
@@ -1315,6 +1378,10 @@ const worldTravel: TravelHost | null =
         },
         // A new island's birth intro shows this very Blobbi: NEW ADVENTURE WITH {name} is an explicit call here
         playStartExplicit: () => !!intro && introMode === 'world',
+        // A move needs a signature: none can be asked for yet (the extension has not confirmed the account), so it is
+        // asked again and the player told, never a silent no (the vault always can)
+        signerReady,
+        onNoSigner: (kind) => askSignerAgain(kind),
         onChange: (snap: WorldTravelSnapshot) => {
           const phase = snap.travel.phase;
           if (phase === 'signing' && travelPhase !== 'signing' && account.snapshot().method !== 'vault') travelNotice(t('travel.approve'), t('travel.approveText', { name: travelName() }), 6);
@@ -1774,7 +1841,7 @@ function carryOut(decision: EntryDecision, item: OwnedBlobbi | null, pubkey: str
           markSelectionChosen(store, Date.now(), seenNow());
           enter(decision.island);
           // Companion sync: an explicit choice, shared with the other Blobbi games
-          void companion.chosen();
+          shareChoice();
         },
       });
     case 'bring':
@@ -2877,7 +2944,7 @@ function selectBlobbi(source: BlobbiSource, from?: { name: string; account: stri
   const mine = when.by === 'player' && !!from?.account && from.account === connectedPubkey;
   if (store) storeSelection(store, source, from, mine ? { ...when, over: when.over ?? seenNow() } : when);
   applyBlobbi(source, from?.stage ?? 'adult');
-  if (mine) void companion.chosen();
+  if (mine) shareChoice();
 }
 
 /** Walk with a Blobbi without changing the stored choice (the account rule, `syncAccountBlobbi`). */

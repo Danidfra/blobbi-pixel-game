@@ -51,6 +51,8 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
   /** M11D.8.2: what the extension said about the remembered account on this page load (memory only). */
   private extension: ExtensionCheck = 'unchecked';
   private extensionTask: Promise<ExtensionCheck> | null = null;
+  /** The extension's `getPublicKey` still unanswered (its prompt may be open), for the account it was asked for. */
+  private extensionAsk: { pubkey: string; answer: Promise<ExtensionCheck> } | null = null;
 
   constructor(private readonly opts: AccountOptions) {
     this.now = opts.now ?? Date.now;
@@ -83,6 +85,12 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
    * extension's own prompt may appear the first time, and most extensions remember the answer per site), compared
    * with the remembered key. The account record is never changed by the answer: a different key is reported as
    * `mismatch` and the player decides (CONNECT switches, explicitly). A guest or a vault identity: `unchecked`.
+   *
+   * 2026-10-18: `timeoutMs` is how long the CALLER waits, not how long the extension may take. A first visit's
+   * permission prompt is answered by a person, often after the wait: the check then reads `unconfirmed`, and the
+   * answer, whenever it comes, still settles it (`verified`, `mismatch`...). The extension is asked once at a time:
+   * a check while its prompt is open waits for that same answer, never opens a second prompt. An answer for an
+   * account no longer connected (a switch, a disconnect) is dropped.
    */
   verifyExtension(timeoutMs = 6000): Promise<ExtensionCheck> {
     const r = this.record;
@@ -91,25 +99,46 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
     const pubkey = r.pubkey;
     this.extension = 'checking';
     this.changed();
-    const task = (async (): Promise<ExtensionCheck> => {
+    const answer = this.askExtension(pubkey);
+    const task = withTimeout(answer, timeoutMs)
+      .catch((): ExtensionCheck => {
+        // Not answered yet (a person deciding): unconfirmed for now; the answer still settles it when it comes.
+        if (this.record?.pubkey === pubkey && this.status === 'connected' && this.extension === 'checking') {
+          this.extension = 'unconfirmed';
+          this.changed();
+        }
+        return this.record?.pubkey === pubkey && this.status === 'connected' ? 'unconfirmed' : 'unchecked';
+      })
+      .finally(() => {
+        if (this.extensionTask === task) this.extensionTask = null;
+      });
+    this.extensionTask = task;
+    return task;
+  }
+
+  /** The extension's own answer for `pubkey`, however long it takes; settles the check when it comes. Asked once. */
+  private askExtension(pubkey: string): Promise<ExtensionCheck> {
+    if (this.extensionAsk?.pubkey === pubkey) return this.extensionAsk.answer;
+    const ask: { pubkey: string; answer: Promise<ExtensionCheck> } = { pubkey, answer: Promise.resolve('unchecked') };
+    // Kept before the extension is called: an answer (even a synchronous refusal) always finds it to clear.
+    this.extensionAsk = ask;
+    ask.answer = (async (): Promise<ExtensionCheck> => {
       let result: ExtensionCheck;
       try {
-        const answer = await withTimeout(this.opts.signer.getPublicKey(), timeoutMs);
-        const got = typeof answer === 'string' ? answer.toLowerCase() : '';
-        result = got === pubkey ? 'verified' : isPublicKeyHex(got) ? 'mismatch' : 'unconfirmed';
+        const got = await this.opts.signer.getPublicKey();
+        const key = typeof got === 'string' ? got.toLowerCase() : '';
+        result = key === pubkey ? 'verified' : isPublicKeyHex(key) ? 'mismatch' : 'unconfirmed';
       } catch (e) {
-        result = e === TIMEOUT ? 'unconfirmed' : /not available/i.test(String((e as Error)?.message)) ? 'absent' : 'unconfirmed';
+        result = /not available/i.test(String((e as Error)?.message)) ? 'absent' : 'unconfirmed';
       }
+      if (this.extensionAsk === ask) this.extensionAsk = null;
       // Disconnected or switched meanwhile: this answer is about someone else now.
       if (this.record?.pubkey !== pubkey || this.status !== 'connected') return 'unchecked';
       this.extension = result;
       this.changed();
       return result;
-    })().finally(() => {
-      if (this.extensionTask === task) this.extensionTask = null;
-    });
-    this.extensionTask = task;
-    return task;
+    })();
+    return ask.answer;
   }
 
   async connect(): Promise<void> {

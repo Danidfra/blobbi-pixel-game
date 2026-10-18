@@ -54,6 +54,14 @@ export interface TravelHostDeps {
   playStartExplicit?(): boolean;
   /** The session changed (the travel phase, presence, the place). */
   onChange?(snapshot: WorldTravelSnapshot): void;
+  /**
+   * Whether a signature could be asked for now (the account's extension answered for it on this visit, or the vault
+   * keeps its key). Absent: always. When it is not, a press that would count toward a move, or Call here, is NEVER
+   * dropped in silence: it goes to `onNoSigner` (the host asks the extension again and tells the player), and the
+   * session is not asked to move (nothing is counted or signed).
+   */
+  signerReady?(): boolean;
+  onNoSigner?(kind: 'interact' | 'explicit'): void;
   /** Test seams. */
   doc?: Pick<Document, 'visibilityState' | 'hasFocus' | 'addEventListener' | 'removeEventListener'>;
   win?: Pick<Window, 'addEventListener' | 'removeEventListener'>;
@@ -162,9 +170,19 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
     });
   };
 
+  /** A move would need a signature and none can be asked for now: the Blobbi is elsewhere and its place is known. */
+  const needsSigner = (h: TravelSessionHandle) => {
+    const s = h.session.snapshot();
+    return !s.here && s.resolution !== 'pending' && !!deps.signerReady && !deps.signerReady();
+  };
+
   const request = async (explicit: boolean): Promise<TravelOutcome | null> => {
     const h = handle;
     if (!h) return null;
+    if (needsSigner(h)) {
+      deps.onNoSigner?.('explicit');
+      return null;
+    }
     const out = await h.session.travel({ explicit });
     if (handle === h && !disposed) deps.onOutcome(out, h.session.snapshot());
     return out;
@@ -174,6 +192,11 @@ export function createTravelHost(deps: TravelHostDeps): TravelHost {
   const interact = async (repeat: boolean): Promise<InteractOutcome | null> => {
     const h = handle;
     if (!h) return null;
+    if (!repeat && needsSigner(h)) {
+      h.session.noteActivity();
+      deps.onNoSigner?.('interact');
+      return 'ignored';
+    }
     const out = await h.session.interact({ repeat });
     if (handle !== h || disposed) return out;
     if (out === 'counted') deps.onCounted?.(h.session.snapshot());
