@@ -353,6 +353,22 @@ button.danger:disabled {
   background: #2a1d22;
 }
 
+/* A production build is the game alone: the lab's sidebar is for development servers (`LAB` in main.ts). */
+#app.release {
+  grid-template-columns: 1fr;
+}
+#app.release > aside {
+  display: none;
+}
+.tab-wait {
+  max-width: 30em;
+  margin: 20vh auto 0;
+  padding: 24px;
+  text-align: center;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 /* Phones and small tablets: the game fills the screen while playing (the lab's sidebar is for desktops). */
 #rotate-hint {
   display: none;

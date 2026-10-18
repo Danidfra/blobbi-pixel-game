@@ -132,6 +132,8 @@ interface State {
 }
 
 const params = new URLSearchParams(location.hash.slice(1));
+/** The lab (its sidebar, its tabs, its other modes) is a development tool: a production build shows only the game. */
+const LAB = import.meta.env.DEV;
 
 /**
  * The Blobbi at start-up: one named by the link (`#pubkey=…&d=…` or `#blobbi=…`), else the one selected in this
@@ -172,8 +174,9 @@ const state: State = {
   zoom: 2,
   panX: 0,
   panY: 0,
-  // The game is the front door: a plain link opens Play (the title); the lab tabs are one click away.
-  mode: (params.get('mode') as Mode) ?? 'play',
+  // The game is the front door: a plain link opens Play (the title); the lab tabs are one click away, on a development
+  // server only (`LAB`): a production build is the game alone.
+  mode: LAB ? ((params.get('mode') as Mode) ?? 'play') : 'play',
   galleryPrefix: 'gallery',
   galleryCount: 12,
   blobbiSeed: startupBlobbi.source.seed,
@@ -358,6 +361,7 @@ app.innerHTML = `
     <div id="fidelity-view" class="hidden"></div>
   </main>
 `;
+app.classList.toggle('release', !LAB);
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const view = $<HTMLCanvasElement>('view');
@@ -3567,6 +3571,7 @@ window.addEventListener('resize', resize);
 // ─── Modes ───────────────────────────────────────────────────────────────────
 
 function setMode(mode: Mode): void {
+  if (!LAB) mode = 'play';
   state.mode = mode;
   app.classList.toggle('mode-play', mode === 'play');
   for (const m of ['world', 'play', 'blobbi', 'growth', 'gallery', 'fidelity'] as Mode[]) $(`tab-${m}`).setAttribute('aria-selected', String(mode === m));

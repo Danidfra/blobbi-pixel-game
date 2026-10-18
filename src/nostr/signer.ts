@@ -1,10 +1,9 @@
 /**
- * THE SIGNER, limited to one question: "which public key is this?" (NIP-07 `getPublicKey`). The game never asks a
- * signer to sign, encrypt or decrypt anything in this version, so this interface has no way to.
- *
- * The browser extension is reached through Nostrify's `NBrowserSigner`, loaded only when the player connects (the
- * game's first screen never loads a network library). Remote signers (NIP-46) are not offered yet: they need a
- * session key made by the game and request events published to a relay, both outside this version's rules.
+ * THE BROWSER EXTENSION (NIP-07), through Nostrify's `NBrowserSigner`, loaded only when the player connects (the
+ * game's first screen never loads a network library). `PublicKeySigner` asks only "which public key is this?";
+ * signing goes through `browserExtensionSignEvent`, which the identity service calls (`signAsAccount`) for the
+ * player's own acts: registering a Blobbi, sharing the companion choice, a World Travel move. The extension shows its
+ * own prompt for each. Remote signers (NIP-46) are not offered yet.
  */
 
 /** The only thing the game asks of a signer. */
@@ -35,8 +34,8 @@ export function browserExtensionSigner(): PublicKeySigner {
 }
 
 /**
- * M11D.4: the browser extension asked to SIGN one event (NIP-07 `signEvent`), only for registering a Blobbi that
- * belongs to the player's existing account, after their explicit consent. The extension shows its own prompt.
+ * M11D.4: the browser extension asked to SIGN one event (NIP-07 `signEvent`) for the player's existing account, only
+ * from the player's own acts (see above). The extension shows its own prompt.
  */
 export async function browserExtensionSignEvent(template: { kind: number; created_at: number; tags: string[][]; content: string }): Promise<import('nostr-tools/pure').NostrEvent> {
   const { NBrowserSigner } = await import('@nostrify/nostrify');
