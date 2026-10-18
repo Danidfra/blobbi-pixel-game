@@ -23,7 +23,7 @@ import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
-import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
+import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, ownSharedGuestWalker, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
 import { activePresenceKey, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
 import { WORLD_HOME, createWorldTravel, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
@@ -1191,13 +1191,20 @@ function travelNotice(heading: string, body: string, seconds = 6): void {
   l.notices.push({ heading: t('travel.heading'), title: heading, text: body, until: Math.max(l.clock.time, l.notices.at(-1)?.until ?? 0) + seconds });
 }
 const travelName = () => shownName || 'Blobbi';
-/** The connected account's own walking Blobbi, which world travel follows (whether or not its session runs yet). */
+/**
+ * The connected account's own walking Blobbi, which world travel follows (whether or not its session runs yet): one
+ * chosen with the account, or the account's own shared Blobbi met in this game (`ownSharedGuestWalker`: born here and
+ * registered, or found after a backup restore), which is stored as a guest choice.
+ */
 function travelCandidate(): { owner: string; d: string } | null {
-  if (travelMode !== 'nostr' || !connectedPubkey) return null;
+  if (travelMode !== 'nostr' || !connectedPubkey || account.snapshot().status !== 'connected') return null;
   const c = walkingCanonical();
   const prefix = `31124:${connectedPubkey}:`;
-  if (!c || !c.address.startsWith(prefix) || account.snapshot().status !== 'connected') return null;
-  return { owner: connectedPubkey, d: c.address.slice(prefix.length) };
+  if (c) return c.address.startsWith(prefix) ? { owner: connectedPubkey, d: c.address.slice(prefix.length) } : null;
+  const pubkey = connectedPubkey;
+  const rec = effectiveSelection(storeOrNull(loadSelectionRecord), pubkey);
+  if (!rec || rec.source.seed !== state.blobbi.seed) return null;
+  return storeOrNull((st) => ownSharedGuestWalker(rec, pubkey, (d) => guestBlobbi(st, d)));
 }
 /** The Blobbi's place is not known yet: its first look is under way, or its session is about to start. */
 function travelPlaceUnknown(): boolean {

@@ -332,3 +332,19 @@ export function storeLocalSelection(store: KeyValueStore, source: BlobbiSource, 
   stamp(record, when);
   store.set(SELECTION_KEY, JSON.stringify(record));
 }
+
+/**
+ * World travel (2026-10-18): the connected account's OWN Blobbi walking under a guest record. A Blobbi met in this game
+ * (born here and registered, found after a backup restore, brought from MY BLOBBIS' guest list) is stored as a guest
+ * choice even once its owner IS the connected account (the vault identity adopted at registration or restore), so it
+ * never read as the account's own, and world travel never started for it. It is the very same canonical Blobbi as an
+ * account's choice once it is SHARED (its 31124 is out there for the other Blobbi apps to find): then it travels.
+ * Null for anything else (another owner, a Blobbi only on this device, an account choice, which is read as before).
+ */
+export function ownSharedGuestWalker(record: SelectionRecord | null, connectedPubkey: string | null, guest: (d: string) => { owner: string; activatedAt: number | null } | null): { owner: string; d: string } | null {
+  if (!record?.guest || !connectedPubkey || record.source.kind !== 'v3-address') return null;
+  const { pubkey, d } = record.source;
+  if (pubkey !== connectedPubkey) return null;
+  const g = guest(d);
+  return g && g.owner === connectedPubkey && g.activatedAt != null ? { owner: connectedPubkey, d } : null;
+}
