@@ -18,7 +18,7 @@ import type { KeyValueStore } from '../game/persistence';
 import { addGuestBlobbi, chooseGuestName, guestBlobbi, readGuestBlobbis, suggestedName, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
 import { KeyVault, VaultError, askPersistentStorage } from './keystore';
 import { backupFileName, buildBackupFile, parseBackupFile, recoveryFileName } from './backup';
-import { activate, activationRun, ActivationError, adoptFoundBlobbi, finishActivation, ownerRuns } from './activation';
+import { activate, activationRun, ActivationError, adoptFoundBlobbi, finishActivation, owedRelays, ownerRuns, registrationsToSpread, spreadRegistration } from './activation';
 import { canonicalD } from './canonical-events';
 import type { Publisher } from './publisher';
 import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, IdentityResult, RegistrationState, ReservedBlobbi, SharedSearch, ShareStatus } from './port';
@@ -27,7 +27,7 @@ import type { BlobbiReader, ProfileReadResult } from './relays';
 import { npubEncode, shortNpub } from './keys';
 import type { EventTemplate } from './canonical-events';
 import type { NostrEvent } from 'nostr-tools/pure';
-import { shareCompanion, type ShareOutcome, type ShareRequest } from './companion-share';
+import { shareCompanion, spreadCompanionShares, type ShareOutcome, type ShareRequest } from './companion-share';
 
 export interface IdentityServiceOptions {
   store: KeyValueStore;
@@ -69,6 +69,7 @@ export class IdentityService implements IdentityPort {
   readonly publishMode: 'live' | 'rehearsal';
   private readonly now: () => number;
   private busy = false;
+  private spreading = false;
 
   constructor(private readonly o: IdentityServiceOptions) {
     this.publishMode = o.publisher.mode;
@@ -270,14 +271,39 @@ export class IdentityService implements IdentityPort {
       acceptedBy: Math.min(run?.accepted.blobbi.length ?? 0, run?.accepted.profile.length ?? 0),
       heldBy: Math.min(run?.seenOn?.blobbi.length ?? 0, run?.seenOn?.profile.length ?? 0),
       relays: this.o.publisher.relays.length,
+      owed: run && (run.stage === 'done' || run.stage === 'confirmed') ? new Set(Object.values(owedRelays(run, this.o.publisher.relays)).flat()).size : 0,
       problem: run?.lastProblem ?? null,
     };
+  }
+
+  /**
+   * The deliveries still owed after a share (a relay that was down when a Blobbi or a companion choice was shared):
+   * the very same signed events are sent to the relays still missing them. Nothing is signed here (no signer is
+   * involved), nothing in rehearsal, nothing while a registration is under way. Returns how many shares still owe a
+   * relay something (0: nothing left, or no tries left).
+   */
+  async spreadAll(): Promise<number> {
+    if (this.publishMode !== 'live') return 0;
+    // A registration under way first (it never waits for this); one delivery round at a time.
+    if (this.busy || this.spreading) return 1;
+    this.spreading = true;
+    try {
+      let left = 0;
+      for (const d of registrationsToSpread(this.o.store, 'live', this.o.publisher.relays)) {
+        if ((await spreadRegistration(this.o.store, d, { publisher: this.o.publisher, now: this.now, sleep: this.o.sleep })).length) left++;
+      }
+      return left + (await spreadCompanionShares(this.o.store, this.o.publisher, { sleep: this.o.sleep }));
+    } catch {
+      return 1; // a network hiccup: tried again later
+    } finally {
+      this.spreading = false;
+    }
   }
 
   async shareStatus(d: string): Promise<ShareStatus> {
     const b = guestBlobbi(this.o.store, d);
     if (!b) return 'local';
-    if (b.activatedAt) return 'shared';
+    if (b.activatedAt) return this.registration(d).owed ? 'spreading' : 'shared';
     const reg = this.registration(d);
     if (this.publishMode === 'live' && reg.stage !== 'none' && reg.stage !== 'done') return reg.problem === 'partial' ? 'partial' : reg.problem ? 'failed' : 'pending';
     if (b.practicedAt && this.publishMode === 'rehearsal') return 'practiced';

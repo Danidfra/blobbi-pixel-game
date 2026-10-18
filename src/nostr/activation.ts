@@ -12,8 +12,11 @@
  *   done        the caller makes the identity the player's account and marks the Blobbi registered
  *
  * M11D.6:
- * - THE POLICY. Each event must be read back as `policyMet` says (two relays, relay.ditto.pub among them). Less (but one) is a PARTIAL
- *   share (`partial`): the run stays open and TRY AGAIN sends the same events to the missing relays only.
+ * - THE POLICY (`relay-config.ts`). Both events read back from ONE relay is a share: the Blobbi is registered, and
+ *   one relay down never holds the player back. Each event goes to every relay; the relays still missing one are
+ *   owed it, and `spreadRegistration` later sends them those very events (never signed again) until each holds them
+ *   or refuses them for good. Less than both events on one relay is PARTIAL (`partial`): the run stays open and TRY
+ *   AGAIN sends the same events to the missing relays only. Nothing read back anywhere is a failure.
  * - NEVER A PROFILE FROM A GUESS. A new 11125 replaces the owner's old one everywhere (it is replaceable), so one is
  *   built from scratch only when no profile can exist elsewhere: a brand-new guest identity, or every relay answered.
  *   Otherwise a missing profile means "unreachable, try later", never "make an empty one" (that could drop Blobbis
@@ -31,8 +34,8 @@ import type { NostrEvent } from 'nostr-tools/pure';
 import { verifyEvent } from 'nostr-tools/pure';
 import type { KeyValueStore } from '../game/persistence';
 import { babyStateTemplate, canonicalD, isCanonicalBlobbi, isProfile, profileFilter, profileTemplate, type BirthFacts, type EventTemplate } from './canonical-events';
-import { accepted, type Publisher, type QueryResult } from './publisher';
-import { policyMet, PROFILE_REQUIRED_RELAYS } from './relay-config';
+import { accepted, type Publisher, type QueryResult, type RelayAck } from './publisher';
+import { missingFrom, permanentRefusal, policyMet, PROFILE_REQUIRED_RELAYS } from './relay-config';
 
 export const ACTIVATION_KEY = 'blobbi-pixel-lab:activation';
 
@@ -54,6 +57,8 @@ export interface ActivationRun {
   adopted: boolean;
   /** M11D.6: why the last attempt stopped (public: a problem code), or null. */
   lastProblem?: ActivationProblem | null;
+  /** After a share: the background deliveries to relays still missing an event (`spreadRegistration`). */
+  spread?: SpreadState;
   consentAt: number;
   updatedAt: number;
 }
@@ -68,6 +73,16 @@ export class ActivationError extends Error {
     super(problem);
   }
 }
+
+/** The deliveries owed after a share: how many tries so far, the relays that refused for good, a profile replaced since. */
+export interface SpreadState {
+  tries: number;
+  refused: string[];
+  profileSuperseded?: boolean;
+}
+
+/** How many background deliveries a share gets (each one a send to the missing relays, then a read back). */
+export const SPREAD_MAX_TRIES = 8;
 
 export interface ActivationDeps {
   store: KeyValueStore;
@@ -181,7 +196,8 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
   const { store, publisher } = deps;
   const timeout = deps.timeoutMs ?? 8000;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const met = (holders: readonly string[]) => policyMet(publisher.relays, holders);
+  // Delivered: one relay holds BOTH events (the Blobbi and the profile that lists it), read back.
+  const delivered = () => policyMet(publisher.relays, run.seenOn!.blobbi.filter((r) => run.seenOn!.profile.includes(r)));
   const f = req.facts;
   const d = canonicalD(f.owner, f.petId);
   if (!req.consent) throw new ActivationError('no-consent', activationRun(store, d, publisher.mode));
@@ -251,13 +267,13 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
   // A retry first looks at what the relays already hold, so nothing they keep is sent again.
   if (run.accepted.blobbi.length || run.accepted.profile.length) await look();
   // Missing means not READ BACK there yet: a relay that said OK and then did not keep it is sent the event again.
-  if (!met(run.seenOn!.blobbi)) {
+  if (missing(run.seenOn!.blobbi).length) {
     const acks = await publisher.publish(run.blobbi!, timeout, missing(run.seenOn!.blobbi));
     save({ accepted: { ...run.accepted, blobbi: union(run.accepted.blobbi, accepted(acks)) } });
   }
   // The Blobbi must be somewhere before its owner's profile points at it.
   if (!run.accepted.blobbi.length && !run.seenOn!.blobbi.length) stop('publish-failed');
-  if (!met(run.seenOn!.profile)) {
+  if (missing(run.seenOn!.profile).length) {
     if (!run.accepted.profile.length) {
       // Just before the profile goes out: a newer one made meanwhile (another app) is merged over, never replaced.
       const again = await askProfile();
@@ -270,14 +286,83 @@ export async function activate(req: ActivationRequest, deps: ActivationDeps): Pr
   if (!run.accepted.profile.length && !run.seenOn!.profile.length) stop('publish-failed');
   save({ stage: 'publishing' });
 
-  // 3. CONFIRM: read both back; only relays that return them count. Relays may need a moment: one more look.
+  // 3. CONFIRM: read both back; only relays that return them count. Relays may need a moment: one more look. Every
+  // relay holding both is complete; one is a share, and the rest are owed (`spreadRegistration`).
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt) await sleep(1500);
     await look();
-    if (met(run.seenOn!.blobbi) && met(run.seenOn!.profile)) {
-      save({ stage: 'confirmed', lastProblem: null });
-      return run;
-    }
+    if (!missing(run.seenOn!.blobbi).length && !missing(run.seenOn!.profile).length) break;
   }
-  return stop(run.seenOn!.blobbi.length && run.seenOn!.profile.length ? 'partial' : 'not-confirmed');
+  if (delivered()) {
+    save({ stage: 'confirmed', lastProblem: null });
+    return run;
+  }
+  return stop(run.seenOn!.blobbi.length || run.seenOn!.profile.length ? 'partial' : 'not-confirmed');
+}
+
+// ─── After a share: the relays still owed an event ───
+
+/** The relays still owed each event of a finished share (not read back there, not refused for good). */
+export function owedRelays(run: ActivationRun, relays: readonly string[]): { blobbi: string[]; profile: string[] } {
+  // Only a share made here (both events signed or adopted by it) owes anything: a Blobbi merely FOUND after a restore
+  // (`adoptFoundBlobbi`, no profile) is already out there, and was never this device's to deliver.
+  if (!run.blobbi || !run.profile) return { blobbi: [], profile: [] };
+  const refused = run.spread?.refused ?? [];
+  const seen = run.seenOn ?? { blobbi: [], profile: [] };
+  const owed = (have: readonly string[]) => missingFrom(relays, have).filter((r) => !refused.includes(r));
+  return { blobbi: owed(seen.blobbi), profile: run.spread?.profileSuperseded ? [] : owed(seen.profile) };
+}
+
+/** The Blobbis (d) whose share is done in `mode` and still owes a relay an event, with tries left. */
+export function registrationsToSpread(store: KeyValueStore, mode: 'live' | 'rehearsal', relays: readonly string[]): string[] {
+  return Object.values(readRuns(store))
+    .filter((r) => r.mode === mode && (r.stage === 'done' || r.stage === 'confirmed') && !!r.blobbi && !!r.profile && (r.spread?.tries ?? 0) < SPREAD_MAX_TRIES)
+    .filter((r) => {
+      const o = owedRelays(r, relays);
+      return o.blobbi.length + o.profile.length > 0;
+    })
+    .map((r) => r.d);
+}
+
+/**
+ * One background delivery for a finished share: look at what the relays hold now, send the STORED signed events to
+ * the relays still missing them (nothing is signed here: there is no signer), read back, keep what was seen. A relay
+ * refusing for good (`permanentRefusal`) is no longer owed. A profile replaced since by a newer one of the owner is
+ * never sent again (the newer one is its writer's to deliver). Returns the relays still owed something.
+ */
+export async function spreadRegistration(store: KeyValueStore, d: string, deps: { publisher: Publisher; now: () => number; timeoutMs?: number; sleep?: (ms: number) => Promise<void> }): Promise<string[]> {
+  const { publisher } = deps;
+  const timeout = deps.timeoutMs ?? 8000;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let run = activationRun(store, d, publisher.mode);
+  if (!run || (run.stage !== 'done' && run.stage !== 'confirmed') || !run.blobbi || !run.profile) return [];
+  const spread: SpreadState = { tries: 0, refused: [], ...run.spread };
+  if (spread.tries >= SPREAD_MAX_TRIES) return [];
+  const owner = run.owner;
+  const save = () => {
+    run = { ...run!, spread: { ...spread }, updatedAt: deps.now() };
+    saveRun(store, run);
+  };
+  const look = async () => {
+    const [b, p] = await Promise.all([publisher.query({ kinds: [31124], authors: [owner], '#d': [d], limit: 10 }, timeout), publisher.query(profileFilter(owner), timeout)]);
+    const seen = run!.seenOn ?? { blobbi: [], profile: [] };
+    run = { ...run!, seenOn: { blobbi: union(seen.blobbi, holdersOfBlobbi(b, run!.blobbi!)), profile: union(seen.profile, holdersOfListing(p, owner, d)) } };
+    const top = newestProfile(p.events, owner);
+    if (top && top.id !== run.profile!.id && top.created_at > run.profile!.created_at) spread.profileSuperseded = true;
+  };
+  const owed = () => owedRelays({ ...run!, spread }, publisher.relays);
+  spread.tries++;
+  await look();
+  const before = owed();
+  const refusals = (acks: RelayAck[]) => acks.filter((a) => !a.ok && permanentRefusal(a.reason)).map((a) => a.relay);
+  if (before.blobbi.length) spread.refused = union(spread.refused, refusals(await publisher.publish(run.blobbi!, timeout, before.blobbi)));
+  const profileTo = owed().profile;
+  if (profileTo.length) spread.refused = union(spread.refused, refusals(await publisher.publish(run.profile!, timeout, profileTo)));
+  if (before.blobbi.length || profileTo.length) {
+    await sleep(1500);
+    await look();
+  }
+  save();
+  const left = owed();
+  return union(left.blobbi, left.profile);
 }

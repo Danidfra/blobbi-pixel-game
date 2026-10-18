@@ -260,7 +260,7 @@ export class SettingsScreen implements Screen {
     }
     // M11D.6: where the walking Blobbi stands with other worlds, in plain words (backed up is not shared).
     const mine = this.onIdentity ? (this.reservedWalking?.() ?? null) : null;
-    if (mine?.share) cy += g.para(t(`account.share.${mine.share}`, { name: mine.name }), x, cy, w, mine.share === 'shared' ? UI.good : mine.share === 'failed' || mine.share === 'partial' ? UI.bad : UI.muted, 2) + 3;
+    if (mine?.share) cy += g.para(t(`account.share.${mine.share}`, { name: mine.name }), x, cy, w, mine.share === 'shared' || mine.share === 'spreading' ? UI.good : mine.share === 'failed' || mine.share === 'partial' ? UI.bad : UI.muted, 2) + 3;
     const rows = this.rows(ui);
     this.index = Math.min(this.index, Math.max(0, rows.length - 1));
     rows.forEach((it, i) => {
@@ -313,7 +313,7 @@ export function accountName(s: AccountSnapshot): string {
 
 /** M11D.6: the walking Blobbi's ACCOUNT row, by where it stands with other worlds. */
 function shareLabel(mine: { registered: boolean; share?: ShareStatus }): MessageKey {
-  if (mine.registered || mine.share === 'shared') return 'account.blobbiReady';
+  if (mine.registered || mine.share === 'shared' || mine.share === 'spreading') return 'account.blobbiReady';
   if (mine.share === 'practiced') return 'account.blobbiPracticed';
   if (mine.share === 'pending' || mine.share === 'partial' || mine.share === 'failed') return 'account.blobbiPending';
   return 'account.saveBlobbi';

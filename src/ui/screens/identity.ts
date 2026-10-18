@@ -550,6 +550,8 @@ export class IdentityScreen implements Screen {
         head('identity.reveal.title');
         cy = p('identity.reveal.body1', cy);
         cy = p('identity.reveal.body2', cy, UI.good);
+        // Shared, and a relay that was down is still owed it: it gets there by itself (never a failure).
+        if (this.subject && (this.identity?.registration(this.subject).owed ?? 0) > 0) cy = p('identity.reveal.spreading', cy, UI.muted);
         // Little connected islands, a light travelling between them.
         drawConnectedWorlds(g, ui, tx, cy + 8, Math.min(tw, 150));
         cy += 14;

@@ -5,16 +5,18 @@
  *
  * WHY THESE RELAYS: a Blobbi born here must be found by the other Blobbi apps, so Pixel uses the relays the ecosystem
  * already uses, never a Pixel-only set (docs/milestones/M11D6.md, "Relay choices", has the evidence per app):
- *   relay.ditto.pub     read by Blobbi Standalone, Blobbi Island and Ditto: the one relay every app shares (REQUIRED)
+ *   relay.ditto.pub     read by Blobbi Standalone, Blobbi Island and Ditto: the one relay every app shares
  *   relay.primal.net    read by Standalone and Island
  *   relay.dreamith.to   read by Ditto (for an identity with no relay list of its own, as a Pixel guest)
  * relay.nostr.band (still in Standalone's list) did not answer on 2026-10-13 and is left out.
  *
- * CONFIRMATION POLICY: an event counts as shared only when it is READ BACK (a fresh query returns the very event, or a
- * newer one by the same owner that still says the same) from at least `quorum` relays, `REQUIRED_RELAY` among them. A relay's `OK` alone is
- * recorded but is not enough, and a WebSocket send with no `OK` counts for nothing. Fewer than `quorum` relays
- * holding it is a PARTIAL share: the Blobbi may already be discoverable, the run stays open and a retry sends the
- * same signed events only to the relays still missing them.
+ * CONFIRMATION POLICY: an event counts as shared (DELIVERED) once ONE of these relays READS IT BACK (a fresh query
+ * returns the very event, or a newer one by the same owner that still says the same). A relay's `OK` alone is recorded
+ * but is not enough, and a WebSocket send with no `OK` counts for nothing. One relay is enough because one relay down
+ * (relay.ditto.pub answered 502 on 2026-10-17) must never hold a player back: until then a share needed two relays,
+ * relay.ditto.pub among them, and stayed PARTIAL for as long as it was down. Every other relay is still OWED the
+ * event: the signed event is kept, and the relays still missing it are sent that very event later (`spread`), never
+ * a new signature, until each holds it or refuses it for good. Nothing read back anywhere is a failure (nothing lost).
  *
  * LIVE OR REHEARSAL: REHEARSAL (an in-browser relay, nothing leaves the device) unless the BUILD says live
  * (`VITE_BLOBBI_PUBLISH=live`, the owner's release decision) or, in a DEVELOPMENT server only, the page is opened with
@@ -23,9 +25,6 @@
 
 /** Where canonical Blobbi events are published (and read back from). */
 export const PUBLISH_RELAYS: readonly string[] = ['wss://relay.ditto.pub', 'wss://relay.primal.net', 'wss://relay.dreamith.to'];
-
-/** The relay every Blobbi app reads: a share is confirmed only once it holds the events (when it is in the set). */
-export const REQUIRED_RELAY = 'wss://relay.ditto.pub';
 
 /** Where public profiles and a player's Blobbis are read from (the same set: what is published can be found). */
 export const READ_RELAYS: readonly string[] = PUBLISH_RELAYS;
@@ -37,11 +36,14 @@ export const READ_RELAYS: readonly string[] = PUBLISH_RELAYS;
  */
 export const PROFILE_REQUIRED_RELAYS: readonly string[] = ['wss://relay.ditto.pub', 'wss://relay.primal.net'];
 
-/** How many relays must hold an event (read back) for it to count as shared: two, or every relay if fewer. */
-export const quorumFor = (relays: readonly string[]): number => Math.min(2, relays.length);
+/** Whether an event is delivered: at least one of these relays read it back. */
+export const policyMet = (relays: readonly string[], holders: readonly string[]): boolean => holders.some((h) => relays.includes(h));
 
-/** Whether the relays holding an event (read back) meet the policy for this relay set. */
-export const policyMet = (relays: readonly string[], holders: readonly string[]): boolean => holders.filter((h) => relays.includes(h)).length >= quorumFor(relays) && (!relays.includes(REQUIRED_RELAY) || holders.includes(REQUIRED_RELAY));
+/** The relays of this set still owed an event (not read back there yet). */
+export const missingFrom = (relays: readonly string[], holders: readonly string[]): string[] => relays.filter((r) => !holders.includes(r));
+
+/** A relay's refusal that will not change by sending again (NIP-01 prefixes): it is no longer owed the event. */
+export const permanentRefusal = (reason: string): boolean => ['blocked', 'invalid', 'restricted', 'pow', 'auth-required', 'mute'].includes(reason);
 
 /** The publishing mode of this page: the build's decision; the page flag only on a development server. */
 export function publishModeFor(o: { buildMode?: string; dev: boolean; hash: URLSearchParams }): 'live' | 'rehearsal' {

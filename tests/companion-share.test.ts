@@ -9,7 +9,7 @@ import { buildBlobbonautTags, getCanonicalBlobbiD, parseBlobbonautEvent, updateB
 import { memoryStore } from '../src/game/persistence';
 import { memoryRelay, relayGroup } from '../src/nostr/publisher';
 import { PUBLISH_RELAYS } from '../src/nostr/relay-config';
-import { pendingShare, shareCompanion, type ShareDeps } from '../src/nostr/companion-share';
+import { pendingShare, shareCompanion, spreadCompanionShares, SPREAD_MAX_TRIES, type ShareDeps } from '../src/nostr/companion-share';
 import { companionProfileTemplate, type EventTemplate } from '../src/nostr/canonical-events';
 
 const [DITTO, PRIMAL, DREAMITH] = PUBLISH_RELAYS;
@@ -157,27 +157,64 @@ describe('sharing the companion chosen in Blobbi Pixel', () => {
     expect(newestOn(net, DITTO).tags.filter((t) => t[0] === 'has').map((t) => t[1])).toContain(dOf(a, 3));
   });
 
-  it('partial (a relay refuses): stored; the retry sends the very same event to the missing relays only', async () => {
+  it('one relay holding it is a share; the relays still missing it are owed the very same event (never signed again)', async () => {
     const a = account();
-    const net = network({ refuse: new Set([PRIMAL, DREAMITH]) });
+    const net = network({ forget: new Set([PRIMAL, DREAMITH]) }); // they say OK and keep nothing (for now)
     net.seed(profile(a, { has: [dOf(a, 1)], companion: dOf(a, 1), at: S - 100 }));
     const run = deps(net, a);
-    expect((await shareCompanion(req(a, dOf(a, 2)), run.deps)).kind).toBe('partial');
-    const stored = pendingShare(run.store, a.pk, dOf(a, 2))!;
-    expect(stored.event.id).toBe(run.signed[0].id);
-    net.faults.refuse!.clear();
     expect((await shareCompanion(req(a, dOf(a, 2)), run.deps)).kind).toBe('shared');
+    const stored = pendingShare(run.store, a.pk, dOf(a, 2))!;
+    expect(stored).toMatchObject({ delivered: true, seenOn: [DITTO] });
+    expect(stored.event.id).toBe(run.signed[0].id);
+    expect(await spreadCompanionShares(run.store, net.group, { sleep: async () => {} })).toBe(1); // still lost there: still owed
+    net.faults.forget!.clear();
+    expect(await spreadCompanionShares(run.store, net.group, { sleep: async () => {} })).toBe(0);
     expect(run.signed).toHaveLength(1);
     expect(new Set(sentProfiles(net).map((e) => e.id))).toEqual(new Set([stored.event.id]));
-    expect(on(net, DITTO).sent.filter((e) => e.kind === 11125)).toHaveLength(1);
-    expect(pendingShare(run.store, a.pk, dOf(a, 2))).toBeNull();
+    for (const url of [PRIMAL, DREAMITH]) expect(newestOn(net, url).id).toBe(stored.event.id);
+    expect(on(net, DITTO).sent.filter((e) => e.kind === 11125)).toHaveLength(1); // the relay that had it is never sent it again
+    expect(pendingShare(run.store, a.pk, dOf(a, 2))).toBeNull(); // nothing left owed
   });
 
-  it('a relay that says OK and loses it does not count', async () => {
+  it('read back nowhere: partial when a relay said OK, failed when none did (never "shared")', async () => {
+    const a = account();
+    const forgetful = network({ forget: new Set(PUBLISH_RELAYS) });
+    forgetful.seed(profile(a, { has: [dOf(a, 1)], companion: dOf(a, 1), at: S - 100 }));
+    expect((await shareCompanion(req(a, dOf(a, 2)), deps(forgetful, a).deps)).kind).toBe('partial');
+    const refusing = network({ refuse: new Set(PUBLISH_RELAYS) });
+    refusing.seed(profile(a, { has: [dOf(a, 1)], companion: dOf(a, 1), at: S - 100 }));
+    expect((await shareCompanion(req(a, dOf(a, 2)), deps(refusing, a).deps)).kind).toBe('failed');
+  });
+
+  it('spreading: a write replaced since by a newer profile is dropped (never sent); a refusal for good is not retried; tries are bounded', async () => {
+    const a = account();
+    const net = network({ forget: new Set([PRIMAL]) });
+    net.seed(profile(a, { has: [dOf(a, 1), dOf(a, 2), dOf(a, 3)], companion: dOf(a, 1), at: S - 100 }));
+    const run = deps(net, a);
+    expect((await shareCompanion(req(a, dOf(a, 2)), run.deps)).kind).toBe('shared');
+    net.seed(profile(a, { has: [dOf(a, 1), dOf(a, 2), dOf(a, 3)], companion: dOf(a, 3), at: S + 60 }), [DITTO]);
+    const sent = sentProfiles(net).length;
+    expect(await spreadCompanionShares(run.store, net.group, { sleep: async () => {} })).toBe(0);
+    expect(sentProfiles(net)).toHaveLength(sent);
+    expect(pendingShare(run.store, a.pk, dOf(a, 2))).toBeNull();
+
+    const b = account();
+    const net2 = network({ forget: new Set([PRIMAL]) });
+    net2.seed(profile(b, { has: [dOf(b, 1), dOf(b, 2)], companion: dOf(b, 1), at: S - 100 }));
+    const run2 = deps(net2, b);
+    expect((await shareCompanion(req(b, dOf(b, 2)), run2.deps)).kind).toBe('shared');
+    for (let i = 0; i < SPREAD_MAX_TRIES + 3; i++) await spreadCompanionShares(run2.store, net2.group, { sleep: async () => {} });
+    expect(on(net2, PRIMAL).sent.filter((e) => e.kind === 11125).length).toBeLessThanOrEqual(1 + SPREAD_MAX_TRIES);
+    expect(run2.signed).toHaveLength(1);
+  });
+
+  it('a relay that says OK and loses it does not count: shared on the others, that one still owed', async () => {
     const a = account();
     const net = network({ forget: new Set([DITTO]) });
     net.seed(profile(a, { has: [dOf(a, 1)], companion: dOf(a, 1), at: S - 100 }));
-    expect((await shareCompanion(req(a, dOf(a, 2)), deps(net, a).deps)).kind).toBe('partial');
+    const run = deps(net, a);
+    expect((await shareCompanion(req(a, dOf(a, 2)), run.deps)).kind).toBe('shared');
+    expect(pendingShare(run.store, a.pk, dOf(a, 2))!.seenOn).not.toContain(DITTO);
   });
 
   it('a stored write superseded by a newer choice elsewhere is dropped, never sent', async () => {

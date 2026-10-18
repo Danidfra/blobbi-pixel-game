@@ -155,9 +155,10 @@ export interface ReservedBlobbi {
  *   pending    sharing started and has not finished (resumable)
  *   partial    some worlds hold it, not enough yet: TRY AGAIN finishes it
  *   failed     the last try did not get through (nothing lost): TRY AGAIN
- *   shared     published and read back as the policy asks: other worlds can recognize it
+ *   spreading  shared (read back from a relay); a relay that was down is still owed it and gets it by itself
+ *   shared     published and read back everywhere it was sent: other worlds can recognize it
  */
-export type ShareStatus = 'local' | 'backedUp' | 'practiced' | 'pending' | 'partial' | 'failed' | 'shared';
+export type ShareStatus = 'local' | 'backedUp' | 'practiced' | 'pending' | 'partial' | 'failed' | 'spreading' | 'shared';
 
 /** M11D.5: the two kinds of backup. A Recovery Key (plain `nsec`, no password) or a Protected Key (NIP-49). */
 export type BackupKind = 'nsec' | 'ncryptsec';
@@ -171,6 +172,8 @@ export interface RegistrationState {
   /** M11D.6: how many relays returned both events when read back, and how many relays there are. */
   heldBy?: number;
   relays?: number;
+  /** After a share: how many relays are still owed an event (sent later, by themselves). */
+  owed?: number;
   /** M11D.6: why the last try stopped, or null. */
   problem?: IdentityProblem | null;
 }

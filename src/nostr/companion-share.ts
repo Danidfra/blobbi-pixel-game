@@ -18,8 +18,11 @@
  *   sign       the account's own signer; another key is refused. The signed event is STORED before it is sent
  *              (`blobbi-pixel-lab:companion-share`): every retry sends that very event (same id: no duplicate).
  *   re-check   a second complete read just before sending: a profile written meanwhile is built over, once.
- *   send       only while the account is still really here (checked again right before); then READ BACK: shared only when `policyMet` (two relays, relay.ditto.pub among them), as activation.
- *              Fewer: `partial` (Try again resends the same event to the relays still missing it).
+ *   send       only while the account is still really here (checked again right before); then READ BACK: shared
+ *              once ONE relay returns it (`policyMet`, as activation), so one relay down never holds the choice back.
+ *              The relays still missing it are owed it: the event stays stored, marked `delivered`, and
+ *              `spreadCompanionShares` later sends them that very event (never signed again). Read back nowhere:
+ *              `partial` if a relay accepted it, else `failed` (Try again resends the same event).
  *
  * A stored write found superseded by a newer profile is dropped, never sent. REHEARSAL builds share nothing (the
  * choice stays on this device: nothing leaves it in rehearsal).
@@ -31,7 +34,7 @@ import type { KeyValueStore } from '../game/persistence';
 import { CHOICE_FRESH_MS, orderChoices, replaces, type ProfileStamp, type SeenProfile } from '../game/companion-order';
 import { companionProfileTemplate, isProfile, preservesProfile, profileFilter, type EventTemplate } from './canonical-events';
 import { accepted, type Publisher, type QueryResult } from './publisher';
-import { policyMet, PROFILE_REQUIRED_RELAYS } from './relay-config';
+import { missingFrom, permanentRefusal, policyMet, PROFILE_REQUIRED_RELAYS } from './relay-config';
 
 export const COMPANION_SHARE_KEY = 'blobbi-pixel-lab:companion-share';
 
@@ -44,7 +47,15 @@ export interface PendingShare {
   base: ProfileStamp;
   /** Relays that returned it on a read-back. */
   seenOn: string[];
+  /** Shared (read back from a relay): kept only for the relays still owed it (`spreadCompanionShares`). */
+  delivered?: boolean;
+  /** Background deliveries tried, and the relays that refused it for good. */
+  tries?: number;
+  refused?: string[];
 }
+
+/** How many background deliveries a shared choice gets. */
+export const SPREAD_MAX_TRIES = 8;
 
 export type ShareOutcome =
   | { kind: 'shared'; event: NostrEvent }
@@ -236,7 +247,8 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
     held = [...new Set([...held, ...holders(back.answer, event, owner, d, verify)])];
     keepPending(store, { ...pending, seenOn: held }, owner);
     if (policyMet(publisher.relays, held)) {
-      keepPending(store, null, owner);
+      // Every relay holds it: nothing left to do. Else it stays stored for the relays still owed it.
+      keepPending(store, missingFrom(publisher.relays, held).length ? { ...pending, seenOn: held, delivered: true } : null, owner);
       return { kind: 'shared', event };
     }
     const top = back.newest;
@@ -246,6 +258,49 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
     }
   }
   return ok.length || held.length ? { kind: 'partial', event } : { kind: 'failed' };
+}
+
+/**
+ * The background deliveries of shared choices: for each stored write already `delivered`, look at what the relays
+ * hold, then send that very event (no signer here: nothing is ever signed) to the relays still missing it, and read
+ * back. A write replaced since by a newer profile of the owner is dropped, never sent. A relay refusing for good is no
+ * longer owed. Returns how many writes still owe a relay something.
+ */
+export async function spreadCompanionShares(store: KeyValueStore, publisher: Publisher, deps: { timeoutMs?: number; sleep?: (ms: number) => Promise<void>; verify?: (e: NostrEvent) => boolean } = {}): Promise<number> {
+  if (publisher.mode !== 'live') return 0;
+  const timeout = deps.timeoutMs ?? 8000;
+  const verify = deps.verify ?? verifyEvent;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let left = 0;
+  for (const p of Object.values(readAll(store))) {
+    if (!p.delivered || p.event?.pubkey !== p.owner) continue;
+    const tries = (p.tries ?? 0) + 1;
+    if (tries > SPREAD_MAX_TRIES) continue;
+    let refused = p.refused ?? [];
+    // Only this very write: a choice shared meanwhile (another stored write) is never overwritten or dropped here.
+    const keep = (next: PendingShare | null) => {
+      if (readAll(store)[p.owner]?.event?.id === p.event.id) keepPending(store, next, p.owner);
+    };
+    const owed = (held: readonly string[]) => missingFrom(publisher.relays, held).filter((r) => !refused.includes(r));
+    const first = await census(publisher, p.owner, timeout, verify);
+    if (first.newest && first.newest.id !== p.event.id && replaces(stamp(first.newest), stamp(p.event))) {
+      keep(null); // a newer profile replaced it: its writer delivers that one
+      continue;
+    }
+    let held = [...new Set([...p.seenOn, ...holders(first.answer, p.event, p.owner, p.d, verify)])];
+    const to = owed(held);
+    if (to.length) {
+      const acks = await publisher.publish(p.event, timeout, to);
+      refused = [...new Set([...refused, ...acks.filter((a) => !a.ok && permanentRefusal(a.reason)).map((a) => a.relay)])];
+      await sleep(1500);
+      const back = await census(publisher, p.owner, timeout, verify);
+      held = [...new Set([...held, ...holders(back.answer, p.event, p.owner, p.d, verify)])];
+    }
+    const still = owed(held);
+    keep(still.length ? { ...p, seenOn: held, tries, refused } : null);
+    if (still.length && tries < SPREAD_MAX_TRIES) left++;
+  }
+  return left;
 }
 
 /** Forget the stored write of an owner (the choice changed, or the account went). */

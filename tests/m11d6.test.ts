@@ -9,9 +9,9 @@ import { classifyBlobbiEvent, deriveBlobbiV3Seed, getCanonicalBlobbiD, getCanoni
 import { KeyVault, memoryVaultBackend } from '../src/nostr/keystore';
 import { IdentityService } from '../src/nostr/identity';
 import { memoryRelay, reasonOf, relayGroup, relayPublisher, type Publisher } from '../src/nostr/publisher';
-import { activate, activationRun, ACTIVATION_KEY } from '../src/nostr/activation';
+import { activate, activationRun, ACTIVATION_KEY, SPREAD_MAX_TRIES } from '../src/nostr/activation';
 import { babyStateTemplate, profileTemplate, type EventTemplate } from '../src/nostr/canonical-events';
-import { PUBLISH_RELAYS, READ_RELAYS, REQUIRED_RELAY, policyMet, publishModeFor, quorumFor } from '../src/nostr/relay-config';
+import { PUBLISH_RELAYS, READ_RELAYS, missingFrom, permanentRefusal, policyMet, publishModeFor } from '../src/nostr/relay-config';
 import { DEFAULT_RELAYS } from '../src/nostr/relays';
 import { buildBackupFile } from '../src/nostr/backup';
 import { GUEST_BLOBBIS_KEY, awaitsName, guestBlobbi, readGuestBlobbis, updateGuestBlobbi } from '../src/game/guest-blobbis';
@@ -67,16 +67,16 @@ describe('M11D.6: the relays and the confirmation policy', () => {
     expect(READ_RELAYS).toEqual(PUBLISH_RELAYS);
     expect(DEFAULT_RELAYS).toEqual(READ_RELAYS); // what is published can be found by the same game
     expect(PUBLISH_RELAYS).not.toContain('wss://relay.nostr.band');
-    expect(REQUIRED_RELAY).toBe('wss://relay.ditto.pub');
-    expect(quorumFor(PUBLISH_RELAYS)).toBe(2);
   });
 
-  it('shared means read back from two relays, relay.ditto.pub among them', () => {
-    expect(policyMet(PUBLISH_RELAYS, ['wss://relay.ditto.pub', 'wss://relay.primal.net'])).toBe(true);
-    expect(policyMet(PUBLISH_RELAYS, ['wss://relay.primal.net', 'wss://relay.dreamith.to'])).toBe(false); // not where every app reads
-    expect(policyMet(PUBLISH_RELAYS, ['wss://relay.ditto.pub'])).toBe(false);
-    expect(policyMet(['memory://one'], ['memory://one'])).toBe(true); // a single test relay: one is all
-    expect(policyMet(PUBLISH_RELAYS, ['wss://relay.ditto.pub', 'wss://elsewhere.example'])).toBe(false); // only our relays count
+  it('shared means read back from ONE of our relays (no relay is required); the others are owed it', () => {
+    expect(policyMet(PUBLISH_RELAYS, ['wss://relay.primal.net'])).toBe(true); // relay.ditto.pub down never holds a share back
+    expect(policyMet(PUBLISH_RELAYS, ['wss://relay.ditto.pub'])).toBe(true);
+    expect(policyMet(PUBLISH_RELAYS, [])).toBe(false);
+    expect(policyMet(PUBLISH_RELAYS, ['wss://elsewhere.example'])).toBe(false); // only our relays count
+    expect(missingFrom(PUBLISH_RELAYS, ['wss://relay.primal.net'])).toEqual(['wss://relay.ditto.pub', 'wss://relay.dreamith.to']);
+    expect(['blocked', 'invalid', 'restricted', 'pow', 'auth-required'].every(permanentRefusal)).toBe(true);
+    expect(['timeout', 'rate-limited', 'error', 'refused', 'unreachable'].some(permanentRefusal)).toBe(false); // those may pass later
   });
 
   it('a production build cannot be switched to real relays by a link; only the build (or a dev server) decides', () => {
@@ -132,19 +132,19 @@ describe('M11D.6: registration against several relays (partial outages, retries,
     expect(members.map((m) => m.sent.length)).toEqual([2, 2, 2]); // the down relay saw two attempts only
   }, 30_000);
 
-  it('relay.ditto.pub down: a PARTIAL share (not registered); TRY AGAIN sends the same events only to it', async () => {
+  it('relay.ditto.pub down: shared on the others (registered), ditto owed; it gets the same events once back', async () => {
     const down = new Set(['wss://relay.ditto.pub']);
     const { members, group } = threeRelays({ down });
     const s = setup(group);
     const b = await readyGuest(s);
-    expect(await s.svc.register(b.d, true)).toEqual({ ok: false, problem: 'partial' });
-    expect(guestBlobbi(s.store, b.d)!.activatedAt).toBe(null);
-    expect(s.registered).toEqual([]);
-    expect(await s.svc.shareStatus(b.d)).toBe('partial');
+    expect(await s.svc.register(b.d, true)).toMatchObject({ ok: true, value: { stage: 'done', owed: 1 } });
+    expect(guestBlobbi(s.store, b.d)!.activatedAt).not.toBe(null);
+    expect(s.registered).toEqual([b.d]);
+    expect(await s.svc.shareStatus(b.d)).toBe('spreading');
     const ids = members[1].sent.map((e) => e.id);
     down.clear();
     const before = members.map((m) => m.sent.length);
-    expect((await s.svc.register(b.d, true)).ok).toBe(true);
+    expect(await s.svc.spreadAll()).toBe(0);
     expect(members[1].sent.length).toBe(before[1]); // primal already had both: not sent again
     expect(members[2].sent.length).toBe(before[2]);
     expect(members[0].sent.slice(before[0]).map((e) => e.id)).toEqual(ids); // the very same signed events
@@ -169,7 +169,7 @@ describe('M11D.6: registration against several relays (partial outages, retries,
     const a = threeRelays({ forget });
     const s = setup(a.group);
     const b = await readyGuest(s);
-    expect(await s.svc.register(b.d, true)).toEqual({ ok: false, problem: 'partial' }); // only ditto really holds them
+    expect(await s.svc.register(b.d, true)).toMatchObject({ ok: true, value: { owed: 2 } }); // ditto really holds them: shared; the two that lost them are owed
     const refuse = new Set(PUBLISH_RELAYS);
     const c = threeRelays({ refuse });
     const s2 = setup(c.group);
@@ -181,6 +181,146 @@ describe('M11D.6: registration against several relays (partial outages, retries,
     expect((await s2.svc.register(b2.d, true)).ok).toBe(true);
     expect(new Set(c.members.flatMap((m) => m.sent.filter((e) => e.kind === 31124).map((e) => e.id))).size).toBe(1); // one Blobbi event, ever
   }, 30_000);
+});
+
+describe('2026-10-17 outage: one relay down never holds a share back (regressions)', () => {
+  const DITTO = 'wss://relay.ditto.pub';
+  const PRIMAL = 'wss://relay.primal.net';
+  const DREAMITH = 'wss://relay.dreamith.to';
+  /** A guest whose vault signs are counted (every signature the registration asks for). */
+  async function counted(group: Publisher) {
+    const s = setup(group);
+    const b = await readyGuest(s);
+    let signs = 0;
+    const sign = s.vault.sign.bind(s.vault);
+    s.vault.sign = (async (...a: Parameters<typeof sign>) => (signs++, sign(...a))) as typeof sign;
+    return { ...s, b, signs: () => signs };
+  }
+  const ids = (m: { sent: NostrEvent[] }) => m.sent.map((e) => e.id);
+
+  it('Ditto offline, Primal online: registered on the first try, two signatures, Ditto owed', async () => {
+    const down = new Set([DITTO, DREAMITH]);
+    const { members, group } = threeRelays({ down });
+    const s = await counted(group);
+    expect(await s.svc.register(s.b.d, true)).toMatchObject({ ok: true, value: { stage: 'done', heldBy: 1, owed: 2 } });
+    expect(s.registered).toEqual([s.b.d]);
+    expect(s.signs()).toBe(2); // the Blobbi and its profile, once each
+    expect(members[1].events.map((e) => e.kind).sort()).toEqual([11125, 31124]);
+    expect(await s.svc.shareStatus(s.b.d)).toBe('spreading');
+  }, 30_000);
+
+  it('Primal offline, Ditto online: registered the same way, Primal owed', async () => {
+    const down = new Set([PRIMAL, DREAMITH]);
+    const { members, group } = threeRelays({ down });
+    const s = await counted(group);
+    expect(await s.svc.register(s.b.d, true)).toMatchObject({ ok: true, value: { stage: 'done', heldBy: 1, owed: 2 } });
+    expect(s.signs()).toBe(2);
+    expect(members[0].events.map((e) => e.kind).sort()).toEqual([11125, 31124]);
+  }, 30_000);
+
+  it('both offline: a failure, never "shared" (not registered, nothing lost); TRY AGAIN later resends the same events', async () => {
+    const down = new Set(PUBLISH_RELAYS);
+    const { members, group } = threeRelays({ down });
+    const s = await counted(group);
+    const first = await s.svc.register(s.b.d, true);
+    expect(first.ok).toBe(false);
+    expect(first).not.toEqual({ ok: false, problem: 'partial' }); // nothing reached anywhere: told apart from a partial share
+    expect(guestBlobbi(s.store, s.b.d)!.activatedAt).toBe(null);
+    expect(await s.svc.shareStatus(s.b.d)).toBe('failed');
+    expect(await s.svc.spreadAll()).toBe(0); // nothing owed before a share: the background never publishes it
+    expect(first).toEqual({ ok: false, problem: 'unreachable' });
+    expect(s.signs()).toBe(0); // no relay answered the preflight: nothing was even signed
+    down.clear();
+    expect((await s.svc.register(s.b.d, true)).ok).toBe(true);
+    expect(s.signs()).toBe(2);
+    for (const m of members) expect(new Set(ids(m)).size).toBe(2); // two events ever, the same ones
+  }, 30_000);
+
+  it('recovery after reconnection: the owed relay gets the very same events, once; nothing more is sent after', async () => {
+    const down = new Set([DITTO]);
+    const { members, group } = threeRelays({ down });
+    const s = await counted(group);
+    expect((await s.svc.register(s.b.d, true)).ok).toBe(true);
+    const signed = s.signs();
+    const shared = ids(members[1]);
+    expect(await s.svc.spreadAll()).toBe(1); // still down: still owed, nothing signed
+    down.clear();
+    expect(await s.svc.spreadAll()).toBe(0);
+    expect(members[0].events.map((e) => e.id).sort()).toEqual([...shared].sort()); // the identical signed events
+    expect(s.signs()).toBe(signed);
+    const sent = members.map((m) => m.sent.length);
+    expect(await s.svc.spreadAll()).toBe(0);
+    expect(await s.svc.register(s.b.d, true)).toMatchObject({ ok: true });
+    expect(members.map((m) => m.sent.length)).toEqual(sent); // nothing is sent once every relay holds them
+    expect(await s.svc.shareStatus(s.b.d)).toBe('shared');
+  }, 30_000);
+
+  it('no duplicates and no extra signing: one Blobbi event and one profile across every relay and every retry', async () => {
+    const down = new Set([DITTO]);
+    const { members, group } = threeRelays({ down });
+    const s = await counted(group);
+    await s.svc.register(s.b.d, true);
+    for (let i = 0; i < 3; i++) await s.svc.spreadAll();
+    down.clear();
+    await s.svc.spreadAll();
+    await s.svc.register(s.b.d, true);
+    const all = members.flatMap((m) => m.sent);
+    expect(new Set(all.filter((e) => e.kind === 31124).map((e) => e.id)).size).toBe(1);
+    expect(new Set(all.filter((e) => e.kind === 11125).map((e) => e.id)).size).toBe(1);
+    expect(s.signs()).toBe(2);
+  }, 30_000);
+
+  it('a relay that refuses for good is no longer owed; tries are bounded for one that never comes back', async () => {
+    const refuse = new Set([DITTO]);
+    const a = threeRelays({ refuse });
+    const s = await counted(a.group);
+    expect(await s.svc.register(s.b.d, true)).toMatchObject({ ok: true, value: { owed: 1 } });
+    expect(await s.svc.spreadAll()).toBe(0); // 'blocked': given up, not retried
+    const n = a.members[0].sent.length;
+    await s.svc.spreadAll();
+    expect(a.members[0].sent.length).toBe(n);
+    const down = new Set([DITTO]);
+    const b = threeRelays({ down });
+    const s2 = await counted(b.group);
+    await s2.svc.register(s2.b.d, true);
+    for (let i = 0; i < SPREAD_MAX_TRIES + 3; i++) await s2.svc.spreadAll();
+    expect(activationRun(s2.store, s2.b.d)!.spread!.tries).toBe(SPREAD_MAX_TRIES);
+    expect(b.members[0].sent.length).toBeLessThanOrEqual(2 * (SPREAD_MAX_TRIES + 1)); // its share try, then the bounded ones
+  }, 60_000);
+
+  it('a profile replaced since (another app) is never resent; only the Blobbi is still owed', async () => {
+    const down = new Set([DITTO]);
+    const { members, group } = threeRelays({ down });
+    const s = await counted(group);
+    await s.svc.register(s.b.d, true);
+    const ours = members[1].events.find((e) => e.kind === 11125)!;
+    // Another app writes a newer profile of the owner to primal (signed by the same vault key).
+    const newer = await s.vault.sign(s.b.owner, { kind: 11125, created_at: ours.created_at + 60, tags: ours.tags.map((t) => [...t]), content: ours.content });
+    await members[1].publish(newer, 1000);
+    down.clear();
+    expect(await s.svc.spreadAll()).toBe(0);
+    expect(members[0].sent.filter((e) => e.kind === 11125 && e.id === ours.id).length).toBe(1); // only its first try, never resent
+    expect(members[0].events.some((e) => e.kind === 31124)).toBe(true);
+  }, 30_000);
+
+  it('the page runs the owed deliveries only when this browser keeps a share record (the same keys the stores use)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { COMPANION_SHARE_KEY } = await import('../src/nostr/companion-share');
+    const main = readFileSync('src/playground/main.ts', 'utf8');
+    expect(main).toContain(`'${ACTIVATION_KEY}'`);
+    expect(main).toContain(`'${COMPANION_SHARE_KEY}'`);
+    expect(main).toMatch(/svc\.spreadAll\(\)/);
+  });
+
+  it('the player is told a share that reached one world apart from a failure', async () => {
+    expect(en['identity.reveal.spreading']).toMatch(/by itself/);
+    expect(en['account.share.spreading']).toMatch(/is shared/);
+    expect(en['identity.problem.partial']).not.toBe(en['identity.problem.publish']);
+    for (const k of ['identity.reveal.spreading', 'account.share.spreading'] as const) {
+      expect(ptBR[k]).toBeTruthy();
+      expect(es[k]).toBeTruthy();
+    }
+  });
 });
 
 describe('M11D.6: practice is not sharing', () => {
@@ -440,16 +580,18 @@ describe('M11D.6: the real relay code against a disposable local relay (127.0.0.
     expect(a.received.length + b.received.length).toBe(count);
   }, 20_000);
 
-  it('a relay that loses what it accepted keeps the share partial until it really holds it', async () => {
+  it('a relay that loses what it accepted stays owed (the share stands on the other) until it really holds it', async () => {
     const a = await startLocalRelay('ok');
     const b = await startLocalRelay('forget');
     relays.push(a, b);
     const s = setup(relayPublisher([a.url, b.url]));
     const g = await readyGuest(s);
-    expect(await s.svc.register(g.d, true)).toEqual({ ok: false, problem: 'partial' });
+    expect(await s.svc.register(g.d, true)).toMatchObject({ ok: true, value: { owed: 1 } });
+    expect(await s.svc.spreadAll()).toBe(1); // accepted again and lost again: still owed
     b.behaviour = 'ok';
-    expect((await s.svc.register(g.d, true)).ok).toBe(true);
+    expect(await s.svc.spreadAll()).toBe(0);
     expect(b.events.map((e) => e.kind).sort()).toEqual([11125, 31124]);
+    expect(await s.svc.shareStatus(g.d)).toBe('shared');
   }, 20_000);
 });
 

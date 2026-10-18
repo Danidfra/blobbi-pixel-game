@@ -668,6 +668,7 @@ function identityService(): Promise<IdentityService> {
       currentAccount: () => connectedPubkey,
       onChanged: () => (shownName = blobbiDisplayName()),
       onRegistered: (b) => {
+        scheduleSpread(true);
         // A guest identity becomes the player's account (an identity this game keeps); the same Blobbi stays, in
         // place: no departure, no arrival, nothing about the island changes. M11D.6: only when no OTHER account is
         // connected; a connected account (a browser extension) is never replaced behind the player's back.
@@ -1101,7 +1102,10 @@ const companion = new CompanionSync({
         return !!now && now.present && now.pubkey === req.owner;
       },
     });
-    if (out.kind === 'shared') return { kind: 'shared', stamp: { id: out.event.id, createdAt: out.event.created_at } };
+    if (out.kind === 'shared') {
+      scheduleSpread(true);
+      return { kind: 'shared', stamp: { id: out.event.id, createdAt: out.event.created_at } };
+    }
     if (out.kind === 'unchanged') return { kind: 'unchanged', stamp: out.profile };
     return { kind: out.kind };
   },
@@ -1393,7 +1397,33 @@ document.addEventListener('visibilitychange', lookAtCompanion);
 window.addEventListener('online', () => {
   companion.online();
   lookAtCompanion();
+  scheduleSpread(true);
 });
+
+/**
+ * Deliveries still owed: a Blobbi or a companion choice shared while a relay was down (one relay holding it is a share)
+ * is sent to that relay later, the very same signed events and never a new signature (`IdentityService.spreadAll`).
+ * Shortly after start (only when this browser keeps a share record: otherwise the network code is not even loaded),
+ * after a share, when the connection returns, then less and less often; each share has a few tries in all.
+ */
+const SPREAD_DELAYS_MS = [10_000, 60_000, 300_000, 900_000];
+const SHARE_RECORD_KEYS = ['blobbi-pixel-lab:activation', 'blobbi-pixel-lab:companion-share'];
+let spreadTimer: ReturnType<typeof setTimeout> | null = null;
+let spreadStep = 0;
+function scheduleSpread(restart = false): void {
+  if (restart) spreadStep = 0;
+  if (spreadTimer) clearTimeout(spreadTimer);
+  spreadTimer = null;
+  if (spreadStep >= SPREAD_DELAYS_MS.length || !SHARE_RECORD_KEYS.some((k) => storeGetSafe(k) != null)) return;
+  spreadTimer = setTimeout(() => {
+    spreadTimer = null;
+    void identityService()
+      .then((svc) => svc.spreadAll())
+      .then((left) => left > 0 && scheduleSpread())
+      .catch(() => scheduleSpread());
+  }, SPREAD_DELAYS_MS[spreadStep++]);
+}
+scheduleSpread();
 /** Open SETTINGS on the ACCOUNT page (the HUD's identity chip). */
 function openAccountPage(): void {
   settingsScreen.showPage('account');
