@@ -52,48 +52,33 @@ loads no network library.
   location kept in localStorage). If it is elsewhere, the Blobbi is simply
   not there (`LiveWorld.settleBlobbi`, no departure replayed), and a notice
   says where it is.
-- **Three interactions call it over (M16.1).** Each meaningful input in play
-  (a trusted press or key, in a visible, focused page, play started, not
-  paused by the game's own journeys) is passed to the kit's
-  `session.interact({ repeat })`. While the Blobbi is elsewhere, the kit
-  counts them. The **third within a rolling 20 s window** starts a casual
-  move: it signs one World Location and publishes it, and the arrival
-  follows. The threshold is the kit's default; Pixel has no setting for it.
-  - A held key's auto-repeat (`KeyboardEvent.repeat`) is never counted.
-    Inputs less than 1 s apart are one gesture, so walking with a held key
-    is one interaction, and walking by taps counts one per burst. Frames,
-    timers, focus, visibility, loading and scripts' (untrusted) events never
-    count.
-  - The first counted interaction may show a short notice, "{name} noticed
-    you", but only when no other notice is showing. At the spot where the
-    Blobbi would stand, one or two faint motes rise while the count runs (the
-    *noticed* cue).
-  - A move within 5 s of a move elsewhere does not undo it (`contended`).
-  - A refusal by the signer suspends casual following for the session
-    (`snapshot.follow.suspended`). Only an explicit request moves it then,
-    and a successful one resumes following.
-  - **Settings > Account > Call {name} here** is explicit and immediate
-    (`session.travel({ explicit: true })`).
-  - A new account or a new walking Blobbi is a new session, so its count
-    starts at zero.
-- **The press that starts play** (NEW ADVENTURE WITH BAMBU, CONTINUE, an island
-  opened from the list) counts as **one** interaction, never as a move by
-  itself: play beginning within 2 s of a trusted press calls `interact` once.
-  On a fresh device the place is not known yet, so that interaction is held
-  until it is (at most 10 s) rather than lost. Play that begins with no press,
-  such as a startup that goes straight into an island, never counts. A Blobbi
-  already known to be elsewhere skips the entry arrival, so it never appears
-  and then vanishes.
-- **A new island's birth intro is explicit.** The intro is a cinematic of this
-  very Blobbi, so the trusted press that starts it (NEW ADVENTURE WITH {name})
-  calls it here at once (`playStartExplicit`), never as one interaction. An
-  intro with no press moves nothing. A Blobbi not known to be here is absent
-  from the intro's first frame, so only the intro's own arrival brings it in.
-  If the call is refused or fails, the Blobbi leaves with its journey when the
-  intro ends. (Found in the cross-device browser run: with only a count, the
-  intro showed a Blobbi that belonged elsewhere, then took it away.) The kit
-  (m16.3) also keeps a Blobbi that is already shown while a move here is
-  under way.
+- **Opening the game brings it here (revised 2026-10-19).** Opening a
+  world is the player's intention to take the Blobbi there; no interaction
+  is counted any more. Once play is on and the kit's resolution is
+  `confirmed`, an away Blobbi is moved here with the kit's own explicit move
+  (`session.travel({ explicit: true })`: one signed World Location naming
+  `blobbi-pixel`, `prev` the canonical one), and the teleport's arrival
+  follows. A Blobbi already here moves nothing. The decision is made ONCE
+  PER PAGE LOAD per Blobbi (`ArrivalIntent` in
+  `src/game/world-travel-departure.ts`, `autoArrivalDecision`): never again
+  on a frame, a refresh, a reconnect, a relay update or a focus change; a
+  tab opened hidden decides the first time it is seen; a reload is a new
+  page and may move again; a tab that already decided never reclaims the
+  Blobbi by itself, so two tabs cannot ping-pong. The decision is also made
+  only while the page is still being opened: within five minutes of its
+  navigation start (`ARRIVAL_INTENT_TTL_MS`, `performance.now()`) and while
+  it is visible, so an old background tab shown again, or a page left signing
+  in for longer, moves nothing by itself (a back/forward-cache restore keeps
+  the page's state, so its decision stands). The kit's move waits for the
+  signer without a limit, so the page gives it a bounded one
+  (`boundedSigner`, 60 s): a prompt left open ends the move as declined, and
+  a late approval is dropped before it reaches the kit, so it is never
+  published and never a second arrival. A refusal, a timeout or
+  unreachable relays move nothing and say so; **Settings > Account > Call
+  {name} here** is the explicit retry. An extension that has not confirmed
+  the account yet is asked again (`askSignerAgain`) and the move follows once
+  it answers, never in silence. Presses in play are activity only (Active
+  Presence).
 - **Loading: the place not known yet (M16.2).** The kit's
   `snapshot.resolution` is `pending` while the first look is under way and
   this device kept no location. Pixel also treats "world travel on, an
@@ -185,29 +170,26 @@ drawn now (`looking`, `noticed`, `calling` or null). A test pins it behind
 
 Tests: `tests/world-travel.test.ts`.
 
-## M16.3: the hand-off (an explicit trip arrives by itself)
+## The departure: leaving for another world (revised 2026-10-19)
 
-A player who chooses Pixel in another Blobbi world's Worlds sheet arrives
-with the Blobbi following at once, with no interactions here. The origin
-signs the World Location (kind 31126) naming `blobbi-pixel` on the door
-press, publishes nothing, and carries it in the address's fragment
-(`#blobbi-travel=v1.<base64url JSON>`). Pixel takes it out of the address
-before anything else runs (`playground/main.ts`, next to its own hash
-switches), holds it until the travel session has confirmed the Blobbi's
-place with the relays, then checks it (`src/game/travel-handoff.ts`,
-the same file as Island's and Home's: signature, this account, this Blobbi,
-`world` = `blobbi-pixel`, an origin World, at most 120 s old and 60 s
-ahead, `prev` = the canonical location just read, newer than it, not
-honoured before) and publishes it as signed through the travel relays,
-under the kit's own lock; the session's look brings the live change, and
-play's entry (held, `entryDecision`) or the teleport in play arrives the
-Blobbi. Pixel signs nothing because of it. If no relay accepts, a notice
-says so and one more try follows after 5 s; "Call {name} here" stays the
-player's. Pixel has no doors to other worlds, so it sends no hand-off yet.
-The protocol, its checks and its security assumptions are written in
-Island's `docs/world-travel-handoff.md`. The follow threshold is two
-interactions (`FOLLOW_AFTER`, the kit's `followAfter`), as in the other
-apps.
+The World Travel menu (Y, WORLDS) lists Blobbi Home and Blobbi Island
+(`src/game/blobbi-worlds.ts`). On VISIT, Pixel is the ORIGIN and moves the
+Blobbi itself (`src/game/world-travel-departure.ts`, `departTo`, the same
+file as Island's and Home's): a fresh read of the canonical location, nothing
+when the destination already holds it, else ONE World Location naming the
+destination (`buildWorldLocationTemplate`, `departureWindowS: 0`) signed by
+the account's own signer (the vault silently, the extension with its prompt)
+and published to the travel relays, under the kit's lock name, never over a
+newer location (a slow signature re-reads; a newer place is `stale`), moved
+once one relay accepted. Meanwhile the teleport departure plays
+(`src/game/travel-departure.ts`); the page goes to the destination's PLAIN
+address once both are over. A refusal, a timeout or unreachable relays still
+go: the destination treats being opened as the same intention and moves the
+Blobbi when it loads. Nothing rides in a URL; an old link's
+`#blobbi-travel=` fragment is removed unread (`dropLegacyHandoff`), and the
+ids older builds kept are deleted (`dropLegacyHandoffStore`). Tests:
+`tests/world-travel-departure.test.ts`, `tests/travel-departure.test.ts`,
+`tests/travel-menu.test.ts`; browser: `scripts/travel-menu-browser.ts`.
 
 ## M16.2: slow relays
 

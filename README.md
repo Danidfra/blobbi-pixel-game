@@ -34,8 +34,8 @@ The island itself (its land, home, crafting and progress) is saved in this brows
 | NIP-07 login, guest keys and backups, reading the account's Blobbis, companion sync | Implemented, automated tests |
 | Island gameplay milestones (M4 onward) | Implemented; manual validation per [milestones](docs/milestones/README.md) and the [test plan](docs/testing/MANUAL-TEST-PLAN.md) |
 | Islands saved on Nostr, multiplayer, items shared with other games (`@nostr-games/inventory`) | Designed only ([docs/architecture](docs/README.md)); not implemented |
-| World Travel with Blobbi Island | Arrivals from the Island and the Standalone through the signed hand-off are implemented ([details](docs/architecture/WORLD-PRESENCE.md)); Pixel has no doors to other worlds yet |
-| World Travel with Nostr Farm or Blobbi Rumble | Not implemented |
+| World Travel with Blobbi Island | Opening Pixel brings the account's Blobbi here by itself (one signed move once the relays confirm its place), and the World Travel menu (Y, or WORLDS in the menu bar) leaves for Blobbi Home or Blobbi Island with the move signed and published here before the page goes ([details](docs/architecture/WORLD-PRESENCE.md)); revised 2026-10-19, not yet validated publicly |
+| World Travel with Nostr Farm or Blobbi Rumble | Not implemented (they do not read World Locations, so the menu does not list them) |
 
 Event kinds 31124, 11125 and 31126 are Blobbi ecosystem conventions, not NIPs in the official registry.
 
@@ -53,6 +53,10 @@ npx tsx scripts/content-catalog.ts   # regenerate docs/game-design/CONTENT-CATAL
 ```
 
 Node 22+. Dev tools appear at the bottom of the Play panel on the dev server only.
+
+The page is installable (a web app manifest and the icon family in `public/`, no service worker: a cached game would
+be a stale game). `npm run icons` regenerates Pixel's icons from the game's own pixel Blobbi; `scripts/app-icons.ts`
+also generates Blobbi Home's, Blobbi Island's and Nostr Farm's (`--family <dir>`), one family beside Rumble's icon.
 
 A plain `npm run dev` or `npm run build` publishes nothing: World Travel is off and registration is a rehearsal.
 World Travel is turned on at build time (`VITE_BLOBBI_WORLD_TRAVEL=nostr VITE_BLOBBI_PUBLISH=live npm run build`) or on

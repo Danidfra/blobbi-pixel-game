@@ -25,6 +25,8 @@ import { installCustomisation } from '../src/ui/screens/home-style';
 import { SettingsScreen } from '../src/ui/screens/settings';
 import { StorageScreen } from '../src/ui/screens/storage';
 import { WorldsScreen } from '../src/ui/screens/worlds';
+import { TravelScreen } from '../src/ui/screens/travel';
+import { blobbiWorlds } from '../src/game/blobbi-worlds';
 import { loadLocale, setLocale, type Locale } from '../src/i18n';
 import '../src/content/text';
 import { CAMERA_CYCLE, CAMERA_MODES } from '../src/render/view-camera';
@@ -73,11 +75,13 @@ function setup(size: TextSize = 'normal') {
   const home = new HomeScreen();
   installCustomisation(home);
   const worlds = new WorldsScreen();
-  for (const s of [new InventoryScreen(), new CraftingScreen(), new CraftingScreen('cooking'), new JournalScreen(), new CareScreen(), new CarrierScreen(), new MapScreen(), new GrowthScreen(), new GuideScreen(), home, new SettingsScreen(), new StorageScreen(), worlds]) ui.register(s);
+  const travel = new TravelScreen();
+  travel.hooks = { worlds: () => blobbiWorlds(), name: () => 'Dotado', companion: () => 'with', go: () => 'started', departing: () => false, icon: () => null };
+  for (const s of [new InventoryScreen(), new CraftingScreen(), new CraftingScreen('cooking'), new JournalScreen(), new CareScreen(), new CarrierScreen(), new MapScreen(), new GrowthScreen(), new GuideScreen(), home, new SettingsScreen(), new StorageScreen(), worlds, travel]) ui.register(s);
   return { live, ui };
 }
 
-const SCREENS: ScreenId[] = ['inventory', 'crafting', 'cooking', 'journal', 'care', 'carrier', 'map', 'growth', 'guide', 'home', 'settings', 'worlds'];
+const SCREENS: ScreenId[] = ['inventory', 'crafting', 'cooking', 'journal', 'care', 'carrier', 'map', 'growth', 'guide', 'home', 'settings', 'worlds', 'travel'];
 const VIEWS: [string, number, number][] = [
   ['small phone', 667, 375],
   ['phone', 844, 390],

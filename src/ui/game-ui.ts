@@ -21,7 +21,7 @@ import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
 import type { AccountInvite } from './account-invite';
 import { REST_POSE } from '../blobbi/sprite';
 
-export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis' | 'identity' | 'naming';
+export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis' | 'identity' | 'naming' | 'travel';
 
 export interface Screen {
   readonly id: ScreenId;
@@ -41,7 +41,7 @@ export const PANEL_W = 304;
 export const PANEL_H = 184;
 
 /** Keys that open a screen from play. */
-export const OPEN_KEYS: Readonly<Record<string, ScreenId>> = { KeyI: 'inventory', KeyK: 'crafting', KeyJ: 'journal', KeyU: 'care', KeyN: 'map', KeyL: 'growth', KeyY: 'worlds', Digit0: 'home', Home: 'home', Slash: 'guide', F1: 'guide' };
+export const OPEN_KEYS: Readonly<Record<string, ScreenId>> = { KeyI: 'inventory', KeyK: 'crafting', KeyJ: 'journal', KeyU: 'care', KeyN: 'map', KeyL: 'growth', KeyY: 'travel', Digit0: 'home', Home: 'home', Slash: 'guide', F1: 'guide' };
 
 export interface UiSettings {
   /** Day and night lighting (presentation only). */
@@ -513,6 +513,7 @@ export class GameUI {
       [key('menu.blobbi', 'U'), 'care'],
       [key('menu.map', 'N'), 'map'],
       [key('menu.home', '0'), 'home'],
+      [key('menu.worlds', 'Y'), 'travel'],
       [key('menu.guide', '?'), 'guide'],
       ['...', 'settings'],
     ];
@@ -527,7 +528,7 @@ export class GameUI {
     const rowW = (list: [string, ScreenId][], k = s) => list.reduce((n, [l]) => n + widthOf(l, k) + 1, 0);
     let rows: [string, ScreenId][][] = [items];
     const fits = (k: number, r: [string, ScreenId][][]) => Math.max(...r.map((row, i) => rowW(row, k) + (i === r.length - 1 ? measureAt(k, use) + 9 : 0))) * k + 4 * k <= screen.width;
-    if (!fits(s, rows)) rows = [items.slice(0, 4), items.slice(4)];
+    if (!fits(s, rows)) rows = [items.slice(0, 5), items.slice(5)];
     while (s > 1 && !fits(s, rows)) s--;
     const rowH = 11;
     const w = Math.max(...rows.map((row, i) => rowW(row) + (i === rows.length - 1 ? measureAt(s, use) + 9 : 0)));

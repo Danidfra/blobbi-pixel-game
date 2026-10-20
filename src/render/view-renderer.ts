@@ -143,7 +143,7 @@ export interface ViewUiOptions {
    * M16.2: world travel's cue at the spot the Blobbi would stand on, drawn only while it is absent here (looking for
    * it, noticing the player, being called over); `label` is a small caption under the spot.
    */
-  travelCue?: { kind: TravelCueKind; amount?: number; label?: string } | null;
+  travelCue?: { kind: TravelCueKind; label?: string } | null;
 }
 
 export const DEFAULT_VIEW_UI: ViewUiOptions = { hud: true, indicator: true, uiScale: 2, goals: true, prompt: true, lighting: true };
@@ -364,7 +364,7 @@ export class ViewRenderer {
     this.travelCueDrawn = 0;
     if (cue && this.teleportAnchor && tp.state === 'absent') {
       const { ax: cx, groundY: cy } = this.teleportAnchor;
-      this.travelCueDrawn = drawTravelCue(screen, cue.kind, time, cx, cy, s, tp.height, tp.halfWidth, cue.amount ?? 1, this.reducedMotion);
+      this.travelCueDrawn = drawTravelCue(screen, cue.kind, time, cx, cy, s, tp.height, tp.halfWidth, this.reducedMotion);
       if (cue.label) this.drawText(screen, { kind: 'label', text: cue.label, x: 0, y: 0, color: hex('#a8f0ff'), background: hex('#1b1f2a') }, cx, cy + 3 * ui.uiScale, ui.uiScale);
     }
     const t4 = performance.now();
