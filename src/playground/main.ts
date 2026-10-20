@@ -25,8 +25,9 @@ import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
 import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, ownSharedGuestWalker, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
-import { activePresenceKey, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
-import { WORLD_HOME, createWorldTravel, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
+import { FOLLOW_AFTER, activePresenceKey, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
+import { createHandoffArrival, readHandoff, usedHandoffs, type HandoffArrival } from '../game/travel-handoff';
+import { WORLD_HOME, createWorldTravel, type WorldTravelRelays, type WorldTravelSession, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
 import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BLOBBI_SEED, type BlobbiSource, type ResolvedBlobbi } from '../blobbi/source';
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
@@ -132,6 +133,12 @@ interface State {
 }
 
 const params = new URLSearchParams(location.hash.slice(1));
+/**
+ * M16.3: a World Travel hand-off in the address (an explicit trip from another Blobbi world, the move signed there
+ * by the owner; `src/game/travel-handoff.ts`), taken out of the address at once and held in memory for the travel
+ * session to honour once it has confirmed the Blobbi's place, or to drop. The game never signs because of it.
+ */
+let travelHandoff = readHandoff(location, history);
 /** The lab (its sidebar, its tabs, its other modes) is a development tool: a production build shows only the game. */
 const LAB = import.meta.env.DEV;
 
@@ -1307,6 +1314,53 @@ function entryHere(): boolean {
   return worldTravel.snapshot()?.here ?? false;
 }
 let travelNoSessionShown = false;
+/** The travel session and its relays while there are some (the hand-off publishes through the same relays). */
+let travelSession: WorldTravelSession | null = null;
+let travelRelays: WorldTravelRelays | null = null;
+/** The hand-off's arrival for the current session (`createHandoffArrival`), or null. */
+let handoffArrival: HandoffArrival | null = null;
+let handoffRetryTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * The hand-off this page opened with, for the session just made: held until the place is confirmed, then checked and
+ * published as the origin signed it; the session's look then brings the arrival (play's entry, or the teleport in
+ * play). A refusal of the relays is said once and tried again once by itself; "Call {name} here" stays the player's.
+ */
+function startHandoffArrival(net: typeof import('../nostr/world-travel')): void {
+  handoffArrival?.dispose();
+  handoffArrival = null;
+  if (handoffRetryTimer !== null) clearTimeout(handoffRetryTimer);
+  handoffRetryTimer = null;
+  const event = travelHandoff;
+  if (!event) return;
+  let said = false;
+  handoffArrival = createHandoffArrival({
+    event,
+    world: 'blobbi-pixel',
+    session: () => travelSession,
+    relays: () => travelRelays,
+    verify: net.verifyTravelEvent,
+    lock: net.webLock(),
+    used: usedHandoffs(net.travelStore()),
+    stillAccount: (owner) => travelAccount(owner) && connectedPubkey === owner,
+    onChange: (s) => {
+      const name = travelName();
+      if (s.status === 'publishing' && !said) {
+        said = true;
+        travelNotice(t('travel.onTheWay', { name }), t('travel.onTheWayText'), 4);
+      } else if (s.status === 'failed') {
+        travelNotice(t('travel.handoffFailed', { name }), t('travel.handoffFailedText', { name }), 8);
+        if (handoffRetryTimer === null) {
+          handoffRetryTimer = setTimeout(() => {
+            handoffRetryTimer = null;
+            void handoffArrival?.retry();
+          }, 5_000);
+        }
+      } else if (s.status === 'done' || s.status === 'dropped') {
+        travelHandoff = null;
+      }
+    },
+  });
+}
 const placeWords = (place: string, name: string) => (place === WORLD_HOME ? t('travel.awayHome', { name }) : t('travel.awayElsewhere', { name }));
 let travelPhase = 'idle';
 let travelPresence = 'off';
@@ -1321,6 +1375,7 @@ const worldTravel: TravelHost | null =
           const net = travelNet!;
           let session: ReturnType<typeof createWorldTravel> | null = null;
           const relays = net.pixelTravelRelays({ onReconnect: () => void session?.refresh() });
+          travelRelays = relays;
           const signer = (): WorldTravelSigner | null => {
             if (!travelAccount(owner)) return null;
             const method = account.snapshot().method === 'vault' ? 'vault' : 'nip07';
@@ -1337,6 +1392,8 @@ const worldTravel: TravelHost | null =
             store: net.travelStore(),
             lock: net.webLock(),
             presenceEnabled: storeGetSafe(activePresenceKey(owner)) === 'on',
+            // Two meaningful interactions bring an away Blobbi over (the kit's count, gap and window otherwise unchanged)
+            followAfter: FOLLOW_AFTER,
             isActive: hooks.isActive,
             // The teleport's arrival (src/game/teleport.ts ARRIVE): pixels fall from the sky for 1.9 s before the body
             // starts to rebuild, the moment it is seen here. The kit starts the arrival that much early, so the wait
@@ -1348,7 +1405,18 @@ const worldTravel: TravelHost | null =
           travelAwayShown = -1;
           travelNoticedShown = -1;
           travelUnreachableShown = false;
-          return { session, setVisible: (v) => relays.setVisible(v) };
+          travelSession = session;
+          startHandoffArrival(net);
+          return {
+            session,
+            setVisible: (v) => relays.setVisible(v),
+            dispose: () => {
+              if (travelSession === session) travelSession = null;
+              if (travelRelays === relays) travelRelays = null;
+              handoffArrival?.dispose();
+              handoffArrival = null;
+            },
+          };
         },
         blobbi: () => {
           const l = live;
@@ -1383,6 +1451,8 @@ const worldTravel: TravelHost | null =
         signerReady,
         onNoSigner: (kind) => askSignerAgain(kind),
         onChange: (snap: WorldTravelSnapshot) => {
+          // The session's snapshot changed (its first look answered, a refresh): the hand-off looks at it
+          handoffArrival?.update();
           const phase = snap.travel.phase;
           if (phase === 'signing' && travelPhase !== 'signing' && account.snapshot().method !== 'vault') travelNotice(t('travel.approve'), t('travel.approveText', { name: travelName() }), 6);
           travelPhase = phase;
@@ -2434,6 +2504,7 @@ function playFrame(now: number): void {
   // World travel follows the account from the first frame, the title's and the intro's too: the presses that start
   // play are the player playing here, and must be seen
   worldTravel?.update();
+  handoffArrival?.update();
   resolveEntryHold();
   travelAwayNotice();
   if (state.mode !== 'play' || !live || !liveRenderer || !world) return;

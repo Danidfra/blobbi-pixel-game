@@ -185,6 +185,30 @@ drawn now (`looking`, `noticed`, `calling` or null). A test pins it behind
 
 Tests: `tests/world-travel.test.ts`.
 
+## M16.3: the hand-off (an explicit trip arrives by itself)
+
+A player who chooses Pixel in another Blobbi world's Worlds sheet arrives
+with the Blobbi following at once, with no interactions here. The origin
+signs the World Location (kind 31126) naming `blobbi-pixel` on the door
+press, publishes nothing, and carries it in the address's fragment
+(`#blobbi-travel=v1.<base64url JSON>`). Pixel takes it out of the address
+before anything else runs (`playground/main.ts`, next to its own hash
+switches), holds it until the travel session has confirmed the Blobbi's
+place with the relays, then checks it (`src/game/travel-handoff.ts`,
+the same file as Island's and Home's: signature, this account, this Blobbi,
+`world` = `blobbi-pixel`, an origin World, at most 120 s old and 60 s
+ahead, `prev` = the canonical location just read, newer than it, not
+honoured before) and publishes it as signed through the travel relays,
+under the kit's own lock; the session's look brings the live change, and
+play's entry (held, `entryDecision`) or the teleport in play arrives the
+Blobbi. Pixel signs nothing because of it. If no relay accepts, a notice
+says so and one more try follows after 5 s; "Call {name} here" stays the
+player's. Pixel has no doors to other worlds, so it sends no hand-off yet.
+The protocol, its checks and its security assumptions are written in
+Island's `docs/world-travel-handoff.md`. The follow threshold is two
+interactions (`FOLLOW_AFTER`, the kit's `followAfter`), as in the other
+apps.
+
 ## M16.2: slow relays
 
 - **Reading the account's Blobbi** (`src/nostr/relays.ts`,

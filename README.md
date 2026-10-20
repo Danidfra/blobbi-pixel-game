@@ -34,7 +34,8 @@ The island itself (its land, home, crafting and progress) is saved in this brows
 | NIP-07 login, guest keys and backups, reading the account's Blobbis, companion sync | Implemented, automated tests |
 | Island gameplay milestones (M4 onward) | Implemented; manual validation per [milestones](docs/milestones/README.md) and the [test plan](docs/testing/MANUAL-TEST-PLAN.md) |
 | Islands saved on Nostr, multiplayer, items shared with other games (`@nostr-games/inventory`) | Designed only ([docs/architecture](docs/README.md)); not implemented |
-| World Travel with Blobbi Island, Nostr Farm or Blobbi Rumble | Not implemented |
+| World Travel with Blobbi Island | Arrivals from the Island and the Standalone through the signed hand-off are implemented ([details](docs/architecture/WORLD-PRESENCE.md)); Pixel has no doors to other worlds yet |
+| World Travel with Nostr Farm or Blobbi Rumble | Not implemented |
 
 Event kinds 31124, 11125 and 31126 are Blobbi ecosystem conventions, not NIPs in the official registry.
 

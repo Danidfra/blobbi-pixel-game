@@ -1078,6 +1078,8 @@ export const en = {
   'travel.unchecked': 'Could not check where {name} is',
   'travel.uncheckedHere': 'The relays did not answer. {name} stays here for now.',
   'travel.uncheckedAway': 'The relays did not answer, so this is where {name} was last known to be.',
+  'travel.handoffFailed': '{name} could not come along yet',
+  'travel.handoffFailedText': 'The relays did not answer. Trying again in a moment, or call {name} from Settings > Account.',
   'account.callHere': 'Call {name} here',
   'account.presence': 'Show when I play: {state}',
   'account.presencePaused': 'Show when I play: paused',

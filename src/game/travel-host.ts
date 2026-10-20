@@ -89,6 +89,14 @@ export interface TravelHost {
   dispose(): void;
 }
 
+/**
+ * How many meaningful interactions with this World bring an away Blobbi over by themselves (the kit's `followAfter`;
+ * its default is 3). Two, as in Blobbi Home and Island (the owner's product decision of 2026-10-19): a player who
+ * opened the game directly and plays a moment is followed without a button, while one stray press still pulls
+ * nothing out of the World the Blobbi was just moved to (the kit's gap, window and suspension are unchanged).
+ */
+export const FOLLOW_AFTER = 2;
+
 const INPUTS = ['pointerdown', 'keydown'] as const;
 /** A press this recent when play begins is the press that began it. */
 export const PLAY_START_PRESS_MS = 2_000;

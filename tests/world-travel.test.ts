@@ -7,7 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type NostrEvent } from 'nostr-tools/pure';
 import { WORLD_HOME, WORLD_PIXEL, buildWorldLocationTemplate, createWorldTravel, parseWorldLocation, type ShownBlobbi, type ShownState, type TravelOutcome, type WorldTravelRelays, type WorldTravelSigner, type WorldTravelSnapshot } from '@blobbi-kit/core';
-import { ENTRY_HOLD_MAX_MS, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, type TravelHostDeps } from '../src/game/travel-host';
+import { ENTRY_HOLD_MAX_MS, FOLLOW_AFTER, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, type TravelHostDeps } from '../src/game/travel-host';
 import { drawTravelCue, travelCueMotes } from '../src/render/teleport-render';
 import { PixelBuffer } from '../src/core/pixel';
 import { pixelTravelRelays, type TravelConnection } from '../src/nostr/world-travel';
@@ -168,6 +168,8 @@ interface Setup {
   explicitStart?: () => boolean;
   /** Whether a signature can be asked for now (the page's extension check); absent: always. */
   signerReady?: () => boolean;
+  /** The interactions that bring the Blobbi over (the playground passes `FOLLOW_AFTER`); absent: the kit's default. */
+  followAfter?: number;
 }
 function setup(o: Setup = {}) {
   const net = o.net ?? network();
@@ -185,7 +187,7 @@ function setup(o: Setup = {}) {
   const host = createTravelHost({
     account: o.account ?? (() => ({ owner: OWNER, d: D })),
     session: (owner, d, hooks) => ({
-      session: createWorldTravel({ owner, d, world: WORLD_PIXEL, relays: net.port(), verify: verifyEvent as never, signer: () => sign, store, presenceEnabled: o.presence, isActive: hooks.isActive, arrivalLeadMs: o.lead }),
+      session: createWorldTravel({ owner, d, world: WORLD_PIXEL, relays: net.port(), verify: verifyEvent as never, signer: () => sign, store, presenceEnabled: o.presence, isActive: hooks.isActive, arrivalLeadMs: o.lead, followAfter: o.followAfter }),
     }),
     blobbi: () => w.b,
     busy: () => state.busy,
@@ -259,6 +261,25 @@ describe('world travel in Pixel: loading', () => {
 });
 
 describe('world travel in Pixel: three interactions call it over (M16.1)', () => {
+  it('as the playground sets it (FOLLOW_AFTER = 2): the first interaction moves nothing, the second publishes exactly one World Location', async () => {
+    expect(FOLLOW_AFTER).toBe(2);
+    const net = network();
+    moveElsewhere(net, WORLD_HOME, Date.now() - 60_000);
+    const { p, w, sign } = setup({ net, followAfter: FOLLOW_AFTER, shown: 'absent' });
+    await flush(50);
+    await interactions(p, 1, GAP);
+    expect(sent(net, 31126)).toHaveLength(0);
+    expect(sign.asked).toEqual([]);
+    await interactions(p, 1, 50);
+    expect(sent(net, 31126)).toHaveLength(1);
+    expect(sign.asked).toEqual([31126]);
+    await flush(5_000);
+    expect(w.log).toContain('enter');
+    // More play writes nothing more
+    await interactions(p, 3);
+    expect(sent(net, 31126)).toHaveLength(1);
+  });
+
   it('the first and second interactions move nothing; the third publishes exactly one World Location', async () => {
     const { p, w, net, sign, host, outcomes, counted } = setup();
     await flush();

@@ -1071,6 +1071,8 @@ export const ptBR: Catalog = {
   'travel.unchecked': 'Não deu para ver onde {name} está',
   'travel.uncheckedHere': 'Os relays não responderam. {name} fica aqui por enquanto.',
   'travel.uncheckedAway': 'Os relays não responderam: aqui é onde {name} foi visto por último.',
+  'travel.handoffFailed': '{name} ainda não conseguiu vir junto',
+  'travel.handoffFailedText': 'Os relays não responderam. Vamos tentar de novo em instantes, ou chame {name} em Configurações > Conta.',
   'account.callHere': 'Chamar {name} para cá',
   'account.presence': 'Mostrar quando jogo: {state}',
   'account.presencePaused': 'Mostrar quando jogo: em pausa',

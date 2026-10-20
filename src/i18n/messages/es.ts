@@ -1071,6 +1071,8 @@ export const es: Catalog = {
   'travel.unchecked': 'No se pudo comprobar dónde está {name}',
   'travel.uncheckedHere': 'Los relays no respondieron. {name} se queda aquí por ahora.',
   'travel.uncheckedAway': 'Los relays no respondieron: aquí es donde se vio a {name} por última vez.',
+  'travel.handoffFailed': '{name} aún no pudo venir contigo',
+  'travel.handoffFailedText': 'Los relays no respondieron. Se intentará de nuevo en un momento, o llama a {name} desde Ajustes > Cuenta.',
   'account.callHere': 'Llamar a {name} aquí',
   'account.presence': 'Mostrar cuando juego: {state}',
   'account.presencePaused': 'Mostrar cuando juego: en pausa',
