@@ -15,7 +15,8 @@
     "seeds": "tsx scripts/render-seeds.ts",
     "check": "npm run typecheck && npm run test && npm run build",
     "perf": "tsx scripts/perf.ts",
-    "blobbi": "tsx scripts/blobbi-sheet.ts"
+    "blobbi": "tsx scripts/blobbi-sheet.ts",
+    "icons": "tsx scripts/app-icons.ts"
   },
   "devDependencies": {
     "@blobbi-kit/core": "^0.11.1",

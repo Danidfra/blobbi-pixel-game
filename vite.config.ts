@@ -19,6 +19,7 @@ export const CSP = [
   "font-src 'self' data:",
   `connect-src 'self' ${[...new Set([...PUBLISH_RELAYS, ...READ_RELAYS])].join(' ')}`,
   "worker-src 'self' blob:",
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
