@@ -272,6 +272,36 @@ export async function runEntry<R>(host: EntryHost<R>): Promise<{ decision: Entry
   return facts ? { decision: decideEntry(facts), answer, pubkey } : null;
 }
 
+// ─── The second chance: the extension answered after the entry gave up waiting for it ───────────────────────────
+
+/**
+ * WORLD TRAVEL ARRIVAL (2026-10-20). A player arriving from another Blobbi world (or simply opening the game) with a
+ * browser extension is often asked by it to allow this site, and answers after the entry's wait (`verifyExtension`,
+ * 6 s): the entry then decided `title` for `not-present`, and the player was left on the main menu although the
+ * extension confirmed the account a moment later. The entry gets ONE second run then: only for that very outcome,
+ * only for the same account, only while the title is still up and untouched and play has not begun (the player has
+ * not led), never for a guest, a vault identity (its key answers at once) or any other title reason. The second run
+ * is the same decision over the same facts (nothing is created, saved or published by it).
+ */
+export function entrySecondChance(o: {
+  /** What the first run decided (null: it never ran, or was stopped by the player). */
+  first: EntryDecision | null;
+  /** The account the first run was for, and the connected account now. */
+  firstPubkey: string | null;
+  pubkey: string | null;
+  /** The extension's state now (`verified`: it answered with this account's key). */
+  extension: string | null;
+  titleActive: boolean;
+  titleTouched: boolean;
+  playing: boolean;
+  /** The second run was already taken (one per page load). */
+  taken: boolean;
+}): boolean {
+  if (o.taken || !o.first || o.first.kind !== 'title' || o.first.why !== 'not-present') return false;
+  if (!o.pubkey || o.firstPubkey !== o.pubkey || o.extension !== 'verified') return false;
+  return o.titleActive && !o.titleTouched && !o.playing;
+}
+
 // ─── M11D.8.4: the diagnostic record of the last automatic entry ─────────────────────────────────────────────────
 
 /** Record `blobbi-pixel-lab:entry-diagnostic`: the last automatic entry's outcome and reasons. Public, no identifiers. */

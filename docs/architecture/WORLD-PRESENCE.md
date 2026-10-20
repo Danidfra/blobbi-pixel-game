@@ -191,6 +191,26 @@ ids older builds kept are deleted (`dropLegacyHandoffStore`). Tests:
 `tests/world-travel-departure.test.ts`, `tests/travel-departure.test.ts`,
 `tests/travel-menu.test.ts`; browser: `scripts/travel-menu-browser.ts`.
 
+## Arriving from another world lands in play (2026-10-20)
+
+A player whose Blobbi was moved here by Home or Island opens Pixel's plain
+address. The seamless entry (`src/game/world-entry.ts`) already takes a
+connected player with their island straight in, and the opening's own move
+then brings the Blobbi in with the teleport's arrival. What left players on
+the main menu was a browser extension answering for the account AFTER the
+entry's wait (`verifyExtension`, 6 s: a permission prompt a person answers):
+the entry had decided `title` for `not-present`, and it runs once per page
+load. `entrySecondChance` now runs it once more, only for that very outcome,
+only for the same account once the extension says `verified`, and only while
+the title is still up and untouched and play has not begun; the second run
+takes the verified extension as present without asking it again, and makes
+the same decision over the same facts (nothing created, saved or published
+by it). A vault identity answers at once and never needs it. A guest, a save
+that is not this identity's, or a title the player touched keep the menu as
+before. Browser check: `scripts/travel-arrival-browser.ts` (an arrival with a
+save, one without, a normal launch, the late extension, the save kept);
+tests: `tests/travel-arrival.test.ts`.
+
 ## M16.2: slow relays
 
 - **Reading the account's Blobbi** (`src/nostr/relays.ts`,

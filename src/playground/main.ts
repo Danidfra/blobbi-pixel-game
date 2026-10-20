@@ -39,7 +39,7 @@ import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
 import { lastVisitor, recordVisit, visitedBefore } from '../game/island-visits';
-import { currentSelectionAt, decideChosen, entryAddress, ENTRY_DIAGNOSTIC_KEY, entryDiagnostic, rememberStay, runEntry, stayedWith, type EntryDecision, type EntryFacts } from '../game/world-entry';
+import { currentSelectionAt, decideChosen, entryAddress, ENTRY_DIAGNOSTIC_KEY, entryDiagnostic, entrySecondChance, rememberStay, runEntry, stayedWith, type EntryDecision, type EntryFacts } from '../game/world-entry';
 import { EntryScreen } from '../ui/entry-screen';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_ITEM } from '../game/resources';
 import { ITEMS, TOOLS, FOODS, itemLabel, itemPlural } from '../game/items';
@@ -1204,6 +1204,15 @@ function signerSay(heading: string, text: string): void {
   if (live && playStarted && !title.active) travelNotice(heading, text, 8);
   else gameUI.say(`${heading}. ${text}`, false);
 }
+// The extension confirmed the account after the entry gave up waiting for it: the entry runs once more (a player
+// arriving from another world, or opening the game, is not left on the menu by a slow permission prompt)
+account.onChange(() => {
+  const s = account.snapshot();
+  if (!entrySecondChance({ first: entryFirst?.decision ?? null, firstPubkey: entryFirst?.pubkey ?? null, pubkey: s.status === 'connected' ? (s.pubkey ?? null) : null, extension: s.extension ?? null, titleActive: state.mode === 'play' && title.active && !intro && !entry.active, titleTouched: title.touched, playing: playStarted, taken: entrySecondTaken })) return;
+  entrySecondTaken = true;
+  if (import.meta.env.DEV) console.info('[entry] the extension answered after the wait: a second run');
+  void autoEnter(true);
+});
 account.onChange(() => {
   const w = afterSigner;
   if (!w) return;
@@ -1880,6 +1889,12 @@ function islandLabel(identity: string): string {
  * `#menu` opens on it.
  */
 let entryTried = false;
+/**
+ * The first run's outcome, for the second chance (`entrySecondChance`): the extension answering for the account
+ * after the entry gave up waiting for it runs the entry once more, while the title is still untouched.
+ */
+let entryFirst: { decision: EntryDecision; pubkey: string } | null = null;
+let entrySecondTaken = false;
 /** The pixel seed a Blobbi of the account walks with (V3: its own; V1/V2: its world form), or null. */
 function seedOf(b: OwnedBlobbi): string | null {
   if (b.generation === 'v3') return b.seed;
@@ -1965,8 +1980,8 @@ function seenBy(answer: import('../nostr/current-blobbi').CurrentBlobbiResult): 
   if (answer.status === 'no-selection' && answer.profile) return { ...answer.profile, d: null };
   return null;
 }
-async function autoEnter(): Promise<void> {
-  if (entryTried) return;
+async function autoEnter(again = false): Promise<void> {
+  if (entryTried && !again) return;
   entryTried = true;
   const address = entryAddress(params);
   const snap = account.snapshot();
@@ -1995,6 +2010,8 @@ async function autoEnter(): Promise<void> {
     present: (pubkey) => {
       const s = account.snapshot();
       if (s.method === 'vault') return identityService().then((svc) => svc.keeps(pubkey));
+      // The extension already answered for this account on this visit (the second run, after a late answer): present
+      if (s.extension === 'verified' && s.pubkey === pubkey) return Promise.resolve(true);
       // M11D.8.2: a browser extension is present only when it answers with THIS account's key (never a stale one).
       entry.phase = 'signer';
       return account.verifyExtension(6000).then((r) => r === 'verified');
@@ -2033,6 +2050,7 @@ async function autoEnter(): Promise<void> {
   // Whatever was decided, the loading page is over now (the title, or the island, comes at once).
   entry.end();
   const store = localStore();
+  if (run) entryFirst = { decision: run.decision, pubkey: run.pubkey };
   if (!run || !run.answer || !store) return;
   const { decision, answer, pubkey } = run;
   // M11D.8.4: what was decided and why, kept on this device for diagnosis (no key, no address, no name).
