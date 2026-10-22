@@ -10,3 +10,5 @@ out
 .vite/
 .lab-browser.json
 .lab-browser-profile/
+.vercel
+.env*
