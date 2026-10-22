@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LiveWorld } from '../src/sim/live-world';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS } from '../src/render/live-render';
 import { ViewRenderer } from '../src/render/view-renderer';
-import { ViewCamera, worldBounds } from '../src/render/view-camera';
+import { ViewCamera, gridSteps, worldBounds } from '../src/render/view-camera';
 import { memoryStore } from '../src/game/persistence';
 import { IntroCinematic, type IntroResult } from '../src/cinematic/intro';
 import { introPreviewWorld, isIntroSpecies } from '../src/cinematic/preview';
@@ -427,7 +427,7 @@ describe('intro cinematic: playing it', () => {
         expect(Number.isFinite(v.originX) && Number.isFinite(v.originY) && Number.isFinite(v.scale)).toBe(true);
         minScale = Math.min(minScale, v.scale);
         maxScale = Math.max(maxScale, v.scale);
-        if (!v.transitioning) expect(Number.isInteger(v.originX) && Number.isInteger(v.originY)).toBe(true);
+        if (!v.transitioning) expect([v.originX, v.originY].every((o) => Math.abs(o * gridSteps(v.scale) - Math.round(o * gridSteps(v.scale))) < 1e-6)).toBe(true); // on the grid: crisp blocks
         seen.add(intro.scene);
         frames++;
       }
@@ -606,7 +606,7 @@ describe('intro cinematic: playing it', () => {
     intro.dispose(); // idempotent
   });
 
-  it('reduced motion: cuts only, no hops, the short arrival, all frames on whole world pixels', () => {
+  it('reduced motion: cuts only, no hops, the short arrival, all frames on whole screen pixels', () => {
     const { live, intro } = scene('turtle', { reducedMotion: true });
     expect(intro.duration).toBeLessThanOrEqual(22);
     let hops = 0;
@@ -618,7 +618,7 @@ describe('intro cinematic: playing it', () => {
       intro.frame(1 / 30, W, H);
       const v = intro.lastView!;
       expect(v.transitioning).toBe(false);
-      expect(Number.isInteger(v.originX) && Number.isInteger(v.originY)).toBe(true);
+      expect([v.originX, v.originY].every((o) => Math.abs(o * gridSteps(v.scale) - Math.round(o * gridSteps(v.scale))) < 1e-6)).toBe(true); // on the grid: crisp blocks
       scales.add(v.scale);
       if (live.blobbi.animator.hop(intro.worldTime()) !== 0) hops++;
       if (tp.state === 'arriving') wasArriving = true;

@@ -11,9 +11,10 @@
  * The Blobbi is drawn at three quarters of its world size in every mode, so it keeps one proportion to the
  * shelter, trees and rocks whatever the zoom.
  *
- * At rest the scale is a whole number and the view origin a whole world pixel, so every world pixel is a crisp
- * square block. A mode change eases the scale and the focus over `TRANSITION_SECONDS`; sampling stays
- * nearest-neighbour throughout (no blur), and the final frame is pixel-exact.
+ * At rest the scale is a whole number and the view origin a whole screen pixel, so every world pixel is a crisp
+ * square block that scrolls one screen pixel at a time (not a whole block at a time: at 4× and 6× that read as the
+ * screen shaking while walking). A mode change eases the scale and the focus over `TRANSITION_SECONDS`; sampling
+ * stays nearest-neighbour throughout (no blur), and the final frame is pixel-exact.
  */
 
 import { t } from '../i18n';
@@ -87,6 +88,44 @@ export interface CameraTarget {
   y: number;
   /** The Blobbi's world height (16 by default), so the follow point is the middle of its body. */
   size: number;
+  /**
+   * The grid the target is drawn on at rest: 'screen' (screen pixels, the default) or 'world' (whole world pixels:
+   * the Blobbi in the canoe, whose hull is drawn on world pixels). The camera keeps to the same grid.
+   */
+  grid?: TargetGrid;
+}
+
+export type TargetGrid = 'screen' | 'world';
+
+/**
+ * Grid steps per world pixel at rest: a whole scale on the screen grid moves by screen pixels (`scale` steps per
+ * world pixel); the world grid, and any scale that is not a whole number (the overview below 1×), by world pixels.
+ * Either way every world pixel stays a crisp `scale`×`scale` block: only where the blocks start moves more finely.
+ */
+export function gridSteps(scale: number, grid: TargetGrid = 'screen'): number {
+  return grid === 'screen' && Number.isInteger(scale) && scale >= 1 ? scale : 1;
+}
+
+/** A world coordinate on the grid of `steps` per world pixel. */
+export const onGrid = (v: number, steps: number): number => Math.round(v * steps) / steps;
+
+/**
+ * The screen pixel the Blobbi's anchor sits on (the centre column and bottom row of its ground pixel's block), for
+ * the Blobbi at world (x, y) in `view`. At rest it is on the target's grid; while the scale eases between modes it
+ * stays on whole world pixels (as before the screen grid existed). The renderer and the tests share it.
+ */
+export function blobbiScreenAnchor(x: number, y: number, view: ViewRect, grid: TargetGrid = 'screen'): { x: number; y: number } {
+  const s = view.scale;
+  if (view.transitioning || !Number.isInteger(s)) {
+    const bx = Math.round(x);
+    const by = Math.round(y);
+    return { x: Math.floor((bx - view.originX) * s + s / 2), y: Math.floor((by - view.originY) * s + s - 1) };
+  }
+  const n = gridSteps(s, grid);
+  // Both terms are whole screen pixels; rounding each keeps them exact where floating point is not (1/6, 1/3).
+  const px = Math.round(Math.round(x * n) * (s / n)) - Math.round(view.originX * s);
+  const py = Math.round(Math.round(y * n) * (s / n)) - Math.round(view.originY * s);
+  return { x: px + Math.floor(s / 2), y: py + s - 1 };
 }
 
 export interface WorldBounds {
@@ -152,7 +191,7 @@ export class ViewCamera {
   /** The last followed target: the Blobbi is drawn at its rounded position, so the origin is derived from it. */
   private target: CameraTarget | null = null;
   /** The last resting origin and the eased origin it came from (per axis), for the direction rule. */
-  private held: { ox: number; oy: number; fx: number; fy: number } | null = null;
+  private held: { ox: number; oy: number; fx: number; fy: number; n: number } | null = null;
 
   constructor(mode: CameraModeId = DEFAULT_CAMERA_MODE) {
     this.mode = mode;
@@ -240,36 +279,40 @@ export class ViewCamera {
     let originX = clamp(this.focusX, vw, world.width, bx);
     let originY = clamp(this.focusY, vh, world.height, by);
     const transitioning = this.from !== null;
-    // At rest the origin sits on the world-pixel grid: whole blocks, no shimmer.
+    // At rest the origin sits on the grid (screen pixels at a whole scale, see `gridSteps`): whole blocks, no shimmer.
     if (!transitioning) {
       const t = this.target;
+      const n = gridSteps(s, t?.grid);
       if (CAMERA_MODES[this.mode].follow && t) {
-        // The Blobbi is drawn at its rounded position. Rounding the eased origin on its own as well would let the
-        // two round at different moments, and the Blobbi would step back and forth a whole world pixel on screen
-        // while walking (2 or 4 screen pixels). Instead the Blobbi's offset in the view is rounded once, from two
-        // smooth values, and the origin follows the rounded Blobbi: walking steadily, the Blobbi holds still on
-        // the screen and the world scrolls; settling, it drifts to the centre one whole pixel at a time.
-        const fx = originX;
-        const fy = originY;
-        let ox = Math.round(t.x) - Math.round(t.x - fx);
-        let oy = Math.round(t.y) - Math.round(t.y - fy);
+        // The Blobbi is drawn at its position rounded to the grid. Rounding the eased origin on its own as well would
+        // let the two round at different moments, and the Blobbi would step back and forth a grid step on screen
+        // while walking. Instead the Blobbi's offset in the view is rounded once, from two smooth values, and the
+        // origin follows the rounded Blobbi: walking steadily, the Blobbi holds still on the screen and the world
+        // scrolls; settling, it drifts to the centre one grid step at a time. Everything below is in grid steps.
+        const fx = originX * n;
+        const fy = originY * n;
+        let ox = Math.round(t.x * n) - Math.round(t.x * n - fx);
+        let oy = Math.round(t.y * n) - Math.round(t.y * n - fy);
         // While the camera's lag grows or shrinks, the rounded offset and the rounded Blobbi can still change on
         // different frames; the origin therefore only ever moves the way the eased camera is moving (and never
-        // strays a pixel from it), so the world never scrolls backwards for a frame.
-        const h = this.held;
+        // strays a step from it), so the world never scrolls backwards for a frame.
+        const h = this.held && this.held.n === n ? this.held : null;
         const hold = (o: number, prev: number, f: number, prevF: number) => (o !== prev && Math.sign(o - prev) !== Math.sign(f - prevF) && Math.abs(prev - f) < 1 ? prev : o);
         if (h) {
           ox = hold(ox, h.ox, fx, h.fx);
           oy = hold(oy, h.oy, fy, h.fy);
         }
-        if (world.width > vw) ox = Math.max(bx, Math.min(bx + Math.floor(world.width - vw), ox));
-        if (world.height > vh) oy = Math.max(by, Math.min(by + Math.floor(world.height - vh), oy));
-        this.held = { ox, oy, fx, fy };
-        originX = ox;
-        originY = oy;
-      } else this.held = null;
-      originX = Math.round(originX);
-      originY = Math.round(originY);
+        // (1e-9: the far edge in steps is a whole number that floating point may land just under.)
+        if (world.width > vw) ox = Math.max(bx * n, Math.min(Math.floor((bx + world.width - vw) * n + 1e-9), ox));
+        if (world.height > vh) oy = Math.max(by * n, Math.min(Math.floor((by + world.height - vh) * n + 1e-9), oy));
+        this.held = { ox, oy, fx, fy, n };
+        originX = ox / n;
+        originY = oy / n;
+      } else {
+        this.held = null;
+        originX = onGrid(originX, n);
+        originY = onGrid(originY, n);
+      }
     }
     return { mode: this.mode, scale: s, originX, originY, screenW, screenH, transitioning };
   }

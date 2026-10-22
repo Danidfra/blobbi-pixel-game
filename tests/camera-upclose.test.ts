@@ -48,7 +48,7 @@ describe('up close', () => {
     expect(view.lastBlobbi!.sprite.buffer.height).toBeGreaterThan(72);
   });
 
-  it('stays within the world at its corners and within the room indoors, on whole world pixels', () => {
+  it('stays within the world at its corners and within the room indoors, on whole screen pixels', () => {
     const live = scene();
     const b = worldBounds(live.world);
     for (const [x, y] of [[2, 2], [b.width - 3, 2], [2, b.height - 3], [b.width - 3, b.height - 3]]) {
@@ -58,7 +58,8 @@ describe('up close', () => {
       expect(v.originY).toBeGreaterThanOrEqual(0);
       expect(v.originX + 1280 / 6).toBeLessThanOrEqual(b.width + 1);
       expect(v.originY + 720 / 6).toBeLessThanOrEqual(b.height + 1);
-      expect(Number.isInteger(v.originX) && Number.isInteger(v.originY)).toBe(true);
+      // On whole screen pixels: every world pixel a whole 6×6 block.
+      expect(Number.isInteger(Math.round(v.originX * 6 * 1e6) / 1e6) && Number.isInteger(Math.round(v.originY * 6 * 1e6) / 1e6)).toBe(true);
     }
     // Indoors: the room's bounds (a room smaller than the screen is centred, never scrolled past).
     live.inventory.add(ITEMS.wood.id, 6);
@@ -74,7 +75,7 @@ describe('up close', () => {
     const cam = new ViewCamera('upclose');
     for (const W of [1280, 600]) {
       const v = cam.update(0, live.cameraTarget(), W, 720, room, true);
-      if (room.width * 6 <= W) expect(v.originX).toBe(Math.round((room.width - W / 6) / 2));
+      if (room.width * 6 <= W) expect(v.originX).toBeCloseTo(Math.round(((room.width - W / 6) / 2) * 6) / 6, 9); // centred to the screen pixel
       else {
         expect(v.originX).toBeGreaterThanOrEqual(0);
         expect(v.originX + W / 6).toBeLessThanOrEqual(room.width + 1);

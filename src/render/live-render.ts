@@ -69,6 +69,40 @@ export interface FrameTimings {
 export interface SplitLayers {
   overlay: PixelBuffer;
   texts: FrameText[];
+  /**
+   * The Blobbi's shadow, handed back instead of painted (the view draws it with the Blobbi, which may sit between
+   * world pixels on screen): its cells in world pixels, unlit, and whether something standing behind the Blobbi was
+   * drawn over the cell (then it stays hidden, as when it was painted first). Empty when it has no shadow.
+   */
+  shadow?: ShadowCell[];
+}
+
+export interface ShadowCell {
+  x: number;
+  y: number;
+  color: Color;
+  covered: boolean;
+}
+
+/** The cells of a ground shadow under (px, py) in world pixels, each in the shadow colour of its ground. */
+export function shadowCells(px: number, py: number, rx: number, ry: number, world: WorldDescription): ShadowCell[] {
+  const palette = paletteFor(world.options.palette);
+  const { width, cls } = world.terrain;
+  const cx = px + 1;
+  const cy = py + 1;
+  const rrx = rx + 1;
+  const rry = Math.max(1, ry);
+  const out: ShadowCell[] = [];
+  for (let y = Math.floor(cy - rry); y <= Math.ceil(cy + rry); y++)
+    for (let x = Math.floor(cx - rrx); x <= Math.ceil(cx + rrx); x++) {
+      if (x < 0 || y < 0 || x >= width || y >= world.terrain.height) continue;
+      const u = (x + 0.5 - cx) / rrx;
+      const v = (y + 0.5 - cy) / rry;
+      if (u * u + v * v > 1) continue;
+      const c = cls[y * width + x];
+      out.push({ x, y, color: c === T.SAND || c === T.SAND_WET || c === T.PATH ? palette.shadowOnSand : c >= T.GRASS_EDGE ? palette.shadowOnGrass : palette.shadowOnWater, covered: false });
+    }
+  return out;
 }
 
 export interface FrameText {
@@ -247,22 +281,7 @@ export class LiveRenderer {
   }
 
   private paintShadow(buf: PixelBuffer, px: number, py: number, rx: number, ry: number, ox: number, oy: number, world: WorldDescription = this.live.world): void {
-    const palette = paletteFor(world.options.palette);
-    const { width, cls } = world.terrain;
-    const cx = px + 1;
-    const cy = py + 1;
-    const rrx = rx + 1;
-    const rry = Math.max(1, ry);
-    for (let y = Math.floor(cy - rry); y <= Math.ceil(cy + rry); y++)
-      for (let x = Math.floor(cx - rrx); x <= Math.ceil(cx + rrx); x++) {
-        if (x < 0 || y < 0 || x >= width || y >= world.terrain.height) continue;
-        const u = (x + 0.5 - cx) / rrx;
-        const v = (y + 0.5 - cy) / rry;
-        if (u * u + v * v > 1) continue;
-        const c = cls[y * width + x];
-        const color = c === T.SAND || c === T.SAND_WET || c === T.PATH ? palette.shadowOnSand : c >= T.GRASS_EDGE ? palette.shadowOnGrass : palette.shadowOnWater;
-        buf.set(x - ox, y - oy, color);
-      }
+    for (const s of shadowCells(px, py, rx, ry, world)) buf.set(s.x - ox, s.y - oy, s.color);
   }
 
   /**
@@ -505,8 +524,10 @@ export class LiveRenderer {
     // The Blobbi.
     const b = live.blobbi;
     const pose = b.animator.pose(time);
-    const bx = Math.round(b.x);
-    const by = Math.round(b.y);
+    // Where it is drawn this frame (between steps, see `LiveWorld.interpolatedBlobbi`), on whole world pixels here.
+    const drawn = live.drawnBlobbi();
+    const bx = Math.round(drawn.x);
+    const by = Math.round(drawn.y);
     // The canoe (M10 phase B): moored whole; with the Blobbi in it, the hull behind and the near side in front.
     const boat = live.boat;
     const seated = !!boat?.aboard && !live.boarding;
@@ -521,7 +542,12 @@ export class LiveRenderer {
         if (Math.hypot(boat.vx, boat.vy) > 3 && !live.fishing) drawables.push({ y: by, x: bx + 0.8, sprite: paddleSprite(boat.heading, Math.floor(time * 2.2), palette), sway: 0, dy: 0, offset: { x: 0, y: -2 } });
       } else drawables.push({ y: hy, x: hx, sprite: c.whole, sway: 0, dy: 0 });
     }
-    if (o.shadows && !seated && !live.boarding) this.paintShadow(frame, bx, by - 1, b.shadowRx, 2, ox, oy);
+    const shadowed = o.shadows && !seated && !live.boarding;
+    // Split: the shadow goes back to the view, which draws it with the Blobbi (both may sit between world pixels on
+    // screen); the ground under each cell is kept, to tell whether something behind the Blobbi is drawn over it.
+    const shadow = shadowed && split ? shadowCells(bx, by - 1, b.shadowRx, 2, world) : [];
+    const ground = shadow.map((s) => frame.get(s.x - ox, s.y - oy));
+    if (shadowed && !split) this.paintShadow(frame, bx, by - 1, b.shadowRx, 2, ox, oy);
     const hop = b.animator.hop(time);
     // Split: the view draws the Blobbi at its own size, so the gameplay-size sprite is not rasterized here.
     if (!split) {
@@ -547,6 +573,10 @@ export class LiveRenderer {
     for (const d of drawables) {
       if (split && out === frame && (d.y > by || (d.y === by && d.x > bx + 0.5))) out = split.overlay;
       this.blitSway(out, d.sprite, Math.round(d.x + (d.offset?.x ?? 0)) - d.sprite.anchorX - ox, d.y + (d.offset?.y ?? 0) - d.sprite.anchorY - oy + d.dy, d.sway);
+    }
+    if (split) {
+      shadow.forEach((s, i) => (s.covered = frame.get(s.x - ox, s.y - oy) !== ground[i]));
+      split.shadow = shadow;
     }
     // Everything drawn from here on is in front of the Blobbi.
     out = split ? split.overlay : frame;

@@ -13,6 +13,7 @@ import { generateTurtleWorld, DEFAULT_TURTLE_OPTIONS } from '../world/turtle-wor
 import { SHELL_VARIANTS, DEFAULT_SHELL_VARIANT, NEW_WORLD_SHELL_VARIANT, isShellVariant, type ShellVariant } from '../carrier/types';
 import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/compose';
 import { auditWorld } from '../render/audit';
+import { canvasBacking } from '../render/backing';
 import { TextInputs } from './text-inputs';
 import type { OwnedBlobbi, ShareStatus } from '../nostr/port';
 import type { WorldDescription, WorldOptions } from '../world/types';
@@ -547,6 +548,8 @@ let statsTimer = 0;
 let rafId = 0;
 /** The scene the camera framed last frame (a change snaps the camera). */
 let lastScene = 'island';
+/** The simulated time the Blobbi was last drawn at (between steps), so the camera eases in the same time. */
+let lastDrawn: { live: LiveWorld; time: number } | null = null;
 /** The last camera view (tap-to-walk maps screen pixels to the world with it). */
 let lastView: import('../render/view-camera').ViewRect | null = null;
 /** The game's menus over the play view (inventory, storage, crafting, journal, care, cooking, settings). */
@@ -2527,8 +2530,15 @@ function playFrame(now: number): void {
   const restScale = viewCamera.restScale(viewCamera.mode, view.width, view.height, sceneBounds);
   live.teleport.reducedMotion = gameUI.settings.reducedMotion;
   viewRenderer!.reducedMotion = gameUI.settings.reducedMotion;
+  // On foot the Blobbi is drawn between its last two steps, so it moves on every display frame at any refresh rate
+  // (in the canoe it keeps to whole steps, with the hull). The camera eases in the same simulated time.
+  const grid = live.onWorldGrid;
+  live.drawnAt = grid ? null : live.interpolatedBlobbi();
+  const drawnTime = live.clock.time + (grid ? 0 : (live.clock.fraction - 1) * live.clock.dt);
+  const followDt = lastDrawn?.live === live && !snap ? Math.max(0, drawnTime - lastDrawn.time) : steps * live.clock.dt;
+  lastDrawn = { live, time: drawnTime };
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
-  const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, steps * live.clock.dt));
+  const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, followDt));
   const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox, blobbiName: shownName, travelCue: travelCue() });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
@@ -3725,12 +3735,22 @@ view.addEventListener(
 );
 
 function resize(): void {
-  const main = view.parentElement!;
-  view.width = main.clientWidth;
-  view.height = main.clientHeight;
+  const box = view.parentElement!.getBoundingClientRect();
+  // Whole canvas pixels shown one to one at a whole pixel ratio (see render/backing.ts: the whole-device-pixel canvas
+  // for fractional ratios is off until the menus are designed for its smaller sizes).
+  const b = canvasBacking(box.width, box.height, window.devicePixelRatio || 1);
+  view.width = b.width;
+  view.height = b.height;
+  view.style.width = `${b.cssWidth}px`;
+  view.style.height = `${b.cssHeight}px`;
   draw();
 }
 window.addEventListener('resize', resize);
+// A new pixel ratio (the window moved to another screen, a browser zoom) fits the canvas again.
+(function watchPixelRatio(): void {
+  const query = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+  query?.addEventListener('change', () => (resize(), watchPixelRatio()), { once: true });
+})();
 
 // ─── Modes ───────────────────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateTurtleWorld } from '../src/world/turtle-world';
 import { LiveWorld, IDLE_INPUT, SWING, type LiveInput } from '../src/sim/live-world';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS } from '../src/render/live-render';
-import { ViewCamera, CAMERA_CYCLE, CAMERA_MODES, DEFAULT_CAMERA_MODE, TRANSITION_SECONDS, MIN_OVERVIEW_SCALE, blobbiScreenSize, isCameraMode, worldBounds, type CameraModeId, type ViewRect } from '../src/render/view-camera';
+import { ViewCamera, CAMERA_CYCLE, CAMERA_MODES, DEFAULT_CAMERA_MODE, TRANSITION_SECONDS, MIN_OVERVIEW_SCALE, blobbiScreenAnchor, blobbiScreenSize, isCameraMode, worldBounds, type CameraModeId, type ViewRect } from '../src/render/view-camera';
 import { ViewRenderer } from '../src/render/view-renderer';
 import { buildBlobbiSprite } from '../src/blobbi/sprite';
 import { STEEL } from '../src/game/equipment';
@@ -25,6 +25,9 @@ function settle(live: LiveWorld, mode: CameraModeId, w = W, h = H): { camera: Vi
   const view = camera.update(0, target(live), w, h, bounds, true);
   return { camera, view, rest: camera.restScale(mode, w, h, bounds) };
 }
+
+/** The view's origin sits on whole screen pixels. */
+const onScreenGrid = (v: ViewRect) => [v.originX, v.originY].every((o) => Math.abs(o * v.scale - Math.round(o * v.scale)) < 1e-6);
 
 const frameHash = (data: Uint32Array) => hash32(Array.from(data, (c) => c.toString(36)).join(','));
 
@@ -53,7 +56,8 @@ describe('camera modes', () => {
     const rest = camera.update(1 / 60, target(live), W, H, bounds);
     expect(rest.scale).toBe(4);
     expect(rest.transitioning).toBe(false);
-    expect(Number.isInteger(rest.originX) && Number.isInteger(rest.originY)).toBe(true);
+    // At rest the origin is on whole screen pixels (every world pixel a whole 4×4 block, scrolled by screen pixels).
+    expect(onScreenGrid(rest)).toBe(true);
     expect(camera.cycle()).toBe('upclose');
     expect(camera.cycle()).toBe('overview');
     expect(camera.cycle()).toBe('exploration');
@@ -241,9 +245,14 @@ describe('the multi-scale view', () => {
       const b = view.lastBlobbi!;
       // The drawn height over the world scale is the same 12 world pixels in every mode (the shelter is fixed).
       expect(b.size / v.scale, mode).toBe(12);
-      // The anchor is the bottom-centre screen pixel of the Blobbi's ground world pixel, in every mode.
-      expect(b.x, mode).toBe(Math.floor((Math.round(live.blobbi.x) - v.originX) * v.scale + v.scale / 2));
-      expect(b.y, mode).toBe(Math.floor((Math.round(live.blobbi.y) - v.originY) * v.scale + v.scale - 1));
+      // The anchor is the bottom-centre screen pixel of the Blobbi's ground pixel's block, in every mode: on whole
+      // world pixels the block of its ground world pixel; between them, moved by the screen pixels it is between.
+      const a = blobbiScreenAnchor(live.blobbi.x, live.blobbi.y, v);
+      expect([b.x, b.y], mode).toEqual([a.x, a.y]);
+      const whole = blobbiScreenAnchor(Math.round(live.blobbi.x), Math.round(live.blobbi.y), v, 'world');
+      expect(whole.x, mode).toBe(Math.floor((Math.round(live.blobbi.x) - v.originX) * v.scale + v.scale / 2 + 1e-9));
+      expect(Math.abs(a.x - whole.x), mode).toBeLessThanOrEqual(v.scale / 2);
+      expect(Math.abs(a.y - whole.y), mode).toBeLessThanOrEqual(v.scale / 2);
       expect(b.sprite.buffer.data).toEqual(buildBlobbiSprite(live.blobbi.identity, pose, b.size).buffer.data);
     }
   });
@@ -282,17 +291,20 @@ describe('the multi-scale view', () => {
       const { view: v, rest } = settle(live, mode);
       const screen = view.render(v, rest, live.clock.time, DEFAULT_LIVE_OPTIONS, NO_UI).clone();
       const b = view.lastBlobbi!;
-      const vw = Math.ceil(W / v.scale);
-      const vh = Math.ceil(H / v.scale);
-      const classic = world.render(vw, vh, v.originX, v.originY, live.clock.time, { ...DEFAULT_LIVE_OPTIONS, hud: false });
+      // The origin is on screen pixels: the world from its first whole world pixel, the blocks moved by the rest.
+      const wx0 = Math.floor(v.originX);
+      const wy0 = Math.floor(v.originY);
+      const vw = Math.ceil(W / v.scale) + 1;
+      const vh = Math.ceil(H / v.scale) + 1;
+      const classic = world.render(vw, vh, wx0, wy0, live.clock.time, { ...DEFAULT_LIVE_OPTIONS, hud: false });
       // The classic Blobbi (and its tool) in world pixels, and the native one on the screen, are left out.
-      const bx = Math.round(live.blobbi.x) - v.originX;
-      const by = Math.round(live.blobbi.y) - v.originY;
+      const bx = Math.round(live.blobbi.x) - wx0;
+      const by = Math.round(live.blobbi.y) - wy0;
       let compared = 0;
       for (let y = 0; y < H; y++)
         for (let x = 0; x < W; x++) {
-          const wx = Math.floor(x / v.scale);
-          const wy = Math.floor(y / v.scale);
+          const wx = Math.floor(v.originX + (x + 0.5) / v.scale) - wx0;
+          const wy = Math.floor(v.originY + (y + 0.5) / v.scale) - wy0;
           if (Math.abs(wx - bx) <= 16 && wy >= by - 26 && wy <= by + 3) continue;
           if (Math.abs(x - b.x) <= b.size && y >= b.y - b.size * 1.6 && y <= b.y + v.scale * 3) continue;
           compared++;

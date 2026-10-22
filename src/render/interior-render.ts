@@ -71,8 +71,9 @@ export class InteriorRenderer {
     const drawables: Drawable[] = [];
     const b = live.blobbi;
     const pose = b.animator.pose(time);
-    const bx = Math.round(b.x);
-    const by = Math.round(b.y);
+    const drawn = live.drawnBlobbi();
+    const bx = Math.round(drawn.x);
+    const by = Math.round(drawn.y);
     // In bed (M9): the bed is drawn behind the Blobbi and, once it is tucked in, the blanket in front of it.
     const inBed = live.inBed();
     for (const f of furniture) {

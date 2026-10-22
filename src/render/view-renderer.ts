@@ -26,7 +26,7 @@ import type { LiveWorld } from '../sim/live-world';
 import type { PixelBlobbiIdentity } from '../blobbi/identity';
 import { InteriorRenderer } from './interior-render';
 import { drawTeleportParticles, drawTeleportShadow, drawTravelCue, teleportSprite, type TravelCueKind } from './teleport-render';
-import { applyLight, dayAt, hourAt } from '../game/daylight';
+import { applyLight, dayAt, hourAt, type LightSource } from '../game/daylight';
 import { goalCard, identityChip, pinnedCard, statusCard, timeChip, toastCard, ToastFeed, type StatusInfo } from '../ui/hud';
 import { UiSurface, textPreference } from '../ui/surface';
 import { getLocale, sentence, t as lang, upper } from '../i18n';
@@ -48,8 +48,8 @@ function skyColour(t: number): number {
   if (h >= 17 && h < 20.5) return h < 18.8 ? mixColour(day, gold, (h - 17) / 1.8) : mixColour(gold, night, (h - 18.8) / 1.7);
   return night;
 }
-import { type LiveRenderer, type LiveRenderOptions, type SplitLayers, type FrameText } from './live-render';
-import { CAMERA_MODES, CAMERA_CYCLE, blobbiScreenSize, type CameraModeId, type ViewRect } from './view-camera';
+import { type LiveRenderer, type LiveRenderOptions, type SplitLayers, type FrameText, type ShadowCell } from './live-render';
+import { CAMERA_MODES, CAMERA_CYCLE, blobbiScreenAnchor, blobbiScreenSize, type CameraModeId, type ViewRect } from './view-camera';
 
 /** Native sprites kept per size; poses beyond this are evicted oldest first. */
 const NATIVE_CACHE_LIMIT = 512;
@@ -220,6 +220,7 @@ export class ViewRenderer {
     const light = lit ? this.live.ambientLight() : { dark: 0, warm: 0, night: false };
     if (this.live.interior) (this.room ??= new InteriorRenderer(this.live)).sky = skyColour(this.live.worldTime);
     const scene = this.live.interior ? this.room! : this.world;
+    this.layers.shadow = []; // (a room has no ground shadow: never the island's from an earlier frame)
     const frame = scene.render(vw, vh, wx0, wy0, time, { ...o, hud: false }, this.layers);
     const overlay = this.layers.overlay;
     // Day and night, in world pixels (a fraction of the screen's): the world, what stands in front, the Blobbi.
@@ -283,19 +284,23 @@ export class ViewRenderer {
     const egg = live.egg;
     const canonical = egg ? (native ? native.egg(egg) : live.eggSprite(egg)) : spriteOf(pose);
     let sprite = canonical;
+    // Where it is drawn this frame: between steps, on screen pixels on foot (see `blobbiScreenAnchor`).
+    const drawn = live.drawnBlobbi();
     if (lit && (light.dark > 0.01 || light.warm > 0.01 || rain > 0)) {
       // The Blobbi in the same light: a tinted copy, as dark as the world around it (less near a lamp).
       let f = 1;
-      for (const l of lights) f = Math.min(f, Math.hypot(l.x - b.x, (l.y - b.y) * 1.3) / l.radius);
+      for (const l of lights) f = Math.min(f, Math.hypot(l.x - drawn.x, (l.y - drawn.y) * 1.3) / l.radius);
       const tinted = sprite.buffer.clone();
       applyLight(tinted.data, tinted.width, tinted.height, 0, 0, { dark: light.dark * f, warm: light.warm }, rain * f, []);
       sprite = { ...sprite, buffer: tinted };
     }
-    const bx = Math.round(b.x);
-    const by = Math.round(b.y);
     // The anchor pixel sits in the world ground pixel's block: centre column, bottom row.
-    const ax = Math.floor((bx - originX) * s + s / 2);
-    const ay = Math.floor((by - originY) * s + s - 1) + Math.round(b.animator.hop(time) * s);
+    const anchor = blobbiScreenAnchor(drawn.x, drawn.y, view, live.onWorldGrid ? 'world' : 'screen');
+    const ax = anchor.x;
+    const ay = anchor.y + Math.round(b.animator.hop(time) * s);
+    // Its shadow was laid out under the Blobbi rounded to whole world pixels: it moves on with it, pixel for pixel.
+    const whole = blobbiScreenAnchor(Math.round(drawn.x), Math.round(drawn.y), view, 'world');
+    drawShadow(screen, this.layers.shadow ?? [], anchor.x - whole.x, anchor.y - whole.y, wx0, wy0, xs, ys, lit ? { light, rain, lights } : null);
     let tool: Attachment | null = null;
     if (live.equipped && EQUIPMENT[live.equipped] && !egg) {
       const at = attachTool(live.equipped, pose, live.equipmentAnimation(time), native ? native.rig : live.rig, spriteOf, palette);
@@ -313,10 +318,11 @@ export class ViewRenderer {
     // is), to the float; the float flies there on the cast. At screen resolution, one pixel thin.
     const drawFishing = (layer: 'behind' | 'front') => {
       if (!float) return;
-      const fx = Math.floor((float.x - originX) * s);
-      const fy = Math.floor((float.y - originY) * s);
+      // (1e-6: an origin on screen pixels is k/s, which floating point may hold a hair under k/s.)
+      const fx = Math.floor((float.x - originX) * s + 1e-6);
+      const fy = Math.floor((float.y - originY) * s + 1e-6);
       const px = Math.max(1, Math.round(s));
-      const floatBehind = float.y <= b.y;
+      const floatBehind = float.y <= drawn.y;
       // The tip on screen: the rod's grip (its anchor, where it is blitted) plus the tip's offset from the grip.
       const tx = tool?.tip ? toolX() + Math.round((tool.tip.dx - tool.dx) * ratio) : fx;
       const ty = tool?.tip ? toolY() + Math.round((tool.tip.dy - tool.dy) * ratio) : fy;
@@ -637,6 +643,30 @@ function spans(map: Int32Array, n: number, reuse?: Spans): Spans {
 interface Spans {
   start: Int32Array;
   end: Int32Array;
+}
+
+/**
+ * The Blobbi's ground shadow on the magnified screen: each cell is the screen block of its world pixel, moved by
+ * (dx, dy) screen pixels with the Blobbi, in the light of the world around it. A cell something behind the Blobbi
+ * covers stays hidden. With dx = dy = 0 the result is the shadow as the world render would have painted it.
+ */
+function drawShadow(screen: PixelBuffer, cells: readonly ShadowCell[], dx: number, dy: number, wx0: number, wy0: number, xs: Spans, ys: Spans, lit: { light: { dark: number; warm: number }; rain: number; lights: readonly LightSource[] } | null): void {
+  const W = screen.width;
+  const H = screen.height;
+  const one = new Uint32Array(1);
+  for (const c of cells) {
+    if (c.covered) continue;
+    const i = c.x - wx0;
+    const j = c.y - wy0;
+    if (i < 0 || j < 0 || i >= xs.start.length || j >= ys.start.length) continue;
+    one[0] = c.color;
+    if (lit) applyLight(one, 1, 1, c.x, c.y, lit.light, lit.rain, lit.lights);
+    const x0 = Math.max(0, xs.start[i] + dx);
+    const x1 = Math.min(W, xs.end[i] + dx);
+    const y0 = Math.max(0, ys.start[j] + dy);
+    const y1 = Math.min(H, ys.end[j] + dy);
+    for (let y = y0; y < y1; y++) screen.data.fill(one[0], y * W + x0, y * W + Math.max(x0, x1));
+  }
 }
 
 /** Blit a sprite with its anchor at (x, y); `ratio` ≠ 1 only during a camera transition (nearest-neighbour). */

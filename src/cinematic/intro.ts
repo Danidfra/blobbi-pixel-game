@@ -35,7 +35,7 @@ import type { LiveWorld } from '../sim/live-world';
 import type { LiveRenderer, LiveRenderOptions } from '../render/live-render';
 import { DEFAULT_LIVE_OPTIONS, drawTinyText } from '../render/live-render';
 import type { ViewRenderer } from '../render/view-renderer';
-import { ViewCamera, worldBounds, type CameraModeId, type ViewRect, type WorldBounds } from '../render/view-camera';
+import { ViewCamera, gridSteps, onGrid, worldBounds, type CameraModeId, type ViewRect, type WorldBounds } from '../render/view-camera';
 import type { AudioEngine } from '../audio/engine';
 import type { CarrierSpecies } from '../game/archipelago';
 import type { AnimatorState } from '../blobbi/animation';
@@ -522,8 +522,10 @@ export class IntroCinematic {
     let originX = fx - W / s / 2;
     let originY = fy - H / s / 2;
     if (!zooming) {
-      originX = Math.round(originX);
-      originY = Math.round(originY);
+      // On the camera's grid (screen pixels at a whole scale): the handoff is the game's own first frame exactly.
+      const n = gridSteps(s);
+      originX = onGrid(originX, n);
+      originY = onGrid(originY, n);
     }
     const restScale = seg.b.s;
     return { view: { mode: modeFor(restScale), scale: s, originX, originY, screenW: W, screenH: H, transitioning: zooming }, restScale };

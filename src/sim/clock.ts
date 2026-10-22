@@ -31,6 +31,14 @@ export class SimClock {
     return steps;
   }
 
+  /**
+   * How far real time has run into the next step (0..1): the share of a step still waiting in the accumulator.
+   * Presentation only (drawing between the last two steps); the simulation never reads it.
+   */
+  get fraction(): number {
+    return Math.max(0, Math.min(1, this.accumulator / this.dt));
+  }
+
   /** Record one step taken. */
   tick(): void {
     this.time += this.dt;

@@ -203,6 +203,8 @@ export type FarmAction =
   | { kind: 'cannot-till'; cell: Cell; check: PlacementCheck };
 
 export const HARVEST_POP_SECONDS = 0.8;
+/** A step that moves the Blobbi further than this (world pixels) is a jump, never drawn in between. */
+const MAX_DRAWN_BETWEEN = 3;
 /** A herb planter grows one herb per this many seconds of world time, holding up to HERB_MAX. */
 export const HERB_SECONDS = 240;
 export const HERB_MAX = 3;
@@ -325,6 +327,10 @@ export class LiveWorld {
   /** The island's collision, navigation and autonomy; the room has its own (see the scene getters below). */
   islandCollision!: CollisionMap;
   blobbi: BlobbiEntity;
+  /** Where the Blobbi stood before the last step (presentation: `interpolatedBlobbi`); never saved. */
+  private stepFrom: { x: number; y: number } | null = null;
+  /** Where the host draws the Blobbi this frame (null: where it stands). Presentation only: never read by a step. */
+  drawnAt: { x: number; y: number } | null = null;
   readonly planted: PlantedTree[] = [];
   /** Names the next planted tree (saved; never reused, so no two planted trees share a seed). */
   plantedSerial = 0;
@@ -4559,8 +4565,38 @@ export class LiveWorld {
    * Where the camera should look: the Blobbi, lifted while the teleport choreography wants the sky in view (by up
    * to a fifth of the view's height, `viewHeight` in world pixels).
    */
-  cameraTarget(viewHeight = 120): { x: number; y: number; size: number } {
-    return { x: this.blobbi.x, y: this.blobbi.y - this.teleport.cameraLift(this.clock.time) * viewHeight * 0.2, size: this.blobbi.size };
+  cameraTarget(viewHeight = 120): { x: number; y: number; size: number; grid?: 'screen' | 'world' } {
+    const at = this.drawnBlobbi();
+    return { x: at.x, y: at.y - this.teleport.cameraLift(this.clock.time) * viewHeight * 0.2, size: this.blobbi.size, grid: this.onWorldGrid ? 'world' : 'screen' };
+  }
+
+  /**
+   * Riding or boarding the canoe: the hull is drawn on whole world pixels with the Blobbi in it, so the Blobbi and the
+   * camera keep to whole world pixels too (on foot they move by screen pixels; see `render/view-camera.ts`).
+   */
+  get onWorldGrid(): boolean {
+    return !!this.boarding || !!this.boat?.aboard;
+  }
+
+  /**
+   * Where the Blobbi is between the last two steps, `clock.fraction` of the way: a display faster or slower than the
+   * step rate (or a frame a little early or late) sees it move evenly instead of in fits. A jump (a door, a teleport)
+   * and the canoe are never drawn in between. Presentation only.
+   */
+  interpolatedBlobbi(): { x: number; y: number } {
+    const b = this.blobbi;
+    const f = this.stepFrom;
+    if (!f || this.onWorldGrid) return { x: b.x, y: b.y };
+    const dx = b.x - f.x;
+    const dy = b.y - f.y;
+    if (dx * dx + dy * dy > MAX_DRAWN_BETWEEN ** 2) return { x: b.x, y: b.y };
+    const a = this.clock.fraction;
+    return { x: f.x + dx * a, y: f.y + dy * a };
+  }
+
+  /** Where the Blobbi is drawn this frame: `drawnAt` when the host set it, else where it stands. */
+  drawnBlobbi(): { x: number; y: number } {
+    return this.drawnAt ?? this.blobbi;
   }
 
   private stepTeleport(time: number): void {
@@ -5040,6 +5076,7 @@ export class LiveWorld {
     this.pendingPlant ||= input.plant;
     const steps = this.clock.advance(realSeconds);
     for (let i = 0; i < steps; i++) {
+      this.stepFrom = { x: this.blobbi.x, y: this.blobbi.y };
       // Edge-triggered keys fire once, on the first step.
       this.step(i === 0 ? { ...input, interact: this.pendingInteract, plant: this.pendingPlant } : { ...input, interact: false, plant: false });
     }
