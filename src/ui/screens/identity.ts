@@ -10,8 +10,9 @@
  *              never shown on screen, never copied to the clipboard, and dropped once the file was offered)
  *   password   the Protected Key: a password, twice, and plain words about what it can and cannot do
  *   save       the Protected Key file (or its text) offered to the player
- *   verify     the player loads the backup BACK (the file, or its pasted text; the password only for a Protected
- *              Key): only a backup that opens as this very identity counts. A started download never does.
+ *   verify     the player loads the backup BACK (the file, or its text pasted or typed into the backup field; the
+ *              password only for a Protected Key): only a backup that opens as this very identity counts. A
+ *              started download never does.
  *   consent    what other worlds will see, and SHARE <name> / NOT YET (nothing is published before this press)
  *   working    the registration (resumable; see `nostr/activation.ts`)
  *   failed     what got in the way, TRY AGAIN (it resumes; nothing is published twice)
@@ -23,7 +24,9 @@
  *   legacy     a Blobbi born before identities existed (M11D.3) stays on this device: said kindly, never changed
  *
  * The screen never sees a secret: it hands the password and the loaded backup text to the `IdentityPort` and keeps
- * them only while its page is open (cleared on every page change and on close). It imports the Nostr port as types.
+ * them only while its page is open (cleared on every page change and on close). Every text is typed in a field on
+ * the page itself (`text-field.ts`): a click or a tap types there; passwords and the backup are password fields,
+ * drawn as stars, and the backup keeps exactly what was pasted (a whole file, line breaks included). It imports the Nostr port as types.
  * The one exception is the Recovery Key file the player asked for: its text passes through on its way to the
  * download and the reference is dropped right after.
  *
@@ -36,6 +39,7 @@ import { t, upper, type MessageKey } from '../../i18n';
 import type { PixelBuffer } from '../../core/pixel';
 import type { BackupKind, BackupPreview, IdentityPort, IdentityProblem, ReservedBlobbi, SharedSearch } from '../../nostr/port';
 import { KEY_ICON, LOCK_ICON, drawConnectedWorlds, drawPortrait, drawTwinkles } from '../portrait';
+import { drawTextField, fieldFocus, type TextFieldSpec } from '../text-field';
 import type { Expression } from '../../blobbi/sprite';
 import type { PixelBlobbiIdentity } from '../../blobbi/identity';
 
@@ -52,14 +56,10 @@ interface Action {
 export type IdentityPage = 'intro' | 'name' | 'choose' | 'simple' | 'password' | 'save' | 'verify' | 'consent' | 'working' | 'failed' | 'reveal' | 'restore' | 'restorePreview' | 'restoreDone' | 'legacy' | 'nothing';
 export type IdentityField = 'name' | 'password' | 'password2' | 'backupPassword';
 
-/** What the host (the playground) does for the screen: text fields, files, downloads, the walking Blobbi. */
+/** What the host (the playground) does for the screen: files, downloads, the walking Blobbi. */
 export interface IdentityHost {
-  /** Focus a hidden input for a field; every change comes back through `set`. */
-  editText(field: IdentityField, current: string, secret: boolean, set: (value: string) => void): void;
   /** Let the player choose a file; its text comes back (at most a few kilobytes). */
   pickFile(done: (text: string) => void): void;
-  /** Let the player paste text (a hidden text area); it comes back. */
-  pasteText(done: (text: string) => void): void;
   /** Offer a file to the browser (a download). */
   download(fileName: string, text: string): void;
   copy(text: string): Promise<boolean>;
@@ -169,7 +169,9 @@ export class IdentityScreen implements Screen {
   setLoaded(text: string): void {
     this.loaded = text.slice(0, 16_384);
     const kind = this.loadedKind();
-    this.message = !this.loaded ? null : kind === 'nsec' ? { key: 'identity.loadedRecovery', good: true } : kind === 'ncryptsec' ? { key: 'identity.loaded', good: true } : { key: 'identity.problem.corrupt', good: false };
+    // Nothing usable is said only once there is enough for a key (not while one is still being typed).
+    const unusable = !kind && (this.loaded.length >= 63 || /[\r\n]/.test(this.loaded));
+    this.message = !this.loaded ? null : kind === 'nsec' ? { key: 'identity.loadedRecovery', good: true } : kind === 'ncryptsec' ? { key: 'identity.loaded', good: true } : unusable ? { key: 'identity.problem.corrupt', good: false } : null;
   }
 
   /** What the loaded text is: a Recovery Key (no password), a Protected Key (a password), or nothing usable. */
@@ -188,13 +190,8 @@ export class IdentityScreen implements Screen {
   private actions(ui: GameUI): Action[] {
     const name = this.nameOf();
     const id = this.identity;
-    // The password row appears only when the loaded backup needs one (or, before loading, for a Protected Key).
-    const needsPassword = this.loadedKind() === 'ncryptsec' || (!this.loaded && this.method === 'ncryptsec');
-    const load: Action[] = [
-      { label: t('identity.verify.file'), run: () => this.host?.pickFile((text) => this.setLoaded(text)) },
-      { label: t('identity.verify.paste'), run: () => this.host?.pasteText((text) => this.setLoaded(text)) },
-      ...(needsPassword ? [{ label: t('identity.verify.password'), run: () => this.edit('backupPassword', true) }] : []),
-    ];
+    // The backup is pasted or typed in its field (drawn with the page's words); a file can be chosen instead.
+    const load: Action[] = [{ label: t('identity.verify.file'), run: () => this.host?.pickFile((text) => this.setLoaded(text)) }];
     switch (this.page) {
       case 'intro':
         return [
@@ -202,10 +199,7 @@ export class IdentityScreen implements Screen {
           { label: t('identity.notNow'), run: () => ui.close() },
         ];
       case 'name':
-        return [
-          { label: t('identity.name.edit'), run: () => this.edit('name', false) },
-          { label: t('identity.continue'), primary: true, run: () => (this.subject && this.fields.name.trim() ? (id?.rename(this.subject, this.fields.name), this.go('choose')) : this.say('identity.name.empty', false)) },
-        ];
+        return [{ label: t('identity.continue'), primary: true, run: () => (this.subject && this.fields.name.trim() ? (id?.rename(this.subject, this.fields.name), this.go('choose')) : this.say('identity.name.empty', false)) }];
       case 'choose':
         return [
           { label: t('identity.choose.simple'), card: { icon: KEY_ICON, sub: t('identity.choose.simpleSub') }, run: () => ((this.method = 'nsec'), this.go('simple')) },
@@ -220,11 +214,7 @@ export class IdentityScreen implements Screen {
           { label: t('identity.simple.other'), run: () => ((this.method = 'ncryptsec'), this.go('password')) },
         ];
       case 'password':
-        return [
-          { label: t('identity.password.edit'), run: () => this.edit('password', true) },
-          { label: t('identity.password.again'), run: () => this.edit('password2', true) },
-          { label: t('identity.password.create'), primary: true, enabled: !this.pending, run: () => void this.makeBackup() },
-        ];
+        return [{ label: t('identity.password.create'), primary: true, enabled: !this.pending, run: () => void this.makeBackup() }];
       case 'save':
         return [
           { label: t('identity.save.file'), primary: !this.saved, run: () => this.saveFile() },
@@ -286,8 +276,40 @@ export class IdentityScreen implements Screen {
     this.message = { key, good };
   }
 
-  private edit(field: IdentityField, secret: boolean): void {
-    this.host?.editText(field, this.fields[field], secret, (v) => this.setField(field, v));
+  /** The page's text fields: Enter moves on to the next, or presses the page's main button. */
+  private fieldSpec(field: IdentityField, ui: GameUI): TextFieldSpec {
+    const primary = () => this.actions(ui).find((a) => a.primary && a.enabled !== false)?.run();
+    const label = { name: 'identity.name.label', password: 'identity.password.label', password2: 'identity.password.label2', backupPassword: 'identity.password.label' } as const;
+    const base = { id: `identity.${field}`, value: this.fields[field], label: t(label[field]), onInput: (v: string) => this.setField(field, v) };
+    switch (field) {
+      case 'name':
+        return { ...base, kind: 'text', maxLength: 24, autocomplete: 'off', autocapitalize: 'words', autofocus: true, onEnter: primary };
+      case 'password':
+        // A new password: a password manager may offer one and keep it.
+        return { ...base, kind: 'password', maxLength: 128, autocomplete: 'new-password', enterKeyHint: 'next', autofocus: true, onEnter: () => (this.fields.password2 ? primary() : fieldFocus.request?.('identity.password2')) };
+      case 'password2':
+        return { ...base, kind: 'password', maxLength: 128, autocomplete: 'new-password', onEnter: primary };
+      case 'backupPassword':
+        return { ...base, kind: 'password', maxLength: 128, autocomplete: 'current-password', onEnter: primary };
+    }
+  }
+
+  /** The backup pasted or typed back (a Recovery Key, a Protected Key, or a whole backup file's text). */
+  private backupSpec(ui: GameUI): TextFieldSpec {
+    const needsPassword = this.loadedKind() === 'ncryptsec';
+    return {
+      id: 'identity.backup',
+      kind: 'secret',
+      value: this.loaded,
+      maxLength: 16_384,
+      label: t('identity.verify.loadedLabel'),
+      placeholder: t('identity.verify.paste'),
+      autocomplete: 'off',
+      enterKeyHint: needsPassword ? 'next' : 'go',
+      autofocus: true,
+      onInput: (v) => this.setLoaded(v),
+      onEnter: () => (needsPassword && !this.fields.backupPassword ? fieldFocus.request?.('identity.backupPassword') : this.actions(ui).find((a) => a.primary && a.enabled !== false)?.run()),
+    };
   }
 
   /**
@@ -471,16 +493,17 @@ export class IdentityScreen implements Screen {
     const head = (key: MessageKey, vars: Record<string, string | number> = {}) => {
       cy += g.para(upper(t(key, { name, ...vars })), tx, cy, tw, UI.accent, 3) + 4;
     };
-    const field = (label: MessageKey, value: string, secret: boolean) => {
-      g.text(t(label), tx, cy, UI.muted);
-      g.box(tx + 70, cy - 2, Math.min(120, tw - 70), 11, UI.bg, UI.line);
-      g.text(secret ? '*'.repeat(Math.min(20, value.length)) : value, tx + 73, cy, UI.ink);
+    // A text field with its label: a click or a tap types there (see `text-field.ts`).
+    const input = (spec: TextFieldSpec) => {
+      g.text(spec.label, tx, cy, UI.muted);
+      drawTextField(g, spec, tx + 70, cy - 2, Math.min(120, tw - 70), 11, ui.now, ui.settings.reducedMotion);
       cy += 13;
     };
+    const field = (f: IdentityField) => input(this.fieldSpec(f, ui));
+    // The backup, then its password when it is a Protected Key (or, before anything is loaded, when one was made).
     const loadedField = () => {
-      const kind = this.loadedKind();
-      field('identity.verify.loadedLabel', !this.loaded ? t('identity.verify.loadedNo') : kind === 'nsec' ? t('identity.choose.simple') : kind === 'ncryptsec' ? t('identity.choose.protected') : '?', false);
-      if (kind === 'ncryptsec') field('identity.password.label', this.fields.backupPassword, true);
+      input(this.backupSpec(ui));
+      if (this.loadedKind() === 'ncryptsec' || (!this.loaded && this.method === 'ncryptsec')) field('backupPassword');
     };
     switch (this.page) {
       case 'intro':
@@ -491,7 +514,7 @@ export class IdentityScreen implements Screen {
       case 'name':
         head('identity.name.title');
         cy = p('identity.name.body', cy);
-        field('identity.name.label', this.fields.name, false);
+        field('name');
         break;
       case 'choose':
         head('identity.choose.title');
@@ -504,8 +527,8 @@ export class IdentityScreen implements Screen {
       case 'password':
         head('identity.password.title');
         cy = p('identity.password.warning', cy, UI.ink, 5);
-        field('identity.password.label', this.fields.password, true);
-        field('identity.password.label2', this.fields.password2, true);
+        field('password');
+        field('password2');
         break;
       case 'save':
         head('identity.save.title');

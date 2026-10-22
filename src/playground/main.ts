@@ -13,6 +13,7 @@ import { generateTurtleWorld, DEFAULT_TURTLE_OPTIONS } from '../world/turtle-wor
 import { SHELL_VARIANTS, DEFAULT_SHELL_VARIANT, NEW_WORLD_SHELL_VARIANT, isShellVariant, type ShellVariant } from '../carrier/types';
 import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../render/compose';
 import { auditWorld } from '../render/audit';
+import { TextInputs } from './text-inputs';
 import type { OwnedBlobbi, ShareStatus } from '../nostr/port';
 import type { WorldDescription, WorldOptions } from '../world/types';
 import { DEFAULT_WORLD_OPTIONS } from '../world/types';
@@ -597,7 +598,6 @@ gameUI.register(settingsScreen);
   const pageText = () => {
     const hint = document.getElementById('rotate-hint');
     if (hint) hint.textContent = t('rotate.hint');
-    document.getElementById('island-name-input')?.setAttribute('aria-label', t('create.nameLabel'));
   };
   queueMicrotask(pageText);
   onLocaleChange((l) => {
@@ -737,40 +737,13 @@ settingsScreen.onName = () => {
   namingScreen.start();
   gameUI.open('naming');
 };
-// The screen's host: hidden page inputs for text (passwords are type=password), a file picker, a paste area, a
-// download and the clipboard. Typed values go straight to the screen and are cleared with its page.
-const secretInput = document.createElement('input');
-secretInput.style.cssText = 'position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0';
-secretInput.autocomplete = 'off';
-secretInput.spellcheck = false;
-const pasteArea = document.createElement('textarea');
-pasteArea.style.cssText = 'position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0';
+// The screen's host: a file picker, a download and the clipboard (text is typed in the screens' own fields: the page
+// lays a real input over each, see text-inputs.ts).
 const filePicker = document.createElement('input');
 filePicker.type = 'file';
 filePicker.accept = '.txt,text/plain';
 filePicker.style.cssText = 'display:none';
-document.body.append(secretInput, pasteArea, filePicker);
-let secretSink: ((v: string) => void) | null = null;
-secretInput.addEventListener('input', () => secretSink?.(secretInput.value));
-secretInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === 'Escape') {
-    e.preventDefault();
-    secretInput.value = '';
-    secretSink = null;
-    view.focus();
-  }
-});
-secretInput.addEventListener('blur', () => {
-  secretInput.value = ''; // the screen keeps its copy only while its page is open
-  secretSink = null;
-});
-let pasteSink: ((v: string) => void) | null = null;
-pasteArea.addEventListener('input', () => {
-  pasteSink?.(pasteArea.value);
-  pasteArea.value = '';
-  pasteSink = null;
-  view.focus();
-});
+document.body.append(filePicker);
 let fileSink: ((v: string) => void) | null = null;
 filePicker.addEventListener('change', () => {
   const f = filePicker.files?.[0];
@@ -779,20 +752,9 @@ filePicker.addEventListener('change', () => {
   void f.text().then((text) => fileSink?.(text));
 });
 identityScreen.host = {
-  editText: (field, current, secret, set) => {
-    secretInput.type = secret ? 'password' : 'text';
-    secretInput.maxLength = field === 'name' ? 24 : 128;
-    secretInput.value = current;
-    secretSink = set;
-    secretInput.focus();
-  },
   pickFile: (done) => {
     fileSink = done;
     filePicker.click();
-  },
-  pasteText: (done) => {
-    pasteSink = done;
-    pasteArea.focus();
   },
   download: (fileName, text) => {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
@@ -862,13 +824,6 @@ namingScreen.host = {
   subject: () => {
     const g = walkingGuest();
     return g && !g.activatedAt ? { d: g.d, name: g.name } : null;
-  },
-  editName: (current, set) => {
-    secretInput.type = 'text';
-    secretInput.maxLength = 24;
-    secretInput.value = current;
-    secretSink = set;
-    secretInput.focus();
   },
   choose: (d, name) => {
     const kept = storeOrNull((st) => chooseGuestName(st, d, name));
@@ -1819,7 +1774,6 @@ const title = new TitleScreen({
     }
   },
   watchIntro: (kind) => startIntroPreview(kind),
-  requestTextInput: (current) => openNameInput(current),
   // M11D.3: the optional account (the existing NIP-07 connection), MY BLOBBIS over the title, who walks now.
   account: () => {
     const s = account.snapshot();
@@ -2143,31 +2097,6 @@ function createWorld(kind: CarrierKind, name: string, companion: Companion = 'cu
     return `The island could not be made: ${(e as Error).message}. Nothing was saved.`;
   }
 }
-
-// Touch: a hidden text field brings up the device keyboard for the island name; what is typed mirrors into the title.
-const nameInput = document.createElement('input');
-nameInput.type = 'text';
-nameInput.id = 'island-name-input';
-nameInput.maxLength = 32;
-nameInput.autocomplete = 'off';
-nameInput.setAttribute('aria-label', t('create.nameLabel'));
-nameInput.style.cssText = 'position:fixed;left:-1000px;top:0;width:10px;height:10px;opacity:0';
-document.body.appendChild(nameInput);
-function openNameInput(current: string): void {
-  nameInput.value = current;
-  nameInput.focus();
-}
-nameInput.addEventListener('input', () => {
-  title.setName(nameInput.value);
-  nameInput.value = title.name;
-});
-nameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === 'Escape') {
-    e.preventDefault();
-    view.focus();
-    if (e.key === 'Enter') title.key('Enter');
-  }
-});
 
 /** A world for other seeds, without touching the playground's state (identity checks for a new world). */
 function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
@@ -2509,6 +2438,20 @@ const push = (a: number[], v: number) => {
 
 let titleCreateFrames = 0;
 /** The title: the world paused, the camera drifting slowly over the island, the menu on top. */
+// Text fields: a real input of the page over each field drawn this frame (the title's island name, the menus'
+// names, passwords and backups). Up and down in a field give the keys back to its menu.
+const textInputs = new TextInputs(view, () => performance.now() / 1000, (box, code) => {
+  if (box.spec.id.startsWith('title.')) title.key(code);
+  else gameUI.handleKey(code);
+});
+/** The fields on screen now: an open menu's, else the title's (never under the loading page). */
+function syncTextInputs(): void {
+  const fields = gameUI.capturing ? gameUI.fields : title.active && !entry.active ? title.fields : [];
+  textInputs.sync(state.mode === 'play' && !intro ? fields : [], touch.enabled || touchScreen.matches);
+}
+/** A phone or a tablet (no hover, a finger), known before its first touch: no field takes the keyboard by itself. */
+const touchScreen = window.matchMedia('(hover: none) and (pointer: coarse)');
+
 function titleFrame(now: number, real: number): void {
   if (!live || !bounds) return;
   readInput();
@@ -2525,6 +2468,7 @@ function titleFrame(now: number, real: number): void {
   if (entry.active) entry.render(frame, t);
   if (!entry.active) title.render(frame, t);
   if (gameUI.capturing) gameUI.render(frame, t);
+  syncTextInputs();
   // CREATE ISLAND: the "creating" page has been drawn once; now make the island (taken once: never twice).
   if (title.page === 'creating' && title.pendingCreate && titleCreateFrames++ >= 1) {
     const req = title.takeCreate()!;
@@ -2550,12 +2494,13 @@ function playFrame(now: number): void {
   departure.update();
   resolveEntryHold();
   travelAwayNotice();
-  if (state.mode !== 'play' || !live || !liveRenderer || !world) return;
+  if (state.mode !== 'play' || !live || !liveRenderer || !world) return syncTextInputs();
   const real = lastFrameTime ? (now - lastFrameTime) / 1000 : 1 / 60;
   lastFrameTime = now;
   push(frameTimes, real * 1000);
   if (intro) {
     introFrame(real);
+    syncTextInputs();
     return;
   }
   if (title.active) {
@@ -2594,6 +2539,7 @@ function playFrame(now: number): void {
   companion.tick();
   invite.update(real, { running: steps > 0 && !gameUI.capturing && document.visibilityState === 'visible', inputAge: (performance.now() - lastInputAt) / 1000, world: live, busy: inviteBusy() });
   gameUI.render(frame, now / 1000);
+  syncTextInputs();
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
   // Sound: the world's events to the audio director (and to any other listener as events), then cleared.
   if (gameUI.settings.sound) {

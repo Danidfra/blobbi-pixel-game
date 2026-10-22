@@ -312,7 +312,7 @@ describe('the account flow screen', () => {
     const sc = new IdentityScreen();
     const downloads: string[] = [];
     sc.identity = s.svc;
-    sc.host = { editText: () => {}, pickFile: () => {}, pasteText: () => {}, download: (n) => downloads.push(n), copy: async () => true, walking, bring: () => {} };
+    sc.host = { pickFile: () => {}, download: (n) => downloads.push(n), copy: async () => true, walking, bring: () => {} };
     ui.register(sc);
     return { ui, sc, downloads, draw: () => ui.render(new PixelBuffer(960, 540), 0) };
   }

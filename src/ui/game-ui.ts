@@ -18,6 +18,7 @@ import { Gfx, UI, type Hit } from './gfx';
 import { card } from './hud';
 import { getLocale, t, upper, type MessageKey } from '../i18n';
 import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
+import { fieldFocus, type FieldBox } from './text-field';
 import type { AccountInvite } from './account-invite';
 import { REST_POSE } from '../blobbi/sprite';
 
@@ -124,6 +125,8 @@ export class GameUI {
   private readonly screens = new Map<ScreenId, Screen>();
   /** Hit regions of the last frame, in screen pixels. */
   private hits: Hit[] = [];
+  /** The open screen's text fields in the last frame, in screen pixels (the page lays its inputs over them). */
+  fields: FieldBox[] = [];
   private lastScale = 2;
   /** Real seconds, for message timing (the world may be paused). */
   now = 0;
@@ -199,6 +202,11 @@ export class GameUI {
    */
   handleKey(code: string, shift = false): boolean {
     if (this.screen) {
+      // Shift+Tab from the buttons goes back up into the screen's (last) text field.
+      if (code === 'Tab' && shift && this.fields.length) {
+        fieldFocus.request?.(this.fields[this.fields.length - 1].spec.id);
+        return true;
+      }
       if (code === 'Escape' || OPEN_KEYS[code] === this.screen.id || (code === 'KeyI' && this.screen.id === 'storage')) {
         this.close();
         return true;
@@ -266,6 +274,7 @@ export class GameUI {
     this.poll();
     if (this.message && realTime >= this.message.until) this.message = null;
     this.hits = [];
+    this.fields = [];
     const scale = (this.lastScale = this.scaleFor(screen.width, screen.height));
     this.hotbarBox = null;
     this.tipBox = null;
@@ -327,6 +336,7 @@ export class GameUI {
     this.panelOrigin = { x: ox, y: oy, scale };
     screen.blit(g.out, ox, oy);
     this.hits = g.screenHits(ox, oy);
+    this.fields = g.screenFields(ox, oy);
   }
 
   /** Touch is in use (tips say "tap" instead of naming keys). */

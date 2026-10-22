@@ -124,7 +124,6 @@ describe('M11D.5: naming a new Blobbi', () => {
     let subject = { d: 'd1', name: 'Pip' };
     const host: NamingHost = {
       subject: () => subject,
-      editName: (_c, set) => set('Momo'),
       choose: (d, name) => (calls.push(`choose ${d} ${name}`), (subject = { d, name }), true),
       later: (d) => void calls.push(`later ${d}`),
       celebrate: () => void calls.push('celebrate'),
@@ -139,16 +138,19 @@ describe('M11D.5: naming a new Blobbi', () => {
       ui.render(new PixelBuffer(960, 540), 1.3);
       ui.render(new PixelBuffer(320, 240), 2.1); // a small phone screen
     }
-    sc.setName('');
-    sc.index = 1;
-    ui.handleKey('Enter');
+    // The name is typed in its field (drawn on the panel; the page lays an input over it), no button first.
+    const field = () => ui.fields.find((f) => f.spec.id === 'naming.name')!;
+    expect(field().spec.value).toBe('Pip');
+    expect(field().spec.selectOnFocus).toBe(true);
+    field().spec.onInput('');
+    sc.index = 0;
+    ui.handleKey('Enter'); // THAT'S THE NAME! with no name
     expect(sc.page).toBe('ask');
     expect(calls).toEqual([]);
-    sc.index = 0;
-    ui.handleKey('Enter'); // TYPE A NAME (the host types "Momo")
+    ui.render(new PixelBuffer(960, 540), 2.2);
+    field().spec.onInput('Momo');
     expect(sc.name).toBe('Momo');
-    sc.index = 1;
-    ui.handleKey('Enter'); // THAT'S THE NAME!
+    field().spec.onEnter!(); // Enter in the field: THAT'S THE NAME!
     expect(sc.page).toBe('happy');
     expect(calls).toEqual(['choose d1 Momo', 'celebrate']);
     ui.render(new PixelBuffer(960, 540), 3);
@@ -157,7 +159,7 @@ describe('M11D.5: naming a new Blobbi', () => {
     // LATER
     sc.start();
     ui.open('naming');
-    sc.index = 2;
+    sc.index = 1;
     ui.handleKey('Enter');
     expect(calls.at(-1)).toBe('later d1');
     expect(ui.screen).toBe(null);
@@ -197,7 +199,7 @@ function flowScreen(s: ReturnType<typeof setup>, walking: IdentityHost['walking'
   const downloads: { name: string; text: string }[] = [];
   const copies: string[] = [];
   sc.identity = s.svc;
-  sc.host = { editText: () => {}, pickFile: () => {}, pasteText: () => {}, download: (name, text) => downloads.push({ name, text }), copy: async (x) => (copies.push(x), true), walking, bring: () => {} };
+  sc.host = { pickFile: () => {}, download: (name, text) => downloads.push({ name, text }), copy: async (x) => (copies.push(x), true), walking, bring: () => {} };
   ui.register(sc);
   return { ui, sc, downloads, copies, draw: (t = 0) => ui.render(new PixelBuffer(960, 540), t) };
 }

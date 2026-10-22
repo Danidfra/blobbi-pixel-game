@@ -9,6 +9,7 @@ import { hex, type Color } from '../core/color';
 import type { PixelBuffer } from '../core/pixel';
 import { upper } from '../i18n';
 import { UiSurface, type TextStyle } from './surface';
+import type { FieldBox } from './text-field';
 
 export const UI = {
   bg: hex('#1b1f2a'),
@@ -73,6 +74,8 @@ export function wrapBy(text: string, maxW: number, width: (s: string) => number)
 export class Gfx {
   readonly buf: UiSurface;
   readonly hits: Hit[] = [];
+  /** Text fields drawn (see `text-field.ts`), for the page's inputs over them. */
+  readonly fields: FieldBox[] = [];
   /** Where the pointer is (panel pixels), for hover highlights; null without a pointer. */
   hover: { x: number; y: number } | null = null;
 
@@ -94,6 +97,12 @@ export class Gfx {
   screenHits(ox: number, oy: number): Hit[] {
     const b = this.buf;
     return this.hits.map((h) => ({ ...h, x: ox + b.sx(h.x), y: oy + b.sx(h.y), w: b.sx(h.x + h.w) - b.sx(h.x), h: b.sx(h.y + h.h) - b.sx(h.y) }));
+  }
+
+  /** The text fields in screen pixels, for a drawing placed at (ox, oy) on the screen. */
+  screenFields(ox: number, oy: number): FieldBox[] {
+    const b = this.buf;
+    return this.fields.map((f) => ({ ...f, x: ox + b.sx(f.x), y: oy + b.sx(f.y), w: b.sx(f.x + f.w) - b.sx(f.x), h: b.sx(f.y + f.h) - b.sx(f.y), carets: f.carets.map((c) => c * b.scale) }));
   }
 
   box(x: number, y: number, w: number, h: number, bg: Color = UI.panel, border: Color | null = UI.line): void {

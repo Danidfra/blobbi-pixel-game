@@ -30,6 +30,7 @@ import { ConfirmGate } from '../game/world-delete';
 import { MAX_NAME, sanitizeIslandName, suggestIslandName, typingIslandName } from '../game/island-name';
 import { getLocale, LOCALES, t, upper } from '../i18n';
 import { nextLocale } from './screens/settings';
+import { drawTextField, type FieldBox, type TextFieldSpec } from './text-field';
 import type { ExtensionCheck } from '../nostr/port';
 
 export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login' | 'owner' | 'arrived' | 'switch';
@@ -72,8 +73,6 @@ export interface TitleActions {
   preview?(kind: CarrierKind, time: number): PixelBuffer | null;
   /** Watch the intro again on a preview island (nothing is created or changed). */
   watchIntro?(kind: CarrierKind): void;
-  /** Touch: bring up the device keyboard for the island name (the host mirrors what is typed into `name`). */
-  requestTextInput?(current: string): void;
   /** M11D.3: the optional Nostr account (absent: no LOGIN WITH NOSTR row). */
   account?(): TitleAccount;
   /** M11D.3: connect the browser extension (NIP-07, read-only; the existing connection). */
@@ -139,6 +138,8 @@ export class TitleScreen {
   error = '';
   private suggestion = 0;
   private hits: Hit[] = [];
+  /** The name page's text field in the last render, in screen pixels (the page lays its input over it). */
+  fields: FieldBox[] = [];
   /** The selection sound hook. */
   onSound: ((name: string) => void) | null = null;
   /** The island waiting for a delete confirmation. */
@@ -303,7 +304,6 @@ export class TitleScreen {
         { label: upper(t('title.createIsland')), detail: this.name.trim() ? `"${upper(sanitizeIslandName(this.name))}"` : upper(t('title.createIsland.unnamed')), run: () => this.afterName() },
         { label: upper(t('title.surprise')), detail: upper(t('title.surprise.detail')), run: () => this.suggest() },
       ];
-      if (a.requestTextInput) out.push({ label: upper(t('title.typeName')), detail: upper(t('title.typeName.detail')), run: () => a.requestTextInput!(this.name) });
       out.push({ label: upper(t('title.back')), run: () => this.back() });
       return out;
     }
@@ -565,6 +565,7 @@ export class TitleScreen {
 
   /** Draw over the frame (the island behind is dimmed towards the night sky). */
   render(screen: PixelBuffer, time: number): void {
+    this.fields = [];
     if (!this.active) return;
     this.now = time;
     const d = screen.data;
@@ -584,6 +585,7 @@ export class TitleScreen {
     const oy = Math.floor((screen.height - big.height) / 2);
     screen.blit(big, ox, oy);
     this.hits = g.screenHits(ox, oy);
+    this.fields = g.screenFields(ox, oy);
   }
 
   draw(g: Gfx, time: number): void {
@@ -747,16 +749,34 @@ export class TitleScreen {
     g.text(fit(g, foot, W - 8), Math.floor((W - Math.min(W - 8, g.measure(foot))) / 2), H - 9, UI.ink, 'body', SHADE);
   }
 
+  /** The island's name: a text field (a click or a tap types there; the keys also type while the menu has them). */
+  nameField(): TextFieldSpec {
+    return {
+      id: 'title.name',
+      kind: 'text',
+      value: this.name,
+      maxLength: MAX_NAME,
+      label: t('create.nameLabel'),
+      upper: true,
+      autocomplete: 'off',
+      autocapitalize: 'words',
+      enterKeyHint: 'go',
+      autofocus: true,
+      clean: (v) => typingIslandName(v).slice(0, MAX_NAME),
+      onInput: (v) => {
+        this.touched = true;
+        this.name = v;
+      },
+      onEnter: () => this.key('Enter'),
+    };
+  }
+
   /** The name being typed, in a field with a caret; returns the next free y. */
   private drawNameField(g: Gfx, x: number, y: number, w: number, time: number): number {
     y += g.para(t('title.nameOptional'), x, y, w, UI.ink, 99, SHADE) + 3;
-    g.box(x, y, w, 13, UI.bg, UI.accent);
-    const shown = upper(this.name);
-    g.text(shown, x + 4, y + 4, UI.ink);
-    const caretOn = this.reducedMotion || Math.floor(time * 2) % 2 === 0;
-    if (caretOn) g.buf.fillRect(x + 4 + (shown ? g.measure(shown) + 1 : 0), y + 3, 1, 7, UI.accent);
-    g.text(`${this.name.length}/${MAX_NAME}`, x + w - 22, y + 4, UI.muted);
-    if (this.actions.requestTextInput) g.hit(x, y, w, 13, () => this.actions.requestTextInput!(this.name));
+    const count = `${this.name.length}/${MAX_NAME}`;
+    drawTextField(g, this.nameField(), x, y, w - g.measure(count) - 6, 13, time, this.reducedMotion, 4);
+    g.text(count, x + w - g.measure(count) - 2, y + 4, UI.muted, 'body', SHADE);
     return y + 17;
   }
 

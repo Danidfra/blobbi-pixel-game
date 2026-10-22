@@ -5,7 +5,8 @@
  * device with the Blobbi's public record (and travels in its backups). Its owner, its d tag and so its look never
  * change with a name.
  *
- *   ask     the question, the name (the suggested one at first), TYPE A NAME, THAT'S THE NAME!, LATER
+ *   ask     the question, the name in a text field (the suggested one at first, selected so typing replaces it; a
+ *           click or a tap on the field types there), THAT'S THE NAME! (or Enter in the field), LATER
  *   happy   "<name>!": the Blobbi celebrates; LET'S PLAY
  *
  * LATER keeps the suggested name and says where to choose one any time (SETTINGS > ACCOUNT); the question comes back
@@ -15,13 +16,12 @@ import { Gfx, UI } from '../gfx';
 import { isConfirm, type GameUI, type Screen } from '../game-ui';
 import { t, upper, type MessageKey } from '../../i18n';
 import { drawPortrait, drawTwinkles } from '../portrait';
+import { drawTextField, type TextFieldSpec } from '../text-field';
 
 /** What the host (the playground) does for the naming screen. */
 export interface NamingHost {
   /** The Blobbi being named: its d and its name now; null when there is none to name. */
   subject(): { d: string; name: string } | null;
-  /** Focus the hidden text input for the name; every change comes back through `set`. */
-  editName(current: string, set: (value: string) => void): void;
   /** Keep the chosen name (cleaned). False when it could not be kept (empty, or the Blobbi is registered). */
   choose(d: string, name: string): boolean;
   /** The player said "later". */
@@ -64,7 +64,6 @@ export class NamingScreen implements Screen {
     const subject = this.host?.subject() ?? null;
     if (this.page === 'happy') return [{ label: t('naming.play'), primary: true, run: () => ui.close() }];
     return [
-      { label: t('naming.type'), run: () => this.host?.editName(this.name, (v) => this.setName(v)) },
       {
         label: t('naming.confirm'),
         primary: true,
@@ -112,9 +111,9 @@ export class NamingScreen implements Screen {
     const tw = w - left - 8;
     const acts = this.actions(ui);
     // The words and the buttons as one block, centred in the column.
-    const textH = this.drawText(new Gfx(w, h, 1), 0, tw, 0);
+    const textH = this.drawText(new Gfx(w, h, 1), ui, 0, tw, 0);
     const top = y + Math.max(1, Math.floor((h - textH - 6 - acts.length * 14) / 2));
-    let by = this.drawText(g, tx, tw, top) + 6;
+    let by = this.drawText(g, ui, tx, tw, top) + 6;
     const bw = Math.min(tw, 150);
     acts.forEach((a, i) => {
       g.button(a.label, tx, by, () => {
@@ -125,7 +124,25 @@ export class NamingScreen implements Screen {
     });
   }
 
-  private drawText(g: Gfx, tx: number, tw: number, top: number): number {
+  /** The name's field: Enter keeps the name (THAT'S THE NAME!). */
+  private field(ui: GameUI): TextFieldSpec {
+    return {
+      id: 'naming.name',
+      kind: 'text',
+      value: this.name,
+      maxLength: 24,
+      label: t('naming.label'),
+      autocomplete: 'off',
+      autocapitalize: 'words',
+      enterKeyHint: 'done',
+      autofocus: true,
+      selectOnFocus: true,
+      onInput: (v) => this.setName(v),
+      onEnter: () => this.actions(ui)[0]?.run(),
+    };
+  }
+
+  private drawText(g: Gfx, ui: GameUI, tx: number, tw: number, top: number): number {
     let cy = top;
     if (this.page === 'happy') {
       cy += g.para(upper(t('naming.happyTitle', { name: this.name })), tx, cy, tw, UI.accent, 2) + 4;
@@ -137,8 +154,7 @@ export class NamingScreen implements Screen {
     cy += g.para(t('naming.body'), tx, cy, tw, UI.ink, 4) + 6;
     g.text(t('naming.label'), tx, cy, UI.muted);
     const fx = tx + g.measure(t('naming.label')) + 4;
-    g.box(fx, cy - 2, Math.min(110, tw - (fx - tx)), 11, UI.bg, UI.accent);
-    g.text(this.name, fx + 3, cy, UI.ink);
+    drawTextField(g, this.field(ui), fx, cy - 2, Math.min(110, tw - (fx - tx)), 11, ui.now, ui.settings.reducedMotion);
     cy += 14;
     if (this.message) cy += g.para(t(this.message), tx, cy, tw, UI.bad, 2) + 2;
     return cy;

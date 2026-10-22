@@ -51,7 +51,7 @@ async function consentPage(publisher: Publisher, locale: Locale, textSize: TextS
   ui.settings.textSize = textSize;
   const sc = new IdentityScreen();
   sc.identity = svc;
-  sc.host = { editText: () => {}, pickFile: () => {}, pasteText: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: svc.reserved().find((x) => x.d === g.d)!, legacyLocal: false }), bring: () => {} };
+  sc.host = { pickFile: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: svc.reserved().find((x) => x.d === g.d)!, legacyLocal: false }), bring: () => {} };
   ui.register(sc);
   sc.start('activate');
   ui.open('identity');

@@ -109,7 +109,7 @@ async function restoreOnScreen(b: ReturnType<typeof browser>, text: string, pass
   const sc = new IdentityScreen();
   const continued: (string | null)[] = [];
   sc.identity = b.svc;
-  sc.host = { editText: () => {}, pickFile: () => {}, pasteText: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: null, legacyLocal: false }), bring: () => {}, continueAfterRestore: (d) => continued.push(d), portraitOf: () => null };
+  sc.host = { pickFile: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: null, legacyLocal: false }), bring: () => {}, continueAfterRestore: (d) => continued.push(d), portraitOf: () => null };
   ui.register(sc);
   sc.start('restore');
   ui.open('identity');

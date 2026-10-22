@@ -46,7 +46,7 @@ const frame = (W: number, H: number, mode: CameraModeId = 'exploration', bottom 
     if (!pics.has(key)) pics.set(key, speciesThumbnail(kind, `${kind}-title`, CARD_PIC.w, CARD_PIC.h, (Math.floor(t * 4) % 48) / 4, paletteFor('cozy')));
     return pics.get(key)!;
   };
-  const first = new TitleScreen({ worlds: () => [], current: () => ({ identity: '', name: '', saved: false }), continueGame: () => {}, openWorld: () => {}, settings: () => {}, preview, requestTextInput: () => {} });
+  const first = new TitleScreen({ worlds: () => [], current: () => ({ identity: '', name: '', saved: false }), continueGame: () => {}, openWorld: () => {}, settings: () => {}, preview });
   const shot = (t: TitleScreen, name: string, time = 1) => {
     const f = frame(960, 540, 'exploration', 0, false);
     t.render(f, time);

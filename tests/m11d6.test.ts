@@ -652,7 +652,7 @@ describe('M11D.6: after a restore, one clear way on', () => {
     const sc = new IdentityScreen();
     const continued: (string | null)[] = [];
     sc.identity = s2.svc;
-    sc.host = { editText: () => {}, pickFile: () => {}, pasteText: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: null, legacyLocal: false }), bring: () => {}, continueAfterRestore: (d) => continued.push(d), portraitOf: () => null };
+    sc.host = { pickFile: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: null, legacyLocal: false }), bring: () => {}, continueAfterRestore: (d) => continued.push(d), portraitOf: () => null };
     ui.register(sc);
     sc.start('restore');
     ui.open('identity');
@@ -682,7 +682,7 @@ describe('M11D.6: what the player is told', () => {
     const ui = new GameUI(() => live, () => paletteFor('cozy'));
     const sc = new IdentityScreen();
     sc.identity = s.svc;
-    sc.host = { editText: () => {}, pickFile: () => {}, pasteText: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: s.svc.reserved().find((x) => x.d === g.d)!, legacyLocal: false }), bring: () => {} };
+    sc.host = { pickFile: () => {}, download: () => {}, copy: async () => false, walking: () => ({ reserved: s.svc.reserved().find((x) => x.d === g.d)!, legacyLocal: false }), bring: () => {} };
     ui.register(sc);
     sc.start('activate');
     ui.open('identity');

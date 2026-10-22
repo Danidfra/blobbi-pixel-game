@@ -97,9 +97,8 @@ describe('the first-time flow on the title', () => {
     expect(new Set(seen)).toEqual(new Set(['turtle', 'manta', 'whale']));
   });
 
-  it('the name is optional, kept to what the font can draw, with suggestions and a touch keyboard', () => {
-    const asked: string[] = [];
-    const { t } = titleFor([], { requestTextInput: (v) => asked.push(v) });
+  it('the name is optional, kept to what the font can draw, with suggestions and a field to type in (keyboard or touch)', () => {
+    const { t } = titleFor();
     t.key('Enter');
     t.key('Enter');
     expect(t.page).toBe('name');
@@ -108,16 +107,22 @@ describe('the first-time flow on the title', () => {
     t.key('ArrowDown');
     t.key('Enter'); // SURPRISE ME
     expect(t.name).toBe(suggestIslandName(0));
-    t.key('ArrowDown');
-    t.key('Enter'); // TYPE A NAME: the host opens a keyboard
-    expect(asked).toEqual([suggestIslandName(0)]);
-    t.setName('Café <Moon> Island of the Very Long Name');
+    // The name's field is on the page (the page lays a real input over it: a tap opens the phone's keyboard).
+    t.render(new PixelBuffer(640, 360), 1);
+    expect(t.fields.map((f) => f.spec.id)).toEqual(['title.name']);
+    const spec = t.fields[0].spec;
+    expect(spec.value).toBe(suggestIslandName(0));
+    expect(spec.upper).toBe(true);
+    // What is typed there is kept to what the font can draw (the page cleans it before the title hears it).
+    spec.onInput(spec.clean!('Café <Moon> Island of the Very Long Name'));
     expect(t.name.length).toBeLessThanOrEqual(MAX_NAME);
     expect(t.name).not.toMatch(/[<>é]/);
     t.key('ArrowUp');
-    t.key('ArrowUp');
-    t.key('Enter');
+    spec.onEnter!(); // Enter in the field: CREATE ISLAND
     expect(t.takeCreate()?.name).toBe(sanitizeIslandName(t.name));
+    // Another page: no field.
+    t.render(new PixelBuffer(640, 360), 1.5);
+    expect(t.fields).toEqual([]);
   });
 
   it('a failed creation says why and goes back to the Carrier page', () => {
