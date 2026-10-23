@@ -502,6 +502,39 @@ Details: docs/milestones/M10C.md. All **IMPLEMENTED — AWAITING MANUAL VALIDATI
 Travel between Carriers, more boats, fishing regions beyond the coast/open split, underwater exploration and
 side-view diving — see docs/architecture/OCEAN-FUTURE.md.
 
+### P1: Mobile polish
+
+#### P1.1: Joystick discoverability (complete, validated on an iPhone 2026-10-23)
+
+Details: docs/architecture/TOUCH-CONTROLS.md.
+
+- [x] A touch screen is in touch mode from the start (USE button, "tap" in tips), not only after its first touch.
+- [x] The joystick hint: a resting stick bottom left that shows a new player where to drag, learned once walked
+  (remembered in this browser), clear of the menus and inside the safe area; reduced motion never nudges.
+- [x] The stick never stays held: a cancelled touch, a lost focus, a hidden page or an opening menu release it.
+- [x] No pull-to-refresh, bounce, text selection or long-press callout while playing.
+- [x] Manual validation on a real iPhone (Safari, over HTTPS).
+
+#### P1.2A: Mobile UI scaling (not started)
+
+- [ ] On a phone or tablet the smallest UI size is the first default, as long as it stays readable and usable.
+- [ ] On the first mobile visit, a small non-intrusive card invites the player to choose their interface size; it is
+  not shown again once answered or dismissed.
+- [ ] Accessible size choices; the size can be changed later in SETTINGS.
+- [ ] The preference is remembered locally; an existing explicit choice is never overridden.
+- [ ] Every size respects the safe areas and the screen's dimensions.
+
+#### P1.2B: Menu navigation and back buttons (not started)
+
+Some screens (for example "Login with Nostr") rely on Enter, Escape or picking another option, with no visible way
+back.
+
+- [ ] Audit every menu and navigation path: login, identity recovery, settings, inventory, building and the rest.
+- [ ] Every nested menu has a visible way to return, working with touch, mouse and keyboard.
+- [ ] No navigation path traps the player.
+- [ ] Unsaved input is kept where it should be when going back.
+- [ ] Automated tests for the navigation paths and for returning from nested screens.
+
 ### Later (not started)
 
 Network visiting (world cards and presence, docs/architecture/NOSTR-MULTIPLAYER.md
