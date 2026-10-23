@@ -122,6 +122,7 @@ and never writes.
 | `blobbi-pixel-lab:account` | the remembered account (public key, method, cached profile name; M11B; M11D.4 method `vault` for an identity this game keeps) | `src/nostr/account-store.ts` |
 | `blobbi-pixel-lab:settings` | game settings; since M11D.1 `reducedMotion` is stored only with `reducedMotionChosen: true` (the player's own toggle), otherwise the system preference is followed | `src/playground/main.ts` |
 | `blobbi-pixel-lab:audio` | the audio mix | idem |
+| `blobbi-pixel-lab:touch-hint` | `{version: 1, learned: true}` once the player has walked with the touch stick (P1.1): the joystick hint then stays quiet (no demonstration); a viewer preference, never part of a save | `src/ui/joystick-hint.ts` |
 | `blobbi-pixel:camera-mode` | the camera mode | idem |
 | `blobbi-pixel-lab:worlds` | last-played time per world (orders the islands list) | `src/game/worlds.ts` |
 | `blobbi-pixel-lab:active-world` | the active island's identity: the one CONTINUE plays (M10 phase C); falls back to the most recent | idem |

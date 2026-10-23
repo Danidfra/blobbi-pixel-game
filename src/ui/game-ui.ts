@@ -279,6 +279,7 @@ export class GameUI {
     this.hotbarBox = null;
     this.tipBox = null;
     this.inviteBox = null;
+    this.modeBarBox = null;
     if (!this.screen) {
       this.drawMenuBar(screen, Math.max(1, Math.min(2, scale)));
       this.drawHotbar(screen, hudScale(this.settings));
@@ -424,6 +425,13 @@ export class GameUI {
   /** Where the tip and the invitation were drawn this frame (screen pixels). */
   tipBox: { x: number; y: number; w: number; h: number } | null = null;
   inviteBox: { x: number; y: number; w: number; h: number } | null = null;
+  /** Where the build / place / move buttons were drawn this frame (bottom left), or null. */
+  modeBarBox: { x: number; y: number; w: number; h: number } | null = null;
+
+  /** Everything the menu bar, hotbar, tip, invitation and mode bar cover this frame (the touch hint keeps clear). */
+  get occupied(): { x: number; y: number; w: number; h: number }[] {
+    return [this.menuBox, this.hotbarBox, this.tipBox, this.inviteBox, this.modeBarBox].filter((b): b is { x: number; y: number; w: number; h: number } => !!b);
+  }
   /** M11C.5: the gentle account invitation (owned by the playground), and what EXPLORE ACCOUNTS does. */
   invite: AccountInvite | null = null;
   /** Where the HUD's top-left cards end (screen pixels; the playground sets it): the card stays below when it can. */
@@ -586,6 +594,7 @@ export class GameUI {
     const ox = 2 * s;
     const oy = Math.max(0, menuTop - big.height - 2 * s);
     screen.blit(big, ox, oy);
+    this.modeBarBox = { x: ox, y: oy, w: big.width, h: big.height };
     this.hits.push(...g.screenHits(ox, oy));
   }
 

@@ -44,6 +44,7 @@ plan says otherwise: the automated suite passes (see [M10 phase C](milestones/M1
   that cannot be read.
 - [Languages and readable text](architecture/I18N.md) (M11B): catalogues, content overlay, fonts, text size.
 - [Text fields and the smooth camera](architecture/TEXT-INPUT-AND-CAMERA.md): native inputs over drawn fields; the screen-pixel camera.
+- [Touch controls](architecture/TOUCH-CONTROLS.md): the floating stick, USE, touch mode and the joystick hint (P1.1).
 - [Blobbi generations V1/V2/V3](architecture/BLOBBI-GENERATION-COMPATIBILITY.md) (M11B investigation; M11C support and the V1/V2 world-form plan).
 - [M11D.4](milestones/M11D4.md): reserved identities, the key vault, the secret backup and restore, registration, the threat model.
 - [M11D.5](milestones/M11D5.md): the Baby growth fix and shadow, naming a newborn, Recovery Key and Protected Key backups, restore, the invitation, browser-check cleanup.

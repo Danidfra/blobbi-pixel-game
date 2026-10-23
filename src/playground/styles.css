@@ -19,6 +19,8 @@ body {
   margin: 0;
   height: 100vh;
   overflow: hidden;
+  /* No pull-to-refresh or rubber-band bounce while dragging the stick on a phone. */
+  overscroll-behavior: none;
 }
 #app {
   display: grid;
@@ -131,8 +133,13 @@ main {
   position: absolute;
   inset: 0;
   cursor: grab;
-  /* Touch drags drive the in-game stick, never scroll or zoom the page. */
+  /* Touch drags drive the in-game stick, never scroll or zoom the page; a held thumb never selects or opens the
+     long-press callout, and a tap does not flash. */
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }

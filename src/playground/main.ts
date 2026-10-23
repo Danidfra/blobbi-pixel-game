@@ -15,6 +15,7 @@ import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../rend
 import { auditWorld } from '../render/audit';
 import { canvasBacking } from '../render/backing';
 import { TextInputs } from './text-inputs';
+import { JoystickHint, hintAnchor, readLearned, writeLearned } from '../ui/joystick-hint';
 import type { OwnedBlobbi, ShareStatus } from '../nostr/port';
 import type { WorldDescription, WorldOptions } from '../world/types';
 import { DEFAULT_WORLD_OPTIONS } from '../world/types';
@@ -88,7 +89,7 @@ import { displayName } from '../game/island-name';
 import { generateMantaWorld } from '../carriers/manta-world';
 import { generateWhaleWorld } from '../carriers/whale-world';
 import { speciesThumbnail } from '../carriers/species';
-import { TouchControls } from '../ui/touch';
+import { STICK_RADIUS, TouchControls } from '../ui/touch';
 import { IntroCinematic, type IntroResult } from '../cinematic/intro';
 import { introPreviewWorld, isIntroSpecies } from '../cinematic/preview';
 import type { CarrierKind } from '../game/carrier';
@@ -2112,8 +2113,29 @@ function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
   }
 }
 const titleCamera = new ViewCamera('exploration');
-// Touch: a floating stick on the world and a big USE button (shown once a touch is seen).
+// Touch: a floating stick on the world and a big USE button (on a touch screen, or once a touch is seen).
 const touch = new TouchControls(() => hudScale(gameUI.settings));
+/** A phone or a tablet (no hover, a finger), known before its first touch: no field takes the keyboard by itself. */
+const touchScreen = window.matchMedia('(hover: none) and (pointer: coarse)');
+// P1.1: a touch screen is in touch mode from the start (the USE button, "tap" in tips, the joystick hint), not only
+// after its first touch; a mouse-and-keyboard computer never is (a touch on a hybrid still switches it, as before).
+if (touchScreen.matches) touch.enabled = true;
+touchScreen.addEventListener?.('change', () => {
+  if (touchScreen.matches) touch.enabled = true;
+});
+/** The resting stick that shows a touch player where to drag (`ui/joystick-hint.ts`); learned is kept in this browser. */
+const hintStore = ((): Storage | null => {
+  try {
+    return localStorage;
+  } catch {
+    return null; // storage refused (a sandboxed page): the hint simply teaches again next time
+  }
+})();
+const joystickHint = new JoystickHint(readLearned(hintStore));
+/** World pixels the Blobbi was at before this frame's steps (what the stick walked it, for the hint). */
+let hintFrom: { live: LiveWorld; x: number; y: number } | null = null;
+/** A tap or a click asked the Blobbi to walk somewhere this frame (movement input for the hint). */
+let tapWalked = false;
 /** The screen's safe-area insets (notches, rounded corners) in canvas pixels, read from CSS. */
 function readSafeArea(): void {
   const probe = document.createElement('div');
@@ -2452,9 +2474,6 @@ function syncTextInputs(): void {
   const fields = gameUI.capturing ? gameUI.fields : title.active && !entry.active ? title.fields : [];
   textInputs.sync(state.mode === 'play' && !intro ? fields : [], touch.enabled || touchScreen.matches);
 }
-/** A phone or a tablet (no hover, a finger), known before its first touch: no field takes the keyboard by itself. */
-const touchScreen = window.matchMedia('(hover: none) and (pointer: coarse)');
-
 function titleFrame(now: number, real: number): void {
   if (!live || !bounds) return;
   readInput();
@@ -2487,6 +2506,22 @@ function titleFrame(now: number, real: number): void {
   ctx.drawImage(liveCanvas, 0, 0);
 }
 
+/**
+ * P1.1: the joystick hint on a touch screen, bottom left, clear of the menus, the hotbar, the tip and the camera
+ * indicator (not drawn when there is no clear spot, while a menu is open, or on a computer without touch).
+ */
+function drawJoystickHint(frame: PixelBuffer, now: number, moving: boolean, stickWalkedPx: number): void {
+  if (!touch.enabled || gameUI.capturing) return;
+  const look = joystickHint.update({ now, stickActive: !!touch.stick?.active, moving, stickWalkedPx, reducedMotion: gameUI.settings.reducedMotion });
+  if (joystickHint.justLearned) writeLearned(hintStore);
+  const u = hudScale(gameUI.settings);
+  const at = hintAnchor(frame.width, frame.height, STICK_RADIUS * u, 6 * u, touch.insets, 0, [...gameUI.occupied, viewRenderer?.indicatorBox], gameUI.hudBottom);
+  lastHintAt = at && { ...at, r: STICK_RADIUS * u };
+  if (at) touch.drawHint(frame, at.x, at.y, look);
+}
+/** Where the hint was drawn last (the browser check). */
+let lastHintAt: { x: number; y: number; r: number } | null = null;
+
 function playFrame(now: number): void {
   rafId = requestAnimationFrame(playFrame);
   // The text size is a drawing preference (M11B): read each frame, so a change shows at once.
@@ -2512,8 +2547,12 @@ function playFrame(now: number): void {
   }
   const t0 = performance.now();
   playStarted = true;
-  // An open menu pauses the world: no steps, no input.
-  const steps = gameUI.capturing ? (readInput(), 0) : live.update(real, readInput());
+  // An open menu pauses the world: no steps, no input; a stick held when it opened ends (no walking on after it).
+  if (gameUI.capturing) touch.cancel();
+  const stickPushing = Object.values(touch.directions()).some(Boolean);
+  const input = readInput();
+  hintFrom = { live, x: live.blobbi.x, y: live.blobbi.y };
+  const steps = gameUI.capturing ? 0 : live.update(real, input);
   const t1 = performance.now();
   // The camera is presentation only: it reads the Blobbi's position and never feeds anything back.
   // The room has its own bounds; changing scene snaps the camera instead of easing across.
@@ -2551,6 +2590,9 @@ function playFrame(now: number): void {
   gameUI.render(frame, now / 1000);
   syncTextInputs();
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
+  const walked = stickPushing && hintFrom.live === live ? Math.hypot(live.blobbi.x - hintFrom.x, live.blobbi.y - hintFrom.y) : 0;
+  drawJoystickHint(frame, now / 1000, input.up || input.down || input.left || input.right || tapWalked, walked);
+  tapWalked = false;
   // Sound: the world's events to the audio director (and to any other listener as events), then cleared.
   if (gameUI.settings.sound) {
     for (const name of live.sounds) window.dispatchEvent(new CustomEvent('blobbi-sound', { detail: name }));
@@ -2840,7 +2882,7 @@ view.addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') setCameraMode(CAMERA_CYCLE[(CAMERA_CYCLE.indexOf(viewCamera.mode) + 1) % CAMERA_CYCLE.length]);
 });
 // Development only: a handle for inspecting the running world from the console (never in the build).
-if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, entry: () => entry, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced), companion: () => companion };
+if (import.meta.env.DEV) (window as unknown as { __blobbi: unknown }).__blobbi = { audio: () => gameAudio, live: () => live, invite: () => invite, account: () => account, identity: () => identityScreen, naming: () => namingScreen, devGrow: (stage: number) => (live?.devSetGrowthStage(stage), rebuildFromSave(true)), identityService: () => identityService(), openIdentity: (p: 'activate' | 'restore') => openIdentity(p), camera: () => viewCamera, view: () => viewRenderer, frame: (now: number) => (playFrame(now), cancelAnimationFrame(rafId)), ui: () => gameUI, title: () => title, entry: () => entry, intro: () => intro, introResult: () => introResult, previewIntro: (kind: CarrierKind, reduced?: boolean) => startIntroPreview(kind, reduced), companion: () => companion, touch: () => touch, joystickHint: () => joystickHint, hintAt: () => lastHintAt };
 // Development only: time, test resources, needs and goal tools for manual testing (the build drops the import).
 if (import.meta.env.DEV)
   void import('../dev/dev-tools').then((m) =>
@@ -3679,6 +3721,7 @@ view.addEventListener('pointerdown', (e) => {
       const wx = lastView.originX + sx / lastView.scale;
       const wy = lastView.originY + sy / lastView.scale;
       live.walkTo(wx, wy);
+      tapWalked = true;
     }
     return;
   }
@@ -3709,7 +3752,10 @@ const endDrag = (e: PointerEvent) => {
   const s = touch.stick;
   if (s && s.id === e.pointerId) {
     // A tap that never became a stick walks to the tapped spot, as before.
-    if (touch.up(e.pointerId) && live && lastView) live.walkTo(lastView.originX + s.ox / lastView.scale, lastView.originY + s.oy / lastView.scale);
+    if (touch.up(e.pointerId) && live && lastView) {
+      live.walkTo(lastView.originX + s.ox / lastView.scale, lastView.originY + s.oy / lastView.scale);
+      tapWalked = true;
+    }
     return;
   }
   drag = null;
@@ -3717,7 +3763,18 @@ const endDrag = (e: PointerEvent) => {
 };
 view.addEventListener('pointerup', endDrag);
 view.addEventListener('pointerleave', () => (gameUI.pointerAt = null));
-view.addEventListener('pointercancel', endDrag);
+// A touch the browser takes back (a system gesture, an incoming call) ends the stick without walking to where it began.
+view.addEventListener('pointercancel', (e) => {
+  if (touch.stick?.id === e.pointerId) touch.cancel(e.pointerId);
+  else endDrag(e);
+});
+// The stick never stays held once its finger is gone: a capture lost without a pointerup, the page losing focus or
+// being hidden (the app switcher, a notification) all release it.
+view.addEventListener('lostpointercapture', (e) => touch.cancel(e.pointerId));
+window.addEventListener('blur', () => touch.cancel());
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) touch.cancel();
+});
 view.addEventListener(
   'wheel',
   (e) => {
