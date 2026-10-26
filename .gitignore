@@ -12,3 +12,5 @@ out
 .lab-browser-profile/
 .vercel
 .env*
+# Agent audits, diagnostics and screenshots stay local (outside the repository), never in git.
+docs/audits/

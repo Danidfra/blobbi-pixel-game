@@ -20,6 +20,17 @@ How a phone or tablet player moves and acts (P1.1, 2026-10-23). One movement sys
 touch on anything else (a laptop with a touch screen). It shows USE, makes the menu bar larger, and words the tips
 for touch ("Drag anywhere on the island to walk"). A mouse-and-keyboard computer never enters it.
 
+## Safe area, reach and scrolling (P1.2A)
+
+- Every HUD element and menu sits inside the screen's safe area (`env(safe-area-inset-*)`, notches, rounded corners,
+  the home indicator). `readSafeArea` (`src/playground/main.ts`) reads the insets on load and on every resize and
+  hands them to `TouchControls.insets`, `GameUI.insets` and `TitleScreen.insets`; the HUD gets them each frame as
+  `ViewUiOptions.insets` (`src/render/view-renderer.ts`).
+- A finger reaches 8 CSS px past a control (`hitAt` in `src/ui/gfx.ts`): a near miss on a button, a slot, a tab or X
+  still takes it; a press about as near to two controls does nothing; a mouse is exact.
+- A menu or title page taller than the screen scrolls at 2× (`src/ui/panel-fit.ts`): a drag scrolls it, a press
+  without a drag acts on release.
+
 ## The joystick hint (`src/ui/joystick-hint.ts`)
 
 A translucent resting stick near the bottom-left corner, drawn only in touch mode during play (not under a menu, the
