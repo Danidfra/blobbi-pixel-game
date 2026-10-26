@@ -355,7 +355,7 @@ describe('M11D.8.2: the page wiring in main.ts', () => {
   });
   it('the keyboard and the pointer reach the loading page first while it is up', () => {
     expect(src).toMatch(/if \(entry\.active\) \{\s*if \(!e\.repeat\) entry\.key\(e\.code\);/);
-    expect(src).toMatch(/if \(entry\.active\) entry\.pointer\(sx, sy\);\s*else title\.pointer\(sx, sy\);/);
+    expect(src).toMatch(/if \(entry\.active\) entry\.pointer\(sx, sy\);\s*else title\.pointer\(sx, sy(?:, slop)?\);/);
   });
   it('the automatic entry shows the page only for a connected account, ends it when settled, and checks the extension', () => {
     const body = src.slice(src.indexOf('async function autoEnter'), src.indexOf('Make a new island'));

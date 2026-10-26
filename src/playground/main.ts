@@ -16,6 +16,9 @@ import { auditWorld } from '../render/audit';
 import { canvasBacking } from '../render/backing';
 import { TextInputs } from './text-inputs';
 import { JoystickHint, hintAnchor, readLearned, writeLearned } from '../ui/joystick-hint';
+import { InterfaceSize, TOUCH_SCREEN_QUERY, playedBefore } from '../ui/ui-size';
+import type { PanelScroll } from '../ui/panel-fit';
+import { FINGER_SLOP } from '../ui/gfx';
 import type { OwnedBlobbi, ShareStatus } from '../nostr/port';
 import type { WorldDescription, WorldOptions } from '../world/types';
 import { DEFAULT_WORLD_OPTIONS } from '../world/types';
@@ -621,9 +624,15 @@ const SETTINGS_KEY = 'blobbi-pixel-lab:settings';
 const systemReduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 gameUI.settings.reducedMotion = systemReduced;
 let reducedChosen = false;
+// P1.2A: the interface size (the text size) is the default (Normal) until the player picks one (`ui/ui-size.ts`).
+let interfaceSize = new InterfaceSize(() => gameUI.settings, null, false);
 try {
   const raw = localStorage.getItem(SETTINGS_KEY);
-  if (raw) ({ settings: gameUI.settings, chosen: reducedChosen } = readStoredSettings(JSON.parse(raw), gameUI.settings, systemReduced));
+  const record: unknown = raw ? JSON.parse(raw) : null;
+  if (record) ({ settings: gameUI.settings, chosen: reducedChosen } = readStoredSettings(record, gameUI.settings, systemReduced));
+  interfaceSize = new InterfaceSize(() => gameUI.settings, record, playedBefore(Object.keys(localStorage)));
+  // Written at once, so a later visit (with islands saved by then) tells this record from one kept from before P1.2A.
+  if (!record) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsRecord(gameUI.settings, reducedChosen, interfaceSize.chosen)));
 } catch {
   /* private mode or bad JSON: defaults */
 }
@@ -1578,12 +1587,15 @@ settingsScreen.onChange = () => {
   audioEngine.applySettings();
   if (!gameUI.settings.sound) audioEngine.suspend();
   else unlockAudio();
+  // A new interface size is the player's pick (kept even when it cannot be stored); any other change leaves it
+  // following the screen.
+  interfaceSize.settingsChanged();
   try {
     localStorage.setItem(AUDIO_KEY, JSON.stringify(audioEngine.settings));
     // Toggling REDUCED MOTION is the player's choice; any other change leaves it to the system.
     if (gameUI.settings.reducedMotion !== lastReduced) reducedChosen = true;
     lastReduced = gameUI.settings.reducedMotion;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsRecord(gameUI.settings, reducedChosen)));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsRecord(gameUI.settings, reducedChosen, interfaceSize.chosen)));
   } catch {
     /* not stored: fine */
   }
@@ -2114,9 +2126,9 @@ function makeWorldFor(seed: string, turtleSeed: string): WorldDescription {
 }
 const titleCamera = new ViewCamera('exploration');
 // Touch: a floating stick on the world and a big USE button (on a touch screen, or once a touch is seen).
-const touch = new TouchControls(() => hudScale(gameUI.settings));
+const touch = new TouchControls(() => hudScale(gameUI.settings, view));
 /** A phone or a tablet (no hover, a finger), known before its first touch: no field takes the keyboard by itself. */
-const touchScreen = window.matchMedia('(hover: none) and (pointer: coarse)');
+const touchScreen = window.matchMedia(TOUCH_SCREEN_QUERY);
 // P1.1: a touch screen is in touch mode from the start (the USE button, "tap" in tips, the joystick hint), not only
 // after its first touch; a mouse-and-keyboard computer never is (a touch on a hybrid still switches it, as before).
 if (touchScreen.matches) touch.enabled = true;
@@ -2146,6 +2158,7 @@ function readSafeArea(): void {
   const k = view.width / Math.max(1, rect.width);
   touch.insets = { top: parseFloat(cs.paddingTop) * k || 0, right: parseFloat(cs.paddingRight) * k || 0, bottom: parseFloat(cs.paddingBottom) * k || 0, left: parseFloat(cs.paddingLeft) * k || 0 };
   gameUI.insets = touch.insets;
+  title.insets = touch.insets;
   probe.remove();
 }
 window.addEventListener('resize', readSafeArea);
@@ -2334,7 +2347,7 @@ function startWorldIntro(): void {
         reducedMotion: gameUI.settings.reducedMotion,
         audio: gameUI.settings.sound ? audioEngine : null,
         renderOptions: state.live,
-        uiScale: hudScale(gameUI.settings),
+        uiScale: hudScale(gameUI.settings, view),
         onComplete: (r) => finishWorldIntro(target, r),
         // M11D.3: a local Blobbi met on this island and not born yet hatches from its egg (a local presentation).
         birth: unbornHere(target),
@@ -2397,7 +2410,7 @@ function startIntroPreview(kind: CarrierKind, reduced = gameUI.settings.reducedM
       reducedMotion: reduced,
       audio: gameUI.settings.sound ? audioEngine : null,
       renderOptions: state.live,
-      uiScale: hudScale(gameUI.settings),
+      uiScale: hudScale(gameUI.settings, view),
       onComplete: (r) => {
         introResult = r;
         if (import.meta.env.DEV) console.info('[intro] complete', r);
@@ -2514,7 +2527,7 @@ function drawJoystickHint(frame: PixelBuffer, now: number, moving: boolean, stic
   if (!touch.enabled || gameUI.capturing) return;
   const look = joystickHint.update({ now, stickActive: !!touch.stick?.active, moving, stickWalkedPx, reducedMotion: gameUI.settings.reducedMotion });
   if (joystickHint.justLearned) writeLearned(hintStore);
-  const u = hudScale(gameUI.settings);
+  const u = hudScale(gameUI.settings, view);
   const at = hintAnchor(frame.width, frame.height, STICK_RADIUS * u, 6 * u, touch.insets, 0, [...gameUI.occupied, viewRenderer?.indicatorBox], gameUI.hudBottom);
   lastHintAt = at && { ...at, r: STICK_RADIUS * u };
   if (at) touch.drawHint(frame, at.x, at.y, look);
@@ -2578,7 +2591,7 @@ function playFrame(now: number): void {
   lastDrawn = { live, time: drawnTime };
   // The camera follows the Blobbi, lifted a little while a teleport wants the sky in view.
   const cameraView = (lastView = viewCamera.update(real, live.cameraTarget(view.height / restScale), view.width, view.height, sceneBounds, snap, followDt));
-  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox, blobbiName: shownName, travelCue: travelCue() });
+  const frame = viewRenderer!.render(cameraView, restScale, live.clock.time, state.live, { ...DEFAULT_VIEW_UI, hud: state.live.hud, goals: gameUI.settings.goals, lighting: gameUI.settings.daylight, uiScale: hudScale(gameUI.settings, view), bottom: gameUI.menuBarHeight, identity: identityNow(), promptAvoid: gameUI.hotbarBox, insets: touch.insets, indicatorAvoid: gameUI.menuBarRows, blobbiName: shownName, travelCue: travelCue() });
   push(modeTimes[cameraView.mode], viewRenderer!.timings.total);
   const t2 = performance.now();
   gameUI.touchMode = touch.enabled;
@@ -2587,6 +2600,8 @@ function playFrame(now: number): void {
   // Companion sync: a choice made in another Blobbi game comes along once the moment is calm
   companion.tick();
   invite.update(real, { running: steps > 0 && !gameUI.capturing && document.visibilityState === 'visible', inputAge: (performance.now() - lastInputAt) / 1000, world: live, busy: inviteBusy() });
+  // P1.2A: the tip keeps clear of the touch USE button (where it was drawn last frame).
+  gameUI.useButtonBox = touch.enabled && !gameUI.capturing ? touch.buttonBox : null;
   gameUI.render(frame, now / 1000);
   syncTextInputs();
   if (!gameUI.capturing) touch.draw(frame, gameUI.menuBarHeight);
@@ -3682,13 +3697,25 @@ view.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       return;
     }
-    if (title.active && !gameUI.capturing) {
-      if (entry.active) entry.pointer(sx, sy);
-      else title.pointer(sx, sy);
+    // P1.2A: a finger on a page taller than the screen: a drag scrolls it, a press without a drag acts on release.
+    const finger = e.pointerType === 'touch' || e.pointerType === 'pen';
+    // P1.2A phase 3: a finger's press reaches a few pixels to the nearest control (`hitAt`); a mouse's is exact.
+    const slop = finger ? FINGER_SLOP : 0;
+    const scrolling = gameUI.capturing ? gameUI.scroll : title.active && !entry.active ? title.fitScroll : null;
+    if (finger && scrolling?.max) {
+      const tap = gameUI.capturing ? () => gameUI.handlePointer(sx, sy, slop) : () => title.pointer(sx, sy, slop);
+      scrollPress = { id: e.pointerId, sy, y0: scrolling.y, moved: false, scroll: scrolling, tap };
+      view.setPointerCapture(e.pointerId);
       e.preventDefault();
       return;
     }
-    if (gameUI.handlePointer(sx, sy)) {
+    if (title.active && !gameUI.capturing) {
+      if (entry.active) entry.pointer(sx, sy);
+      else title.pointer(sx, sy, slop);
+      e.preventDefault();
+      return;
+    }
+    if (gameUI.handlePointer(sx, sy, slop)) {
       e.preventDefault();
       return;
     }
@@ -3735,9 +3762,18 @@ const canvasPoint = (e: PointerEvent) => {
   const rect = view.getBoundingClientRect();
   return { x: ((e.clientX - rect.left) * view.width) / Math.max(1, rect.width), y: ((e.clientY - rect.top) * view.height) / Math.max(1, rect.height) };
 };
+/** A finger down on a scrolling page (P1.2A): it scrolls once it has moved SCROLL_SLOP, else taps on release. */
+let scrollPress: { id: number; sy: number; y0: number; moved: boolean; scroll: PanelScroll; tap: () => void } | null = null;
+const SCROLL_SLOP = 8;
 view.addEventListener('pointermove', (e) => {
   // Hover highlights and tooltips follow a mouse (a finger has no hover).
   gameUI.pointerAt = e.pointerType === 'mouse' ? canvasPoint(e) : null;
+  if (scrollPress?.id === e.pointerId) {
+    const dy = canvasPoint(e).y - scrollPress.sy;
+    if (Math.abs(dy) > SCROLL_SLOP) scrollPress.moved = true;
+    if (scrollPress.moved) scrollPress.scroll.to(scrollPress.y0 - dy);
+    return;
+  }
   if (touch.stick) {
     const p = canvasPoint(e);
     touch.move(e.pointerId, p.x, p.y);
@@ -3749,6 +3785,12 @@ view.addEventListener('pointermove', (e) => {
   draw();
 });
 const endDrag = (e: PointerEvent) => {
+  if (scrollPress?.id === e.pointerId) {
+    const p = scrollPress;
+    scrollPress = null;
+    if (!p.moved && e.type === 'pointerup') p.tap();
+    return;
+  }
   const s = touch.stick;
   if (s && s.id === e.pointerId) {
     // A tap that never became a stick walks to the tapped spot, as before.
@@ -3770,7 +3812,10 @@ view.addEventListener('pointercancel', (e) => {
 });
 // The stick never stays held once its finger is gone: a capture lost without a pointerup, the page losing focus or
 // being hidden (the app switcher, a notification) all release it.
-view.addEventListener('lostpointercapture', (e) => touch.cancel(e.pointerId));
+view.addEventListener('lostpointercapture', (e) => {
+  touch.cancel(e.pointerId);
+  if (scrollPress?.id === e.pointerId) scrollPress = null;
+});
 window.addEventListener('blur', () => touch.cancel());
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) touch.cancel();
@@ -3780,6 +3825,9 @@ view.addEventListener(
   (e) => {
     e.preventDefault();
     if (state.mode === 'play') {
+      // P1.2A: over a page taller than the screen the wheel scrolls it.
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      if (gameUI.capturing ? gameUI.scroll.by(dy) : title.active && !entry.active && title.fitScroll.by(dy)) return;
       // The wheel steps through the camera modes: up moves closer, down pulls back.
       const at = CAMERA_CYCLE.indexOf(viewCamera.mode) + (e.deltaY < 0 ? 1 : -1);
       if (at >= 0 && at < CAMERA_CYCLE.length) setCameraMode(CAMERA_CYCLE[at]);

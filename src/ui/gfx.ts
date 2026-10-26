@@ -38,6 +38,46 @@ export interface Hit {
   inert?: boolean;
 }
 
+/**
+ * The hit under a press (P1.2A phase 3). The topmost region containing the point wins, as always. A finger (`slop` >
+ * 0, screen pixels) that misses every control, or lands on a background that takes presses (an inert region), gets
+ * the nearest control within `slop` instead: pixel-art buttons stay their size while a finger's target grows into
+ * the gaps around them. Only controls drawn above that background are candidates (a bar pinned over a scrolled page
+ * keeps what is under it unreachable), and a press about as near to two controls does nothing (no guessing).
+ */
+export function hitAt(hits: readonly Hit[], x: number, y: number, slop = 0): Hit | null {
+  let under = -1;
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
+    if (x >= h.x && y >= h.y && x < h.x + h.w && y < h.y + h.h) {
+      if (!h.inert) return h;
+      under = i;
+      break;
+    }
+  }
+  if (slop > 0) {
+    let best: Hit | null = null;
+    let bestD = Infinity;
+    let second = Infinity;
+    for (let i = under + 1; i < hits.length; i++) {
+      const h = hits[i];
+      if (h.inert) continue;
+      const dx = Math.max(h.x - x, 0, x - (h.x + h.w - 1));
+      const dy = Math.max(h.y - y, 0, y - (h.y + h.h - 1));
+      const d = Math.hypot(dx, dy);
+      if (d > slop) continue;
+      if (d < bestD) [second, bestD, best] = [bestD, d, h];
+      else if (d < second) second = d;
+    }
+    if (best && second - bestD >= AMBIGUOUS_PX) return best;
+  }
+  return under >= 0 ? hits[under] : null;
+}
+/** Two controls whose distances to a press differ by less than this (screen pixels) are too close to choose between. */
+export const AMBIGUOUS_PX = 3;
+/** How far (CSS pixels, here the same as screen pixels) a finger's press reaches to the nearest control. */
+export const FINGER_SLOP = 8;
+
 /** UI pixels a string may take: the 3×5 font's width, which the body font never exceeds (a safe layout width). */
 export const textWidth = (s: string): number => Math.max(0, [...s].length * 4 - 1);
 
@@ -108,6 +148,17 @@ export class Gfx {
   box(x: number, y: number, w: number, h: number, bg: Color = UI.panel, border: Color | null = UI.line): void {
     this.buf.fillRect(x, y, w, h, bg);
     if (border !== null) this.buf.strokeRect(x, y, w, h, border);
+    // An accent rim is how screens show the selected row, slot or choice.
+    if (border === UI.accent) this.mark(x, y, w, h);
+  }
+
+  /**
+   * Highlighted rectangles this frame (UI pixels): accent-rimmed boxes, primary buttons, and what a screen marks
+   * itself. A page taller than the screen scrolls a selection the keyboard just moved to into view (P1.2A).
+   */
+  readonly marks: { x: number; y: number; w: number; h: number }[] = [];
+  mark(x: number, y: number, w: number, h: number): void {
+    this.marks.push({ x, y, w, h });
   }
 
   /** One line of text (the body font, as written); returns the width drawn. `shadow` darkens beneath it (text on scenes). */
@@ -154,6 +205,7 @@ export class Gfx {
     this.text(text, x + Math.max(1, Math.round((w - this.measure(text)) / 2)), y + 3, enabled ? UI.ink : UI.line);
     if (enabled) this.hit(x, y, w, 11, action);
     else if (opts.whyNot) this.hit(x, y, w, 11, opts.whyNot);
+    if (opts.primary && enabled) this.mark(x, y, w, 11);
     return w;
   }
 

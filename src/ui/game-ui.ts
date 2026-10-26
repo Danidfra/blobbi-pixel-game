@@ -14,13 +14,14 @@ import { PixelBuffer } from '../core/pixel';
 import type { WorldPalette } from '../core/palette';
 import type { LiveWorld } from '../sim/live-world';
 import type { Building } from '../game/buildings';
-import { Gfx, UI, type Hit } from './gfx';
+import { Gfx, UI, hitAt, type Hit } from './gfx';
 import { card } from './hud';
 import { getLocale, t, upper, type MessageKey } from '../i18n';
 import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
 import { fieldFocus, type FieldBox } from './text-field';
 import type { AccountInvite } from './account-invite';
 import { REST_POSE } from '../blobbi/sprite';
+import { PanelScroll, fitPanel, newlyMarked, type PanelFit, type Rect } from './panel-fit';
 
 export type ScreenId = 'inventory' | 'storage' | 'crafting' | 'journal' | 'care' | 'cooking' | 'settings' | 'carrier' | 'map' | 'growth' | 'worlds' | 'home' | 'guide' | 'blobbis' | 'identity' | 'naming' | 'travel';
 
@@ -51,31 +52,33 @@ export interface UiSettings {
   goals: boolean;
   /** Sound hooks enabled (events are emitted for an audio layer; there is no audio yet). */
   sound: boolean;
-  /** UI scale: 0 automatic, else 1-3. */
-  scale: number;
   /** Calmer motion: shorter teleports with fewer pixels, no camera choreography, softer effects. */
   reducedMotion: boolean;
   /** Before M11B: a larger HUD (3× instead of 2×). Read once into `textSize` ('large'), then kept false. */
   largeText: boolean;
-  /** Text size (M11B): how large menus, the HUD and tips may be drawn. Presentation only. */
+  /**
+   * Text size (M11B): how large menus, the HUD and tips may be drawn. Presentation only. Until the player picks one it
+   * follows the screen (P1.2A, `ui-size.ts`).
+   */
   textSize: TextSize;
 }
 
 export type TextSize = 'small' | 'normal' | 'large';
 export const TEXT_SIZES: readonly TextSize[] = ['small', 'normal', 'large'];
 
-export const DEFAULT_SETTINGS: UiSettings = { daylight: true, goals: true, sound: true, scale: 0, reducedMotion: false, largeText: false, textSize: 'normal' };
+export const DEFAULT_SETTINGS: UiSettings = { daylight: true, goals: true, sound: true, reducedMotion: false, largeText: false, textSize: 'normal' };
 
 /**
  * Settings read from a browser (any older shape): unknown fields dropped, bad values replaced by defaults, and the
- * pre-M11B "large HUD text" carried over as the large text size.
+ * pre-M11B "large HUD text" carried over as the large text size. The pre-M11B manual MENU SCALE (`scale`, 1-3) is
+ * dropped: no menu has set it since M11B (2026-10-13, before the first production deployment), and menus fit the screen
+ * again.
  */
 export function readSettings(raw: unknown, base: UiSettings = DEFAULT_SETTINGS): UiSettings {
   const out: UiSettings = { ...base };
   if (!raw || typeof raw !== 'object') return out;
   const v = raw as Record<string, unknown>;
   for (const k of ['daylight', 'goals', 'sound', 'reducedMotion'] as const) if (typeof v[k] === 'boolean') out[k] = v[k] as boolean;
-  if (typeof v.scale === 'number' && [0, 1, 2, 3].includes(v.scale)) out.scale = v.scale;
   if (TEXT_SIZES.includes(v.textSize as TextSize)) out.textSize = v.textSize as TextSize;
   else if (v.largeText === true) out.textSize = 'large';
   out.largeText = false;
@@ -98,10 +101,14 @@ export function reducedMotionChosen(raw: unknown): boolean {
   return v.reducedMotionChosen === true || !('reducedMotionChosen' in v);
 }
 
-/** The settings as stored: `reducedMotion` (with its marker) only when the player chose it; else left to the system. */
-export function settingsRecord(s: UiSettings, chosen: boolean): Record<string, unknown> {
-  const { reducedMotion, ...rest } = s;
-  return chosen ? { ...rest, reducedMotion, reducedMotionChosen: true } : { ...rest, reducedMotionChosen: false };
+/**
+ * The settings as stored: `reducedMotion` (with its marker) only when the player chose it, else left to the system;
+ * likewise `textSize` only when the player picked it (P1.2A), else it follows the screen (`ui-size.ts`).
+ */
+export function settingsRecord(s: UiSettings, chosen: boolean, sizeChosen = true): Record<string, unknown> {
+  const { reducedMotion, textSize, ...rest } = s;
+  const size = sizeChosen ? { textSize, textSizeChosen: true } : { textSizeChosen: false };
+  return chosen ? { ...rest, ...size, reducedMotion, reducedMotionChosen: true } : { ...rest, ...size, reducedMotionChosen: false };
 }
 
 /** Settings read from a record, the system's reduced motion used unless the record holds the player's own choice. */
@@ -112,8 +119,14 @@ export function readStoredSettings(raw: unknown, base: UiSettings, systemReduced
   return { settings, chosen };
 }
 
-/** The HUD's scale for a text size (the HUD is not a fixed panel: it can always grow). */
-export const hudScale = (s: Pick<UiSettings, 'textSize'>): number => (s.textSize === 'large' ? 3 : 2);
+/** The shortest screen side (screen pixels) on which Large draws the HUD at 3× (P1.2A): not on a phone held sideways. */
+export const LARGE_HUD_MIN_SIDE = 480;
+/**
+ * The HUD's scale for a text size: 3× for Large, 2× otherwise. On a screen shorter than LARGE_HUD_MIN_SIDE Large stays
+ * at 2× (P1.2A): at 3× the HUD, the stick and the menu bar covered a third or more of a phone held sideways.
+ */
+export const hudScale = (s: Pick<UiSettings, 'textSize'>, screen?: { width: number; height: number }): number =>
+  s.textSize === 'large' && (!screen || Math.min(screen.width, screen.height) >= LARGE_HUD_MIN_SIDE) ? 3 : 2;
 /** The largest menu scale a text size allows (menus use less when the screen is smaller). */
 export const MENU_SCALE_CAP: Readonly<Record<TextSize, number>> = { small: 2, normal: 3, large: 4 };
 
@@ -167,6 +180,7 @@ export class GameUI {
     if (this.screen !== s) {
       this.onSound?.('ui-open');
       this.openedAt = this.now;
+      this.scroll.reset();
     }
     this.screen = s;
     this.message = null;
@@ -211,7 +225,9 @@ export class GameUI {
         this.close();
         return true;
       }
+      if (this.scroll.key(code, this.scroll.page)) return true;
       const used = this.screen.key(code, shift, this);
+      this.followKey ||= used;
       if (used) this.onSound?.(isConfirm(code) ? 'ui-confirm' : 'ui-select');
       else if (OPEN_KEYS[code]) this.open(OPEN_KEYS[code]);
       return true;
@@ -226,17 +242,18 @@ export class GameUI {
     return false;
   }
 
-  /** A pointer press at screen pixels. True when it hit the UI. */
-  handlePointer(sx: number, sy: number): boolean {
-    for (let i = this.hits.length - 1; i >= 0; i--) {
-      const h = this.hits[i];
-      if (sx >= h.x && sy >= h.y && sx < h.x + h.w && sy < h.y + h.h) {
-        if (h.inert) return true;
-        this.onSound?.('ui-select');
-        const o = this.panelOrigin;
-        h.action(Math.floor((sx - o.x) / o.scale), Math.floor((sy - o.y) / o.scale));
-        return true;
-      }
+  /** A pointer press at screen pixels (a finger's reaches `slop` pixels to the nearest control). True when it hit the UI. */
+  handlePointer(sx: number, sy: number, slop = 0): boolean {
+    const h = hitAt(this.hits, sx, sy, slop);
+    if (h) {
+      if (h.inert) return true;
+      this.onSound?.('ui-select');
+      const o = this.panelOrigin;
+      // A near miss acts at the control's nearest point (a map's spot, a slider's end).
+      const px = Math.max(h.x, Math.min(h.x + h.w - 1, sx));
+      const py = Math.max(h.y, Math.min(h.y + h.h - 1, sy));
+      h.action(Math.floor((px - o.x) / o.scale), Math.floor((py - o.y) / o.scale));
+      return true;
     }
     // A press outside an open panel closes it (touch-friendly), anything else is the world's.
     if (this.screen) {
@@ -248,13 +265,19 @@ export class GameUI {
 
   /**
    * The whole-number scale the panel uses on a screen of this size: as large as fits (with a 2 pixel margin each side),
-   * up to the text size's cap. A manual menu scale (older settings) still wins.
+   * up to the text size's cap; 2× scrolling where only the height is short (`panel-fit.ts`).
    */
   scaleFor(w: number, h: number): number {
-    if (this.settings.scale > 0) return this.settings.scale;
-    const cap = MENU_SCALE_CAP[this.settings.textSize] ?? 3;
-    return Math.max(1, Math.min(cap, Math.floor(Math.min((w - 4) / PANEL_W, (h - 4) / PANEL_H))));
+    return this.panelFit(w, h).scale;
   }
+
+  /** The panel's scale on a screen of this size, and how far it scrolls there (P1.2A). */
+  panelFit(w: number, h: number): PanelFit {
+    return fitPanel(w, h, PANEL_W, PANEL_H, MENU_SCALE_CAP[this.settings.textSize] ?? 3, 2);
+  }
+
+  /** The open panel's scroll (screen pixels) where it is taller than the screen; 0 elsewhere. */
+  readonly scroll = new PanelScroll();
 
   /** Open what the world asked for (E on a chest, a stove, a workbench). */
   poll(): void {
@@ -275,16 +298,18 @@ export class GameUI {
     if (this.message && realTime >= this.message.until) this.message = null;
     this.hits = [];
     this.fields = [];
-    const scale = (this.lastScale = this.scaleFor(screen.width, screen.height));
+    const fit = this.panelFit(screen.width, screen.height);
+    const scale = (this.lastScale = fit.scale);
+    this.scroll.range(fit.overflow, screen.height - 4);
     this.hotbarBox = null;
     this.tipBox = null;
     this.inviteBox = null;
     this.modeBarBox = null;
     if (!this.screen) {
       this.drawMenuBar(screen, Math.max(1, Math.min(2, scale)));
-      this.drawHotbar(screen, hudScale(this.settings));
-      this.drawTip(screen, hudScale(this.settings));
-      this.drawInvite(screen, hudScale(this.settings));
+      this.drawHotbar(screen, hudScale(this.settings, screen));
+      this.drawTip(screen, hudScale(this.settings, screen));
+      this.drawInvite(screen, hudScale(this.settings, screen));
       return;
     }
     // Dim the world behind the panel.
@@ -295,8 +320,13 @@ export class GameUI {
     }
     // The panel slides up a few pixels as it opens (not with reduced motion), then holds still.
     const opening = this.settings.reducedMotion ? 0 : Math.max(0, 1 - (realTime - this.openedAt) / 0.14);
-    const ox0 = Math.floor((screen.width - PANEL_W * scale) / 2);
-    const oy0 = Math.floor((screen.height - PANEL_H * scale) / 2) + Math.round(opening * 6) * scale;
+    // Centred in the safe area when it fits there (P1.2A), else on the screen (the scale is never lowered for a notch).
+    const { left: L, right: R, top: T } = this.insets;
+    const safeW = screen.width - L - R;
+    const ox0 = PANEL_W * scale <= safeW ? L + Math.floor((safeW - PANEL_W * scale) / 2) : Math.floor((screen.width - PANEL_W * scale) / 2);
+    // A panel taller than the screen (P1.2A) starts 2 pixels below the safe top and scrolls; others are centred.
+    const top = (fit.overflow ? T + 2 : Math.floor((screen.height - PANEL_H * scale) / 2)) + Math.round(opening * 6) * scale;
+    const oy0 = top - this.scroll.y;
     const g = new Gfx(PANEL_W, PANEL_H, scale);
     if (this.pointerAt) g.hover = { x: Math.floor((this.pointerAt.x - ox0) / scale), y: Math.floor((this.pointerAt.y - oy0) / scale) };
     g.buf.blit(card(PANEL_W, PANEL_H), 0, 0);
@@ -332,12 +362,51 @@ export class GameUI {
       g.buf.blit(card(tw, 11, UI.accent), tx, ty);
       g.text(tip, tx + 3, ty + 3, UI.ink);
     }
+    // A scrolling panel keeps what the keyboard just selected, and a field that just took the keyboard, in view under
+    // the pinned title bar (P1.2A); a finger's or the wheel's scroll is left alone.
+    if (fit.overflow) {
+      const follow = (y0: number, y1: number) => this.scroll.follow(top + y0 * scale, top + y1 * scale, top + 13 * scale, screen.height - 2);
+      const moved = this.followKey ? newlyMarked(g.marks, this.lastMarks) : null;
+      if (moved) follow(moved.top, moved.bottom);
+      const focused = fieldFocus.id !== this.lastFocus ? g.fields.find((f) => f.spec.id === fieldFocus.id) : undefined;
+      if (focused) follow(focused.y, focused.y + focused.h);
+    }
+    this.followKey = false;
+    this.lastMarks = g.marks;
+    this.lastFocus = fieldFocus.id;
     const ox = ox0;
-    const oy = oy0;
+    const oy = top - this.scroll.y;
     this.panelOrigin = { x: ox, y: oy, scale };
     screen.blit(g.out, ox, oy);
     this.hits = g.screenHits(ox, oy);
     this.fields = g.screenFields(ox, oy);
+    if (fit.overflow) this.pinTitleBar(screen, g, ox, top, scale);
+  }
+
+  /** A key reached the open screen: the next frame keeps what it selected in view (P1.2A). */
+  private followKey = false;
+  private lastMarks: readonly Rect[] = [];
+  private lastFocus: string | null = null;
+
+  /**
+   * A scrolling panel (P1.2A) keeps its title bar, with X, at the top while the rest scrolls under it, and shows
+   * where it is with a thin bar on its right rim.
+   */
+  private pinTitleBar(screen: PixelBuffer, g: Gfx, ox: number, top: number, scale: number): void {
+    const out = g.out;
+    const rows = 13 * scale;
+    screen.blit(new PixelBuffer(out.width, rows, out.data.subarray(0, out.width * rows)), ox, top);
+    // The bar takes presses over it (the body scrolled under it does not), and its own buttons move up with it.
+    const inBar = (i: number) => g.hits[i].y + g.hits[i].h <= 13;
+    this.hits = this.hits.filter((_, i) => !inBar(i));
+    this.hits.push({ x: ox, y: top, w: out.width, h: rows, action: () => {}, inert: true }, ...g.screenHits(ox, top).filter((_, i) => inBar(i)));
+    // A field scrolled under the bar has no input there (it would take presses meant for the bar), unless it is typing.
+    this.fields = this.fields.filter((f) => f.y >= top + rows || f.spec.id === fieldFocus.id);
+    const track = screen.height - 2 - (top + rows);
+    const s = this.scroll;
+    const thumb = Math.max(4 * scale, Math.round((track * track) / (track + s.max)));
+    const y = top + rows + Math.round(((track - thumb) * s.y) / Math.max(1, s.max));
+    screen.fillRect(ox + out.width - scale, y, scale, thumb, UI.accent);
   }
 
   /** Touch is in use (tips say "tap" instead of naming keys). */
@@ -354,7 +423,8 @@ export class GameUI {
     const justDone = !tip && live.tipJustDone && !live.tutorial.skipped;
     if (!tip && !justDone) return;
     const text = tip ? (this.touchMode ? tip.touch : tip.keys) : t('tip.nice');
-    const maxW = Math.min(220, Math.floor(screen.width / scale) - 16);
+    const { left: L, right: R, top: T, bottom: B } = this.insets;
+    const maxW = Math.min(220, Math.floor((screen.width - L - R) / scale) - 16);
     const measure = new Gfx(1, 1, scale);
     // "TIP" in the 3×5 capitals, the words after it, SKIP TIPS on the right; each as wide as its language needs.
     const head = upper(t('tip.tip'));
@@ -370,16 +440,23 @@ export class GameUI {
     lines.forEach((l, i) => g.text(l, textX, 3 + i * 7, tip ? UI.ink : UI.good));
     if (tip) g.button(skip, w - sw - 2, Math.floor((h - 11) / 2), () => live.setTips(false), { w: sw });
     const big = g.out;
-    const ox = Math.round(screen.width / 2 - big.width / 2);
-    // Above the action prompt and clear of the menu bar (which may be two rows on a phone).
-    let ox2 = ox;
-    let oy = Math.max(0, Math.min(screen.height - big.height - 30 * scale, screen.height - this.menuBarHeight - big.height - 18 * scale));
-    // Never over the hotbar (M11C): beside it when there is room, else above it.
-    const hb = this.hotbarBox;
-    if (hb && ox2 < hb.x + hb.w && hb.x < ox2 + big.width && oy < hb.y + hb.h && hb.y < oy + big.height) {
-      if (hb.x + hb.w + 2 * scale + big.width <= screen.width - 2 * scale) ox2 = hb.x + hb.w + 2 * scale;
-      else oy = Math.max(0, hb.y - big.height - 2 * scale);
+    // Centred in the safe area, above the action prompt and clear of the menu bar (which may be two rows on a phone).
+    let ox2 = Math.round(L + (screen.width - L - R) / 2 - big.width / 2);
+    let oy = Math.min(screen.height - B - big.height - 30 * scale, screen.height - B - this.menuBarHeight - big.height - 18 * scale);
+    // Never over the hotbar (M11C) or the touch USE button (P1.2A): beside one when there is room, else above it; still
+    // over either after that, above both.
+    const over = (b: Rect | null) => !!b && ox2 < b.x + b.w && b.x < ox2 + big.width && oy < b.y + b.h && b.y < oy + big.height;
+    const lo = L + 2 * scale;
+    const hi = screen.width - R - 2 * scale;
+    for (const b of [this.hotbarBox, this.useButtonBox]) {
+      if (!b || !over(b)) continue;
+      if (b.x + b.w + 2 * scale + big.width <= hi) ox2 = b.x + b.w + 2 * scale;
+      else if (b.x - 2 * scale - big.width >= lo) ox2 = b.x - 2 * scale - big.width;
+      else oy = b.y - big.height - 2 * scale;
     }
+    const still = [this.hotbarBox, this.useButtonBox].filter(over) as Rect[];
+    if (still.length) oy = Math.min(...still.map((b) => b.y)) - big.height - 2 * scale;
+    oy = Math.max(T, oy);
     screen.blit(big, ox2, oy);
     this.tipBox = { x: ox2, y: oy, w: big.width, h: big.height };
     this.hits.push(...g.screenHits(ox2, oy));
@@ -390,6 +467,17 @@ export class GameUI {
   menuBarHeight = 30;
   /** Where the menu bar was drawn last (screen pixels). */
   private menuBox: { x: number; y: number; w: number; h: number } | null = null;
+  /** Where the menu bar was drawn last. */
+  get menuBarBox(): Rect | null {
+    return this.menuBox;
+  }
+  /**
+   * Each row of the menu bar as drawn last (its buttons' extent; a second row is often shorter): the camera indicator
+   * keeps clear of the buttons themselves, not of the empty corner beside a short row (P1.2A).
+   */
+  menuBarRows: Rect[] = [];
+  /** P1.2A: where the touch USE (E) button was drawn last (the playground sets it): the tip keeps clear of it. */
+  useButtonBox: Rect | null = null;
   /** The screen's safe-area insets (screen pixels), set by the playground. */
   insets = { top: 0, right: 0, bottom: 0, left: 0 };
   /** Where the hotbar was drawn this frame (screen pixels), or null when it is not shown. */
@@ -545,7 +633,7 @@ export class GameUI {
     const widthOf = (l: string, k = s) => measureAt(k, label(l)) + 6;
     const rowW = (list: [string, ScreenId][], k = s) => list.reduce((n, [l]) => n + widthOf(l, k) + 1, 0);
     let rows: [string, ScreenId][][] = [items];
-    const fits = (k: number, r: [string, ScreenId][][]) => Math.max(...r.map((row, i) => rowW(row, k) + (i === r.length - 1 ? measureAt(k, use) + 9 : 0))) * k + 4 * k <= screen.width;
+    const fits = (k: number, r: [string, ScreenId][][]) => Math.max(...r.map((row, i) => rowW(row, k) + (i === r.length - 1 ? measureAt(k, use) + 9 : 0))) * k + 4 * k <= screen.width - this.insets.left - this.insets.right;
     if (!fits(s, rows)) rows = [items.slice(0, 5), items.slice(5)];
     while (s > 1 && !fits(s, rows)) s--;
     const rowH = 11;
@@ -559,8 +647,13 @@ export class GameUI {
       for (const [l, id] of row) x += g.button(label(l), x, y, () => this.open(id), { w: widthOf(l) }) + 1;
     });
     const big = g.out;
-    const ox = screen.width - big.width - 2 * s;
-    const oy = screen.height - big.height - 2 * s;
+    // Bottom right inside the safe area (P1.2A: clear of a notch, a rounded corner and the home indicator).
+    const ox = screen.width - this.insets.right - big.width - 2 * s;
+    const oy = screen.height - this.insets.bottom - big.height - 2 * s;
+    this.menuBarRows = rows.map((row, r) => {
+      const rw = rowW(row) + (r === rows.length - 1 ? measureAt(s, use) + 9 : 0);
+      return { x: ox + (w - rw) * s, y: oy + r * (rowH + 1) * s, w: rw * s, h: rowH * s };
+    });
     screen.blit(big, ox, oy);
     this.hits = g.screenHits(ox, oy);
     this.menuBox = { x: ox, y: oy, w: big.width, h: big.height };
@@ -591,8 +684,8 @@ export class GameUI {
     let x = 0;
     for (const [l, run, primary] of buttons) x += g.button(l, x, 7, run, { w: probe.measure(l) + 6, primary: !!primary }) + 1;
     const big = g.out;
-    const ox = 2 * s;
-    const oy = Math.max(0, menuTop - big.height - 2 * s);
+    const ox = this.insets.left + 2 * s;
+    const oy = Math.max(this.insets.top, menuTop - big.height - 2 * s);
     screen.blit(big, ox, oy);
     this.modeBarBox = { x: ox, y: oy, w: big.width, h: big.height };
     this.hits.push(...g.screenHits(ox, oy));

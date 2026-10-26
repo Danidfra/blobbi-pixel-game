@@ -144,7 +144,19 @@ export interface ViewUiOptions {
    * it, noticing the player, being called over); `label` is a small caption under the spot.
    */
   travelCue?: { kind: TravelCueKind; label?: string } | null;
+  /** P1.2A: the screen's safe-area insets (screen pixels: notches, rounded corners, the home indicator); none when unset. */
+  insets?: Insets;
+  /** P1.2A: the menu bar's rows (screen pixels): the camera indicator moves above any it would cover. */
+  indicatorAvoid?: readonly { x: number; y: number; w: number; h: number }[];
 }
+
+export interface Insets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export const DEFAULT_VIEW_UI: ViewUiOptions = { hud: true, indicator: true, uiScale: 2, goals: true, prompt: true, lighting: true };
 
@@ -384,15 +396,16 @@ export class ViewRenderer {
       this.drawText(screen, t, (t.x - originX) * s, (y - originY) * s, ui.uiScale);
     }
     this.hudBox = null;
-    // The same HUD at every camera scale (M10 phase B: the zoom never changes its design).
+    // The same HUD at every camera scale (M10 phase B: the zoom never changes its design), inside the safe area.
     this.identityBox = null;
+    this.ins = ui.insets ?? NO_INSETS;
     if (ui.hud) this.drawHud(screen, ui.uiScale, ui);
     // The goal box, the prompt and goal notices are part of the HUD unless set on their own.
     if (ui.goals ?? ui.hud) this.drawGoal(screen, ui.uiScale);
     if (ui.prompt ?? ui.hud) this.drawPrompt(screen, ui.uiScale, ui.bottom ?? 0, ui.promptAvoid ?? null);
     if (ui.hud) this.drawNotice(screen, ui.uiScale);
     this.indicatorBox = null;
-    if (ui.indicator) this.drawIndicator(screen, view, ui.uiScale);
+    if (ui.indicator) this.drawIndicator(screen, view, ui.uiScale, ui.indicatorAvoid ?? []);
     const t5 = performance.now();
     this.timings.world = t1 - t0;
     this.timings.compose = t2 - t1 + (t4 - t3);
@@ -457,13 +470,15 @@ export class ViewRenderer {
     const level = friendLevel(live.companion.friendship);
     const info: StatusInfo = { name: opts.blobbiName || (live.blobbi.seed.length > 14 ? 'Blobbi' : live.blobbi.seed), title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
     const status = this.cachedText(`status|${JSON.stringify(info)}`, (k) => statusCard({ ...info, face: this.portrait() }, k), ui);
-    screen.blit(status, 2 * ui, 2 * ui);
-    let bottom = 2 * ui + status.height;
+    const left = this.ins.left + 2 * ui;
+    const top = this.ins.top + 2 * ui;
+    screen.blit(status, left, top);
+    let bottom = top + status.height;
     // M11C: Guest or Connected, small, right under the card (the toasts follow it).
     if (opts.identity) {
       const chip = this.cachedText(`identity|${opts.identity}`, (k) => identityChip(opts.identity === 'connected', k), ui);
-      this.identityBox = { x: 2 * ui, y: bottom + ui, w: chip.width, h: chip.height };
-      screen.blit(chip, 2 * ui, bottom + ui);
+      this.identityBox = { x: left, y: bottom + ui, w: chip.width, h: chip.height };
+      screen.blit(chip, left, bottom + ui);
       bottom += chip.height + ui;
     }
     // Item toasts under the card, newest last; they slide in (unless motion is reduced) and leave on time. Sim
@@ -475,12 +490,15 @@ export class ViewRenderer {
       const card = this.cachedText(`toast|${t.item}|${text}`, (k) => toastCard(itemIcon(t.item, palette), text, k), ui);
       const age = now - t.at;
       const slide = this.reducedMotion ? 0 : Math.round(Math.max(0, 1 - age / 0.18) * -card.width);
-      screen.blit(card, 2 * ui + slide, bottom + ui);
+      screen.blit(card, left + slide, bottom + ui);
       bottom += card.height + ui;
     }
     // The tool in hand is shown by the hotbar (M11C, drawn by the game UI), not here.
-    this.hudBox = { right: 2 * ui + status.width, bottom: this.identityBox ? this.identityBox.y + this.identityBox.h : 2 * ui + status.height };
+    this.hudBox = { right: left + status.width, bottom: this.identityBox ? this.identityBox.y + this.identityBox.h : top + status.height };
   }
+
+  /** This frame's safe-area insets (screen pixels). */
+  private ins: Insets = NO_INSETS;
 
   /** The Blobbi's face for the status card: its canonical front sprite at the gameplay size. */
   private portrait(): PixelBuffer {
@@ -508,18 +526,21 @@ export class ViewRenderer {
     const rain = live.rainNow();
     const chip = this.cachedText(`time|${dayAt(t)}|${Math.floor(hour * 6)}|${rain > 0.45 ? 2 : rain > 0.2 ? 1 : 0}`, (k) => timeChip(dayAt(t), hour, rain, k), ui);
     const hud = this.hudBox;
-    const narrow = (w: number) => !!hud && screen.width - w - 2 * ui < hud.right + 4 * ui;
-    let y = 2 * ui;
+    // The right edge and the left column inside the safe area.
+    const right = screen.width - this.ins.right - 2 * ui;
+    const left = this.ins.left + 2 * ui;
+    const narrow = (w: number) => !!hud && right - w < hud.right + 4 * ui;
+    let y = this.ins.top + 2 * ui;
     if (!narrow(chip.width)) {
-      screen.blit(chip, screen.width - chip.width - 2 * ui, y);
+      screen.blit(chip, right - chip.width, y);
       y += chip.height + ui;
     }
     // A visitor sees where it is and how to go home, not the host's story.
     if (live.visitor) {
       const text = upper(lang('hud.visiting', { name: live.visitLabel || lang('hud.anIsland') }));
       const chipV = this.cachedText(`visit|${text}`, (k) => toastCard(null, text, k), ui);
-      if (narrow(chipV.width)) screen.blit(chipV, 2 * ui, (hud?.bottom ?? 0) + ui);
-      else screen.blit(chipV, screen.width - chipV.width - 2 * ui, y);
+      if (narrow(chipV.width)) screen.blit(chipV, left, (hud?.bottom ?? 0) + ui);
+      else screen.blit(chipV, right - chipV.width, y);
       return;
     }
     const goal = currentObjective(live.objectives);
@@ -528,7 +549,7 @@ export class ViewRenderer {
       const n = OBJECTIVES.indexOf(goal) + 1;
       const progress = live.questProgress(goal);
       const buf = this.cachedText(`goal|${n}|${goal.title}|${progress}`, (k) => goalCard(n, OBJECTIVES.length, goal.title, progress, k), ui);
-      const gx = narrow(buf.width) ? 2 * ui : screen.width - buf.width - 2 * ui;
+      const gx = narrow(buf.width) ? left : right - buf.width;
       const gy = narrow(buf.width) ? (hud?.bottom ?? 0) + ui : y;
       screen.blit(buf, gx, gy);
       below = gy + buf.height + ui;
@@ -538,7 +559,7 @@ export class ViewRenderer {
     if (!pinned) return;
     const progress = live.questProgress(pinned);
     const card = this.cachedText(`pinned|${pinned.title}|${progress}`, (k) => pinnedCard(pinned.title, progress, k), ui);
-    const px = narrow(card.width) ? 2 * ui : screen.width - card.width - 2 * ui;
+    const px = narrow(card.width) ? left : right - card.width;
     const py = goal ? below : narrow(card.width) ? (hud?.bottom ?? 0) + ui : y;
     screen.blit(card, px, py);
   }
@@ -561,10 +582,11 @@ export class ViewRenderer {
       b.text(words, 3 + kw, 3, hex('#fffaf0'));
       return b.out;
     }, ui);
-    let x = Math.round(screen.width / 2 - buf.width / 2);
-    const y = screen.height - buf.height - Math.max(14 * ui, bottom + 3 * ui);
+    const { left, right } = this.ins;
+    let x = Math.round(left + (screen.width - left - right) / 2 - buf.width / 2);
+    const y = screen.height - this.ins.bottom - buf.height - Math.max(14 * ui, bottom + 3 * ui);
     // Beside the hotbar rather than over it (a narrow phone, a long prompt).
-    if (avoid && x < avoid.x + avoid.w && avoid.x < x + buf.width && y < avoid.y + avoid.h && avoid.y < y + buf.height) x = Math.min(screen.width - buf.width, avoid.x + avoid.w + 2 * ui);
+    if (avoid && x < avoid.x + avoid.w && avoid.x < x + buf.width && y < avoid.y + avoid.h && avoid.y < y + buf.height) x = Math.min(screen.width - right - buf.width, avoid.x + avoid.w + 2 * ui);
     screen.blit(buf, x, y);
   }
 
@@ -586,11 +608,15 @@ export class ViewRenderer {
       b.text(line2, Math.round((w - w2) / 2), 10, hex('#f4efe4'));
       return b.out;
     }, ui);
-    screen.blit(buf, Math.round(screen.width / 2 - buf.width / 2), 16 * ui);
+    const { left, right, top } = this.ins;
+    screen.blit(buf, Math.round(left + (screen.width - left - right) / 2 - buf.width / 2), top + 16 * ui);
   }
 
-  /** "Z CAMERA  EXPLORATION 2X" and a pip per mode, the active one lit, in the bottom-left corner (tappable). */
-  private drawIndicator(screen: PixelBuffer, view: ViewRect, ui: number): void {
+  /**
+   * "Z CAMERA  EXPLORATION 2X" and a pip per mode, the active one lit, in the bottom-left corner (tappable), inside the
+   * safe area; above the menu bar where a narrow screen's bar reaches that corner (P1.2A).
+   */
+  private drawIndicator(screen: PixelBuffer, view: ViewRect, ui: number, avoid: readonly { x: number; y: number; w: number; h: number }[] = []): void {
     const mode = CAMERA_MODES[view.mode];
     const scaleText = Number.isInteger(view.scale) ? `${view.scale}X` : '';
     const text = `${upper(lang('hud.camera'))}  ${mode.label} ${scaleText}`.trimEnd();
@@ -603,8 +629,12 @@ export class ViewRenderer {
       b.text(text, pips + 1, 2, hex('#f4efe4'));
       return b.out;
     }, ui);
-    screen.blit(buf, 2 * ui, screen.height - buf.height - 2 * ui);
-    this.indicatorBox = { x: 2 * ui, y: screen.height - buf.height - 2 * ui, w: buf.width, h: buf.height };
+    const x = this.ins.left + 2 * ui;
+    let y = screen.height - this.ins.bottom - buf.height - 2 * ui;
+    const hit = avoid.filter((a) => x < a.x + a.w && a.x < x + buf.width && y < a.y + a.h && a.y < y + buf.height);
+    if (hit.length) y = Math.min(...avoid.filter((a) => x < a.x + a.w && a.x < x + buf.width).map((a) => a.y)) - buf.height - 2 * ui;
+    screen.blit(buf, x, y);
+    this.indicatorBox = { x, y, w: buf.width, h: buf.height };
   }
 
   /** Where the camera indicator was drawn last frame: a click or a tap on it changes the camera (M10). */

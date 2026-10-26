@@ -21,7 +21,7 @@
  * so a double click or a repeated tap can never delete by accident.
  */
 import { PixelBuffer } from '../core/pixel';
-import { Gfx, UI, textWidth, type Hit } from './gfx';
+import { Gfx, UI, hitAt, textWidth, type Hit } from './gfx';
 import { DESIGN, card } from './hud';
 import { drawTinyText } from '../render/live-render';
 import type { WorldEntry } from '../game/worlds';
@@ -30,7 +30,8 @@ import { ConfirmGate } from '../game/world-delete';
 import { MAX_NAME, sanitizeIslandName, suggestIslandName, typingIslandName } from '../game/island-name';
 import { getLocale, LOCALES, t, upper } from '../i18n';
 import { nextLocale } from './screens/settings';
-import { drawTextField, type FieldBox, type TextFieldSpec } from './text-field';
+import { drawTextField, fieldFocus, type FieldBox, type TextFieldSpec } from './text-field';
+import { PanelScroll, fitPanel, newlyMarked, type Rect } from './panel-fit';
 import type { ExtensionCheck } from '../nostr/port';
 
 export type TitlePage = 'welcome' | 'main' | 'islands' | 'about' | 'carrier' | 'name' | 'creating' | 'error' | 'delete' | 'newConfirm' | 'companion' | 'login' | 'owner' | 'arrived' | 'switch';
@@ -339,7 +340,17 @@ export class TitleScreen {
     this.page = page;
     this.index = 0;
     this.scroll = 0;
+    this.fitScroll.reset();
   }
+
+  /** The screen's safe-area insets (screen pixels; the playground sets them): pages centre inside them (P1.2A). */
+  insets = { top: 0, right: 0, bottom: 0, left: 0 };
+  /** The whole page's scroll where 2× is taller than the screen (P1.2A, `panel-fit.ts`); 0 elsewhere. */
+  readonly fitScroll = new PanelScroll();
+  /** A key was pressed: the next frame keeps what it selected in view. */
+  private followKey = false;
+  private lastMarks: readonly Rect[] = [];
+  private lastFocus: string | null = null;
 
   /** One step back: to WELCOME for a first-time player, else to the main menu. */
   private back(): void {
@@ -473,6 +484,8 @@ export class TitleScreen {
     if (!this.active) return false;
     this.touched = true;
     if (this.page === 'creating') return true;
+    if (this.fitScroll.key(code, this.fitScroll.page)) return true;
+    this.followKey = true;
     if (this.page === 'carrier') return this.carrierKey(code);
     const items = this.items();
     const naming = this.page === 'name';
@@ -539,16 +552,14 @@ export class TitleScreen {
     return true;
   }
 
-  pointer(sx: number, sy: number): boolean {
+  /** A press (a finger's reaches `slop` pixels to the nearest control, P1.2A); the title takes every press. */
+  pointer(sx: number, sy: number, slop = 0): boolean {
     if (!this.active) return false;
     this.touched = true;
-    for (let i = this.hits.length - 1; i >= 0; i--) {
-      const h = this.hits[i];
-      if (sx >= h.x && sy >= h.y && sx < h.x + h.w && sy < h.y + h.h) {
-        this.onSound?.('ui-confirm');
-        h.action(0, 0);
-        return true;
-      }
+    const h = hitAt(this.hits, sx, sy, slop);
+    if (h && !h.inert) {
+      this.onSound?.('ui-confirm');
+      h.action(0, 0);
     }
     return true;
   }
@@ -577,15 +588,37 @@ export class TitleScreen {
       const b = (c >>> 16) & 0xff;
       d[i] = 0xff000000 | (((b * 0.45 + 0x40 * 0.55) & 0xff) << 16) | (((g * 0.45 + 0x24 * 0.55) & 0xff) << 8) | ((r * 0.45 + 0x1b * 0.55) & 0xff);
     }
-    const scale = TitleScreen.scaleFor(screen.width, screen.height);
+    // 2× scrolling instead of 1× where only the height is short (P1.2A); otherwise exactly `scaleFor`.
+    const fit = fitPanel(screen.width, screen.height, W, H, 6);
+    this.fitScroll.range(fit.overflow, screen.height);
+    const scale = fit.scale;
     const g = new Gfx(W, H, scale);
     this.draw(g, time);
     const big = g.out;
-    const ox = Math.floor((screen.width - big.width) / 2);
-    const oy = Math.floor((screen.height - big.height) / 2);
+    // Centred in the safe area when it fits there (P1.2A: clear of a notch), else on the screen.
+    const { left: L, right: R } = this.insets;
+    const ox = big.width <= screen.width - L - R ? L + Math.floor((screen.width - L - R - big.width) / 2) : Math.floor((screen.width - big.width) / 2);
+    // A scrolling page keeps the row the keyboard just moved to, and a field that just took the keyboard, in view.
+    if (fit.overflow) {
+      const follow = (y0: number, y1: number) => this.fitScroll.follow(y0 * scale, y1 * scale, 0, screen.height);
+      const moved = this.followKey ? newlyMarked(g.marks, this.lastMarks) : null;
+      if (moved) follow(moved.top, moved.bottom);
+      const focused = fieldFocus.id !== this.lastFocus ? g.fields.find((f) => f.spec.id === fieldFocus.id) : undefined;
+      if (focused) follow(focused.y, focused.y + focused.h);
+    }
+    this.followKey = false;
+    this.lastMarks = g.marks;
+    this.lastFocus = fieldFocus.id;
+    const oy = fit.overflow ? -this.fitScroll.y : Math.floor((screen.height - big.height) / 2);
     screen.blit(big, ox, oy);
     this.hits = g.screenHits(ox, oy);
     this.fields = g.screenFields(ox, oy);
+    if (fit.overflow) {
+      // Where the page is: a thin bar at the right edge of the screen.
+      const s = this.fitScroll;
+      const thumb = Math.max(4 * scale, Math.round((screen.height * screen.height) / (screen.height + s.max)));
+      screen.fillRect(screen.width - scale, Math.round(((screen.height - thumb) * s.y) / s.max), scale, thumb, UI.accent);
+    }
   }
 
   draw(g: Gfx, time: number): void {
@@ -670,6 +703,7 @@ export class TitleScreen {
       const c = card(panelW, h, selected ? (it.danger ? UI.bad : DESIGN.accent) : undefined);
       if (selected) c.fillRect(1, 1, panelW - 2, h - 2, DESIGN.cardHi);
       g.buf.blit(c, px, y);
+      if (selected) g.mark(px, y, panelW, h);
       // A non-colour selection mark too.
       if (selected) for (let m = 0; m < 3; m++) g.buf.fillRect(px + 4 + m, y + 3 + m, 1, 5 - 2 * m, UI.accent);
       g.text(it.label, px + 11, y + (it.minor ? 2 : 3), waiting ? UI.line : it.danger ? UI.bad : selected ? UI.accent : it.minor ? UI.muted : UI.ink);

@@ -57,6 +57,11 @@ export class TouchControls {
   /** Safe-area insets (screen px). */
   insets = { top: 0, right: 0, bottom: 0, left: 0 };
   private button: { x: number; y: number; r: number } | null = null;
+  /** Where the USE button was drawn last (screen pixels), or null: other HUD keeps clear of it (P1.2A). */
+  get buttonBox(): { x: number; y: number; w: number; h: number } | null {
+    const b = this.button;
+    return b && { x: b.x - b.r, y: b.y - b.r, w: 2 * b.r, h: 2 * b.r };
+  }
 
   constructor(private uiScale: () => number) {}
 
