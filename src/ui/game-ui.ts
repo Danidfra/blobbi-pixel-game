@@ -176,9 +176,24 @@ export class GameUI {
   /** UI sounds (open, close, select, confirm, deny), for the audio layer. */
   onSound: ((name: string) => void) | null = null;
 
+  /**
+   * P1.2B: a screen the player may not open now (World Travel for a guest): the reason, or null. Asked by `open` on
+   * every path (its menu button, its key, any caller); the menu bar shows such a button with a lock.
+   */
+  locked: ((id: ScreenId) => string | null) | null = null;
+  /** P1.2B: tell the player why a screen stays shut (no panel is open to carry a message: the host shows a notice). */
+  onLocked: ((id: ScreenId, why: string) => void) | null = null;
+
   open(id: ScreenId): boolean {
     const s = this.screens.get(id);
     if (!s || !this.live) return false;
+    const why = this.locked?.(id) ?? null;
+    if (why) {
+      this.onSound?.('ui-deny');
+      if (this.onLocked) this.onLocked(id, why);
+      else this.say(why, false);
+      return false;
+    }
     if (this.screen !== s) {
       this.onSound?.('ui-open');
       this.openedAt = this.now;
@@ -189,6 +204,11 @@ export class GameUI {
     this.live?.noteEvent(`open:${id}`);
     s.opened?.(this);
     return true;
+  }
+
+  /** The open screen's id, or null. */
+  get openId(): ScreenId | null {
+    return this.screen?.id ?? null;
   }
 
   close(): void {
@@ -234,7 +254,7 @@ export class GameUI {
       else if (OPEN_KEYS[code]) this.open(OPEN_KEYS[code]);
       return true;
     }
-    if (OPEN_KEYS[code]) return this.open(OPEN_KEYS[code]);
+    if (OPEN_KEYS[code]) return this.open(OPEN_KEYS[code]) || !!this.locked?.(OPEN_KEYS[code]);
     if (code === 'Escape') {
       // Escape first leaves a mode (build, move, placing) — the caller handles that; settings only from plain play.
       const live = this.live;
@@ -635,8 +655,11 @@ export class GameUI {
     const probes = new Map<number, Gfx>();
     const measureAt = (k: number, l: string) => (probes.get(k) ?? probes.set(k, new Gfx(1, 1, k)).get(k)!).measure(l);
     let s = this.touchMode ? 3 : scale;
-    const widthOf = (l: string, k = s) => measureAt(k, label(l)) + 6;
-    const rowW = (list: [string, ScreenId][], k = s) => list.reduce((n, [l]) => n + widthOf(l, k) + 1, 0);
+    // P1.2B: a locked screen's button carries a small lock before its label (LOCK_W wider).
+    const isLocked = (id: ScreenId) => !!this.locked?.(id);
+    const LOCK_W = 9;
+    const widthOf = (l: string, k = s, id?: ScreenId) => measureAt(k, label(l)) + 6 + (id && isLocked(id) ? LOCK_W : 0);
+    const rowW = (list: [string, ScreenId][], k = s) => list.reduce((n, [l, id]) => n + widthOf(l, k, id) + 1, 0);
     let rows: [string, ScreenId][][] = [items];
     const fits = (k: number, r: [string, ScreenId][][]) => Math.max(...r.map((row, i) => rowW(row, k) + (i === r.length - 1 ? measureAt(k, use) + 9 : 0))) * k + 4 * k <= screen.width - this.insets.left - this.insets.right;
     if (!fits(s, rows)) rows = [items.slice(0, 5), items.slice(5)];
@@ -649,7 +672,11 @@ export class GameUI {
       let x = w - rowW(row) - (r === rows.length - 1 ? measureAt(s, use) + 9 : 0);
       // USE presses E for a mouse or a touch screen (the same action as the key).
       if (r === rows.length - 1) x += g.button(use, x, y, () => this.onUse?.(), { w: measureAt(s, use) + 6, primary: true }) + 3;
-      for (const [l, id] of row) x += g.button(label(l), x, y, () => this.open(id), { w: widthOf(l) }) + 1;
+      for (const [l, id] of row) {
+        const bw = g.button(label(l), x, y, () => this.open(id), { w: widthOf(l, s, id) });
+        if (isLocked(id)) drawLock(g, x + 2, y + 2);
+        x += bw + 1;
+      }
     });
     const big = g.out;
     // Bottom right inside the safe area (P1.2A: clear of a notch, a rounded corner and the home indicator).
@@ -719,3 +746,16 @@ export function moveSelection(code: string, index: number, count: number, cols: 
 
 /** True for the keys that confirm the selection. */
 export const isConfirm = (code: string): boolean => code === 'Enter' || code === 'Space' || code === 'NumpadEnter';
+
+/**
+ * P1.2B: the small lock on a locked menu button (5×7 UI pixels): a shackle over a body with a keyhole, drawn at (x, y)
+ * inside the button, a pixel clear of its (re-centred) label.
+ */
+export function drawLock(g: Gfx, x: number, y: number): void {
+  const c = UI.accent;
+  g.buf.fillRect(x + 1, y, 3, 1, c);
+  g.buf.fillRect(x, y + 1, 1, 2, c);
+  g.buf.fillRect(x + 4, y + 1, 1, 2, c);
+  g.buf.fillRect(x, y + 3, 5, 4, c);
+  g.buf.fillRect(x + 2, y + 4, 1, 2, UI.slot);
+}

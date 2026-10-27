@@ -1493,8 +1493,15 @@ function departFor(destination: string): Promise<DepartureOutcome> | null {
     stillAccount: () => travelAccount(owner) && connectedPubkey === owner,
   }).then((r) => r.outcome);
 }
+/**
+ * P1.2B: World Travel is for a logged-in player: a Nostr account connected here (a browser extension, or an identity
+ * this game keeps once registered or restored). A guest, including one whose local identity is not registered yet,
+ * never travels. The same state as the account chip; nothing new is stored.
+ */
+const travelLocked = (): boolean => account.snapshot().status !== 'connected';
 const departure = createDeparture({
   depart: departFor,
+  allowed: () => !travelLocked(),
   leave: () => !!live && !live.interior && live.getPresenceState() === 'present' && live.leaveBlobbi(),
   gone: () => !live || live.getPresenceState() === 'absent',
   comeBack: () => void live?.enterBlobbi(),
@@ -1508,16 +1515,34 @@ const departure = createDeparture({
     if (st.phase === 'failed') {
       travelNotice(t('travel.tripFailed', { world }), t('travel.tripFailedText', { name }), 8);
       departure.reset();
+    } else if (st.phase === 'cancelled') {
+      travelNotice(t('travel.cancelled'), t('travel.lockedText'), 6);
+      departure.reset();
     } else if (st.phase === 'leaving' && st.move === 'declined') travelNotice(t('travel.departDeclined'), t('travel.departDeclinedText', { name, world }), 6);
     else if (st.phase === 'leaving' && (st.move === 'unreachable' || st.move === 'stale' || st.move === 'wrong-account' || st.move === 'read-only')) travelNotice(t('travel.departStayed', { name }), t('travel.departStayedText', { name, world }), 6);
   },
 });
 window.addEventListener('pagehide', () => departure.left());
+// P1.2B: a guest's WORLDS button is locked (its key and any other way in too), with a short notice instead of the menu.
+gameUI.locked = (id) => (id === 'travel' && travelLocked() ? t('travel.locked') : null);
+gameUI.onLocked = (_id, why) => travelNotice(why, t('travel.lockedText'), 5);
+// Logged out: an open World Travel menu closes at once and a trip not yet gone is cancelled. Logged in: the button
+// unlocks by itself (the menu bar asks every frame).
+account.onChange(() => {
+  if (!travelLocked()) return;
+  if (gameUI.openId === 'travel') gameUI.close();
+  departure.cancel();
+});
 travelScreen.hooks = {
   worlds: () => TRAVEL_WORLDS,
   name: travelName,
   companion: travelCompanion,
+  locked: travelLocked,
   go: (world: BlobbiWorld) => {
+    if (travelLocked()) {
+      travelNotice(t('travel.locked'), t('travel.lockedText'), 5);
+      return 'locked';
+    }
     if (!live || !playStarted) return 'busy';
     if (live.interior) return 'inside';
     const r = departure.go(world);

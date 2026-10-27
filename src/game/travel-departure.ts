@@ -13,13 +13,16 @@
  *   3. One trip at a time: a second press while one is under way does nothing (`'busy'`), so no second signature is
  *      ever asked for and no second navigation started. If the page has not left `failMs` after navigating, the trip
  *      failed (a blocked navigation): the Blobbi comes back and the player is told.
+ *   4. P1.2B: only a logged-in player travels (`allowed`). A trip is never started without it ('locked'), and one
+ *      under way whose player logs out before the page leaves is cancelled (`'cancelled'`): the page stays, the
+ *      Blobbi comes back. A move already being signed keeps its own account check (`departTo`'s `stillAccount`).
  *
  * Pure: time, timers, the teleport and the page are passed in, so it runs in tests without a page.
  */
 import type { BlobbiWorld } from './blobbi-worlds';
 import type { DepartureOutcome } from './world-travel-departure';
 
-export type DeparturePhase = 'idle' | 'leaving' | 'failed';
+export type DeparturePhase = 'idle' | 'leaving' | 'failed' | 'cancelled';
 /** The move's state: none could be started (no session, nothing to move), under way, or its outcome. */
 export type MoveState = 'none' | 'moving' | DepartureOutcome;
 
@@ -47,6 +50,8 @@ export interface DepartureDeps {
   save(): void;
   /** Go to the address (the page is left). */
   navigate(url: string): void;
+  /** P1.2B: whether the player may travel now (a logged-in account); asked on the press and again before leaving. */
+  allowed?(): boolean;
   onChange?(state: DepartureState): void;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -59,14 +64,16 @@ export interface DepartureDeps {
 
 export interface Departure {
   state(): DepartureState;
-  /** Start a trip; `'busy'` while one is under way. */
-  go(world: BlobbiWorld): 'started' | 'busy';
+  /** Start a trip; `'busy'` while one is under way, `'locked'` when the player may not travel (P1.2B). */
+  go(world: BlobbiWorld): 'started' | 'busy' | 'locked';
   /** Each frame: leave when the departure and the move are both over. */
   update(): void;
   /** The page is leaving (pagehide): the failure timer is dropped. */
   left(): void;
-  /** After a failure: back to idle (the notice was shown). */
+  /** After a failure or a cancel: back to idle (the notice was shown). */
   reset(): void;
+  /** P1.2B: stop a trip under way before the page leaves (the player logged out): the Blobbi comes back. */
+  cancel(): void;
 }
 
 export const DEPARTURE_FAIL_MS = 5_000;
@@ -90,10 +97,20 @@ export function createDeparture(deps: DepartureDeps): Departure {
     deps.onChange?.(state);
   };
 
+  const cancel = (): void => {
+    if (state.phase !== 'leaving' || state.navigated) return;
+    // A move still settling belongs to this trip no more.
+    trip++;
+    settled = false;
+    set({ phase: 'cancelled' });
+    deps.comeBack();
+  };
+
   return {
     state: () => state,
     go(world) {
       if (state.phase === 'leaving') return 'busy';
+      if (deps.allowed && !deps.allowed()) return 'locked';
       if (failTimer !== null) clearTimer(failTimer);
       failTimer = null;
       trip++;
@@ -124,6 +141,8 @@ export function createDeparture(deps: DepartureDeps): Departure {
     update() {
       if (state.phase !== 'leaving' || state.navigated || !settled) return;
       if (animating && !deps.gone() && now() - startedAt < maxWaitMs) return;
+      // The last gate: the player must still be allowed to travel when the page would leave.
+      if (deps.allowed && !deps.allowed()) return cancel();
       const world = state.world!;
       set({ navigated: true });
       deps.navigate(world.url);
@@ -142,5 +161,6 @@ export function createDeparture(deps: DepartureDeps): Departure {
       if (state.phase === 'leaving') return;
       set({ phase: 'idle', world: null, move: 'none', navigated: false });
     },
+    cancel,
   };
 }

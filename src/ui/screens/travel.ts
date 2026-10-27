@@ -5,6 +5,10 @@
  * along (a move can be made here), or it stays where it is for now (no account, world travel off, the place not
  * confirmed, the signer not ready: the other world asks when it opens). The islands in this browser (M7's local
  * visiting) keep their own screen, reached from here.
+ *
+ * P1.2B: World Travel is for a logged-in player (`locked`). A guest's WORLDS button shows a lock and the screen does
+ * not open (`GameUI.locked`); should it be open when the player logs out, it shows no destination and closes, and a
+ * VISIT is refused by the host too (`go` → 'locked') and by the departure itself.
  */
 import { t, upper } from '../../i18n';
 import { PixelBuffer } from '../../core/pixel';
@@ -28,8 +32,11 @@ export interface TravelHooks {
   /** The walking Blobbi's name. */
   name(): string;
   companion(): Companion;
-  /** Start the trip; 'busy' while one is under way, 'inside' when the Blobbi must step outside first. */
-  go(world: BlobbiWorld): 'started' | 'busy' | 'inside';
+  /** Start the trip; 'busy' while one is under way, 'inside' when the Blobbi must step outside first, 'locked' when
+   * the player may not travel (not logged in: the host says so). */
+  go(world: BlobbiWorld): 'started' | 'busy' | 'inside' | 'locked';
+  /** P1.2B: the player may not travel now (a guest). */
+  locked?(): boolean;
   departing(): boolean;
   /** The world's icon at `size`, or null (the emblem is drawn). */
   icon(world: BlobbiWorld, size: number): PixelBuffer | null;
@@ -60,10 +67,13 @@ export class TravelScreen implements Screen {
 
   private act(ui: GameUI): void {
     const h = this.hooks;
-    const world = h?.worlds()[this.index];
-    if (!h || !world) return;
+    if (!h) return;
+    if (h.locked?.()) return ui.close();
+    const world = h.worlds()[this.index];
+    if (!world) return;
     const r = h.go(world);
-    if (r === 'inside') ui.say(t('worlds.stepOutside'), false);
+    if (r === 'locked') ui.close();
+    else if (r === 'inside') ui.say(t('worlds.stepOutside'), false);
     else if (r === 'busy') ui.say(t('travel.menuBusy'), false);
     else ui.close();
   }
@@ -103,6 +113,11 @@ export class TravelScreen implements Screen {
     const hooks = this.hooks;
     if (!hooks) {
       g.para(t('worlds.unavailable'), x, y + 2, w, UI.muted);
+      return;
+    }
+    // Locked (logged out while open): no destination to press; the host closes the screen.
+    if (hooks.locked?.()) {
+      g.para(t('travel.locked'), x, y + 2, w, UI.muted);
       return;
     }
     const name = hooks.name();

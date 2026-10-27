@@ -1,9 +1,11 @@
 // WORLD TRAVEL MENU BROWSER CHECK: the departure to another Blobbi world, end to end through the real page
-// (`main.ts`), fully offline. A guest's new island; Y opens the menu (the cards with the other apps' icons, decoded
-// by the page itself); VISIT on Blobbi Island plays the teleport departure, saves the island, and the page goes to the
-// Island's address, which this run points at a local stand-in (`VITE_BLOBBI_WORLD_URL_ISLAND`; Home's too, so no
-// press can reach a real site), with no move published (a guest's Blobbi stays). Nothing reaches the network: no account, no
-// relay, and every destination is this machine.
+// (`main.ts`), fully offline. A guest's new island: World Travel stays locked for a guest (P1.2B: Y shows a notice,
+// not the menu). Then an account this game keeps (an offline stand-in, never asked to sign) logs in; Y opens the menu
+// (the cards with the other apps' icons, decoded by the page itself); VISIT on Blobbi Island plays the teleport
+// departure, saves the island, and the page goes to the Island's address, which this run points at a local stand-in
+// (`VITE_BLOBBI_WORLD_URL_ISLAND`; Home's too, so no press can reach a real site), with no move published (world
+// travel is off offline: the Blobbi stays). Nothing reaches the network: no relay, and every destination is this
+// machine.
 //
 // Starts its own dev server (5245) and the MUTED lab browser (scripts/lab-browser.mjs, its own scratch profile), and
 // stops both. Screenshots go to $OUT (default: a scratch directory under the system temp dir).
@@ -112,6 +114,15 @@ try {
   await evaluate('window.__blobbi.ui().close();');
   const island = await evaluate('return window.__blobbi.live().identity;');
 
+  // ── P1.2B: a guest's Y shows a short notice, never the menu ──
+  await evaluate("document.getElementById('view').dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyY', key: 'y', bubbles: true }));");
+  await sleep(300);
+  const locked = await evaluate("const ui = window.__blobbi.ui(); return { capturing: ui.capturing, notices: window.__blobbi.live().notices.map((n) => n.title) };");
+  check(!locked.capturing && locked.notices.includes('Log in to explore other worlds.'), `a guest's Y leaves World Travel shut, with a notice (${JSON.stringify(locked)})`);
+  // Logged in (an identity this game keeps; offline, nothing is ever signed with it here): the button unlocks at once.
+  await evaluate(`window.__blobbi.account().adoptVaultIdentity('${'b'.repeat(64)}');`);
+  await sleep(300);
+
   // ── Y opens World Travel; the cards carry the other apps' icons ──
   await evaluate("document.getElementById('view').dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyY', key: 'y', bubbles: true }));");
   await sleep(800); // the icons decode
@@ -124,7 +135,7 @@ try {
   const icons = await evaluate(`const imgs = await Promise.all(['/icons/worlds/blobbi-home.png', '/icons/worlds/blobbi-island.png'].map((src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok([i.naturalWidth, i.naturalHeight]); i.onerror = () => ok(null); i.src = src; }))); return imgs;`);
   check(JSON.stringify(icons) === '[[192,192],[192,192]]', `both world icons load on this origin at 192 px (${JSON.stringify(icons)})`);
 
-  // ── VISIT Blobbi Island: the departure plays, the island is saved, the page goes (nothing signed for a guest) ──
+  // ── VISIT Blobbi Island: the departure plays, the island is saved, the page goes (nothing signed: offline) ──
   await evaluate("const ui = window.__blobbi.ui(); ui.handleKey('ArrowRight'); ui.handleKey('Enter');");
   await sleep(100);
   const leaving = await evaluate("const ui = window.__blobbi.ui(); const l = window.__blobbi.live(); return { capturing: ui.capturing, presence: l.getPresenceState(), saved: Object.keys(localStorage).some((k) => k.startsWith('blobbi-pixel-lab:save:')) };");
@@ -143,7 +154,7 @@ try {
     if (href.startsWith(DEST)) break;
     await sleep(100);
   }
-  check(href === DEST, `the page went to the Island's address, with no fragment for a guest (${href})`);
+  check(href === DEST, `the page went to the Island's address, with no fragment (${href})`);
   check(arrivals.length >= 1 && !arrivals.some((a) => a.includes('blobbi-travel')), `the stand-in was asked for its page; nothing rode in the address (${JSON.stringify(arrivals)})`);
   await shoot('3-arrived');
 

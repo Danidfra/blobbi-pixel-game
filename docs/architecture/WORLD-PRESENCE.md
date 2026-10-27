@@ -191,6 +191,23 @@ ids older builds kept are deleted (`dropLegacyHandoffStore`). Tests:
 `tests/world-travel-departure.test.ts`, `tests/travel-departure.test.ts`,
 `tests/travel-menu.test.ts`; browser: `scripts/travel-menu-browser.ts`.
 
+**Logged-in players only (P1.2B, 2026-10-26).** World Travel is for a player
+with a connected Nostr account (`account.snapshot().status === 'connected'`:
+a browser extension, or an identity this game keeps once registered or
+restored); a guest, including one whose local identity is not registered yet,
+never travels. One rule (`travelLocked` in `main.ts`) is asked at four places:
+the WORLDS button and every way to open the menu (`GameUI.locked`: the button
+shows a small lock, Y and the button show the short notice "Log in to explore
+other worlds." instead of the menu), the menu itself (`TravelHooks.locked`: no
+destination shown, VISIT closes it), the host's VISIT (`go` → `'locked'`) and
+the departure (`DepartureDeps.allowed`, asked on the press and again before the
+page leaves). Logging out closes an open menu and cancels a trip not yet gone
+(`Departure.cancel`, phase `'cancelled'`: the Blobbi comes back, a notice says
+so); a move already signed and published before the logout stands (`departTo`
+signs only while the account is still connected). Logging in unlocks the button
+at once. Island management is not World Travel: a guest keeps SETTINGS > MAIN
+MENU (the islands, a new adventure). Tests: `tests/travel-guard.test.ts`.
+
 ## Arriving from another world lands in play (2026-10-20)
 
 A player whose Blobbi was moved here by Home or Island opens Pixel's plain
