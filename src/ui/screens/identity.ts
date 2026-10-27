@@ -51,7 +51,13 @@ interface Action {
   enabled?: boolean;
   card?: { icon: PixelBuffer; sub: string; tag?: string };
   tick?: boolean;
+  /** P1.2A: a tap or click is taken by a real element over the button (see `NativeBox`): a file chooser, or the
+   * clipboard, which a browser opens only inside the player's own tap. `run` stays the keyboard's way. */
+  native?: { id: string; kind: 'press' | 'file'; onFileText?: (text: string) => void };
 }
+
+/** What reading the clipboard gave: its text, or why not (no text is ever kept but the field's). */
+export type ClipboardRead = { ok: true; text: string } | { ok: false; reason: 'unavailable' | 'denied' | 'empty' };
 
 export type IdentityPage = 'intro' | 'name' | 'choose' | 'simple' | 'password' | 'save' | 'verify' | 'consent' | 'working' | 'failed' | 'reveal' | 'restore' | 'restorePreview' | 'restoreDone' | 'legacy' | 'nothing';
 export type IdentityField = 'name' | 'password' | 'password2' | 'backupPassword';
@@ -60,6 +66,11 @@ export type IdentityField = 'name' | 'password' | 'password2' | 'backupPassword'
 export interface IdentityHost {
   /** Let the player choose a file; its text comes back (at most a few kilobytes). */
   pickFile(done: (text: string) => void): void;
+  /**
+   * P1.2A: read the clipboard's text, for PASTE. Called synchronously inside the player's own click or tap (the
+   * browser asks, or refuses); never on its own. Without it the page says how to paste by hand.
+   */
+  readClipboard?(): Promise<ClipboardRead>;
   /** Offer a file to the browser (a download). */
   download(fileName: string, text: string): void;
   copy(text: string): Promise<boolean>;
@@ -191,7 +202,11 @@ export class IdentityScreen implements Screen {
     const name = this.nameOf();
     const id = this.identity;
     // The backup is pasted or typed in its field (drawn with the page's words); a file can be chosen instead.
-    const load: Action[] = [{ label: t('identity.verify.file'), run: () => this.host?.pickFile((text) => this.setLoaded(text)) }];
+    // P1.2A: both answer a tap with a real element (a phone's file chooser and clipboard need the tap itself).
+    const load: Action[] = [
+      { label: t('identity.paste.button'), native: { id: 'identity.paste', kind: 'press' }, run: () => void this.pasteFromClipboard() },
+      { label: t('identity.verify.file'), native: { id: 'identity.file', kind: 'file', onFileText: (text) => this.setLoaded(text) }, run: () => this.host?.pickFile((text) => this.setLoaded(text)) },
+    ];
     switch (this.page) {
       case 'intro':
         return [
@@ -367,6 +382,19 @@ export class IdentityScreen implements Screen {
     const ok = (await this.host?.copy(this.backupFile.text)) ?? false;
     if (ok) this.saved = true;
     this.say(ok ? 'identity.save.copied' : 'identity.save.copyFailed', ok);
+  }
+
+  /**
+   * PASTE (P1.2A): the clipboard's text into the backup field, as if pasted there. The read starts synchronously, in
+   * the player's tap; the text goes only to the field (drawn as stars), and a refusal says how to paste by hand.
+   */
+  private async pasteFromClipboard(): Promise<void> {
+    const page = this.page;
+    const read = this.host?.readClipboard?.() ?? Promise.resolve<ClipboardRead>({ ok: false, reason: 'unavailable' });
+    const r = await read;
+    if (this.page !== page) return;
+    if (!r.ok) return this.say(r.reason === 'empty' ? 'identity.paste.empty' : r.reason === 'denied' ? 'identity.paste.denied' : 'identity.paste.unavailable', false);
+    this.setLoaded(r.text);
   }
 
   private async verify(ui?: GameUI): Promise<void> {
@@ -685,7 +713,10 @@ export class IdentityScreen implements Screen {
         const lines = g.lines(a.label, tw - 12);
         lines.forEach((l, i) => g.text(l, tx + 11, by + i * 7, selected ? UI.ink : UI.muted));
         g.hit(tx - 2, by - 2, tw, lines.length * 7 + 3, press);
-      } else g.button(a.label, tx, by, press, { w: Math.min(tw, 180), primary: a.primary || selected, enabled: on });
+      } else {
+        const bw = g.button(a.label, tx, by, press, { w: Math.min(tw, 180), primary: a.primary || selected, enabled: on });
+        if (on && a.native) g.natives.push({ ...a.native, label: a.label, x: tx, y: by, w: bw, h: 11, run: press });
+      }
       by += this.actionHeight(g, a, tw);
     }
   }

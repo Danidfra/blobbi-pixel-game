@@ -15,6 +15,9 @@ import { renderWorld, type RenderOptions, DEFAULT_RENDER_OPTIONS } from '../rend
 import { auditWorld } from '../render/audit';
 import { canvasBacking } from '../render/backing';
 import { TextInputs } from './text-inputs';
+import { NativeActions } from './native-actions';
+import { fieldFocus } from '../ui/text-field';
+import { keyboardLift, visibleBand } from './keyboard-lift';
 import { JoystickHint, hintAnchor, readLearned, writeLearned } from '../ui/joystick-hint';
 import { InterfaceSize, TOUCH_SCREEN_QUERY, playedBefore } from '../ui/ui-size';
 import type { PanelScroll } from '../ui/panel-fit';
@@ -752,17 +755,25 @@ settingsScreen.onName = () => {
 };
 // The screen's host: a file picker, a download and the clipboard (text is typed in the screens' own fields: the page
 // lays a real input over each, see text-inputs.ts).
+// A chosen backup file's text (a backup is a few kilobytes: anything larger is not one and is left unread).
+const readPickedFile = (f: File, done: (text: string) => void): void => {
+  if (f.size > 16_384) return;
+  void f.text().then(done);
+};
+// The keyboard's way to the file chooser (a tap or a click takes the native button's own file input: native-actions.ts).
+// Hidden without display:none, which some browsers refuse to open.
 const filePicker = document.createElement('input');
 filePicker.type = 'file';
 filePicker.accept = '.txt,text/plain';
-filePicker.style.cssText = 'display:none';
+filePicker.tabIndex = -1;
+filePicker.setAttribute('aria-hidden', 'true');
+filePicker.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
 document.body.append(filePicker);
 let fileSink: ((v: string) => void) | null = null;
 filePicker.addEventListener('change', () => {
   const f = filePicker.files?.[0];
   filePicker.value = '';
-  if (!f || f.size > 16_384) return;
-  void f.text().then((text) => fileSink?.(text));
+  if (f) readPickedFile(f, (text) => fileSink?.(text));
 });
 identityScreen.host = {
   pickFile: (done) => {
@@ -778,6 +789,14 @@ identityScreen.host = {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
+  // P1.2A: PASTE. Called inside the player's click or tap; the text goes to the backup field only, never logged.
+  readClipboard: () => {
+    if (typeof navigator.clipboard?.readText !== 'function') return Promise.resolve({ ok: false, reason: 'unavailable' });
+    return navigator.clipboard.readText().then(
+      (text) => (text ? { ok: true, text } : { ok: false, reason: 'empty' }),
+      () => ({ ok: false, reason: 'denied' }),
+    );
   },
   copy: async (text) => {
     try {
@@ -2482,10 +2501,37 @@ const textInputs = new TextInputs(view, () => performance.now() / 1000, (box, co
   if (box.spec.id.startsWith('title.')) title.key(code);
   else gameUI.handleKey(code);
 });
+// P1.2A: a menu's buttons that need the player's own tap (a file chooser, the clipboard) get a real element over them.
+const nativeActions = new NativeActions(view, readPickedFile);
+/** How far the canvas is lifted now (CSS px): the keyboard lift, see keyboard-lift.ts. */
+let liftedBy = 0;
+/** Fingers or a mouse button down on the canvas: a lift is held until they are up (a press that ends the typing must
+ * not have the game slide away under it before it is released). */
+const canvasPresses = new Set<number>();
+view.addEventListener('pointerdown', (e) => canvasPresses.add(e.pointerId));
+for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) view.addEventListener(type, (e) => canvasPresses.delete(e.pointerId));
 /** The fields on screen now: an open menu's, else the title's (never under the loading page). */
 function syncTextInputs(): void {
+  const shown = state.mode === 'play' && !intro;
   const fields = gameUI.capturing ? gameUI.fields : title.active && !entry.active ? title.fields : [];
-  textInputs.sync(state.mode === 'play' && !intro ? fields : [], touch.enabled || touchScreen.matches);
+  const touchNow = touch.enabled || touchScreen.matches;
+  textInputs.sync(shown ? fields : [], touchNow);
+  nativeActions.sync(shown && gameUI.capturing ? gameUI.natives : []);
+  // On a touch screen the field with the keyboard is lifted to the middle of what the keyboard leaves visible.
+  const focused = shown && touchNow && fieldFocus.id ? fields.find((f) => f.spec.id === fieldFocus.id) : undefined;
+  let lift = 0;
+  if (focused) {
+    const box = view.parentElement!.getBoundingClientRect();
+    const k = view.getBoundingClientRect().width / Math.max(1, view.width);
+    const field = { top: box.top + focused.y * k, bottom: box.top + (focused.y + focused.h) * k };
+    lift = keyboardLift(field, visibleBand(window), window.innerHeight, touch.insets.top * k, touch.insets.bottom * k);
+  } else if (canvasPresses.size) lift = liftedBy;
+  if (lift !== liftedBy) {
+    liftedBy = lift;
+    // A short slide follows the keyboard (none with reduced motion); every frame re-reads where the canvas is.
+    view.style.transition = gameUI.settings.reducedMotion ? '' : 'transform 120ms ease-out';
+    view.style.transform = lift ? `translateY(${-lift}px)` : '';
+  }
 }
 function titleFrame(now: number, real: number): void {
   if (!live || !bounds) return;

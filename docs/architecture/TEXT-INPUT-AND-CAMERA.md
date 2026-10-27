@@ -26,6 +26,32 @@ selection are mirrored into `fieldFocus`, which the canvas draws from.
 
 Checks: `tests/text-fields.test.ts`, and `npx tsx scripts/text-input-browser.ts` in the muted lab browser.
 
+### Phones: the keyboard lift and native buttons (P1.2A, 2026-10-26)
+
+Measured on an iPhone held sideways: the on-screen keyboard shrinks only the visual viewport (installed app: 390 →
+98 CSS px; Safari: 668 → 468), the page keeps its size, and the game's canvas never scrolls, so a field low on a page
+stayed under the keyboard and could not be long-pressed for Paste.
+
+- The keyboard lift (`src/playground/keyboard-lift.ts`, applied in `syncTextInputs` in `main.ts`): on a touch screen,
+  while a game field has the keyboard, the canvas is moved up (`translateY`, a 120 ms slide, none with reduced motion)
+  so the field sits centred in the visual viewport, clear of the top safe area (98 px and a 22 px field: its top at
+  38). Without a keyboard (less than 60 px hidden) a field in view is not moved, and a field above the centre is
+  never pushed down. The canvas goes back when no field has the keyboard, but not while a press on the canvas is
+  still down (the press that ends the typing must not have the game slide away under it). Inputs, native buttons and
+  pointers all follow, since they are placed and read from the canvas's on-screen box. Desktop never lifts.
+- Native buttons (`NativeBox` in `src/ui/gfx.ts`, `src/playground/native-actions.ts`): canvas buttons act on
+  pointerdown, which on a touch screen is no user activation, so iOS ignored a file chooser or a clipboard read asked
+  from one. A button that needs the player's own activation gets a real, transparent element over it, placed every
+  frame like the text inputs: a `<button>` whose click runs the action (PASTE FROM CLIPBOARD), or an
+  `<input type="file">` the tap opens directly (CHOOSE THE BACKUP FILE). The canvas keeps the button's hit for the
+  keyboard (Enter) and the hidden page chooser is no longer `display:none`.
+- PASTE FROM CLIPBOARD (identity restore and verify pages): `navigator.clipboard.readText()` starts synchronously in
+  the click (iOS shows its own Paste confirmation); the text goes only to the backup field (stars) and is dropped if
+  the page changed meanwhile; a refused, unsupported or empty clipboard says how to paste by hand. Native long-press
+  paste is unchanged. Nothing is logged.
+
+Checks: `tests/recovery-input.test.ts`.
+
 ## The camera: screen pixels at rest, drawn between steps
 
 The simulation steps at a fixed 60 Hz (`SimClock`). Two things made walking jitter:

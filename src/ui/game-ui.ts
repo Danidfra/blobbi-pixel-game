@@ -14,7 +14,7 @@ import { PixelBuffer } from '../core/pixel';
 import type { WorldPalette } from '../core/palette';
 import type { LiveWorld } from '../sim/live-world';
 import type { Building } from '../game/buildings';
-import { Gfx, UI, hitAt, type Hit } from './gfx';
+import { Gfx, UI, hitAt, type Hit, type NativeBox } from './gfx';
 import { card } from './hud';
 import { getLocale, t, upper, type MessageKey } from '../i18n';
 import { drawHotbar, hotbarSlots, selectHotbarSlot } from './hotbar';
@@ -140,6 +140,8 @@ export class GameUI {
   private hits: Hit[] = [];
   /** The open screen's text fields in the last frame, in screen pixels (the page lays its inputs over them). */
   fields: FieldBox[] = [];
+  /** The open screen's native buttons in the last frame, in screen pixels (the page lays its elements over them). */
+  natives: NativeBox[] = [];
   private lastScale = 2;
   /** Real seconds, for message timing (the world may be paused). */
   now = 0;
@@ -298,6 +300,7 @@ export class GameUI {
     if (this.message && realTime >= this.message.until) this.message = null;
     this.hits = [];
     this.fields = [];
+    this.natives = [];
     const fit = this.panelFit(screen.width, screen.height);
     const scale = (this.lastScale = fit.scale);
     this.scroll.range(fit.overflow, screen.height - 4);
@@ -380,6 +383,7 @@ export class GameUI {
     screen.blit(g.out, ox, oy);
     this.hits = g.screenHits(ox, oy);
     this.fields = g.screenFields(ox, oy);
+    this.natives = g.screenNatives(ox, oy);
     if (fit.overflow) this.pinTitleBar(screen, g, ox, top, scale);
   }
 
@@ -402,6 +406,7 @@ export class GameUI {
     this.hits.push({ x: ox, y: top, w: out.width, h: rows, action: () => {}, inert: true }, ...g.screenHits(ox, top).filter((_, i) => inBar(i)));
     // A field scrolled under the bar has no input there (it would take presses meant for the bar), unless it is typing.
     this.fields = this.fields.filter((f) => f.y >= top + rows || f.spec.id === fieldFocus.id);
+    this.natives = this.natives.filter((n) => n.y >= top + rows);
     const track = screen.height - 2 - (top + rows);
     const s = this.scroll;
     const thumb = Math.max(4 * scale, Math.round((track * track) / (track + s.max)));

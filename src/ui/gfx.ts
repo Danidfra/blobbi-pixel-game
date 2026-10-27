@@ -111,11 +111,36 @@ export function wrapBy(text: string, maxW: number, width: (s: string) => number)
   return out;
 }
 
+/**
+ * A drawn button the page answers with a real element of its own, laid over it (P1.2A): what a browser grants only
+ * inside the player's own click or tap (a file chooser, reading the clipboard) cannot wait for the canvas, whose
+ * presses act on pointerdown, which on a touch screen is no user activation (iOS then ignores the request). The
+ * canvas still draws the button and keeps its hit (keys, Enter); the element only takes the tap or click over it.
+ *  - 'press': a button; its click runs `run` at once (inside the activation).
+ *  - 'file': a file input; the browser's own chooser opens on the tap, and the chosen file's text goes to
+ *    `onFileText` (the page reads it, with its usual size limit).
+ */
+export interface NativeBox {
+  /** Unique on screen and stable from frame to frame ('identity.paste', 'identity.file'...). */
+  id: string;
+  kind: 'press' | 'file';
+  /** What the button does, for screen readers. */
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  run(): void;
+  onFileText?(text: string): void;
+}
+
 export class Gfx {
   readonly buf: UiSurface;
   readonly hits: Hit[] = [];
   /** Text fields drawn (see `text-field.ts`), for the page's inputs over them. */
   readonly fields: FieldBox[] = [];
+  /** Buttons the page answers with a real element over them (`NativeBox`). */
+  readonly natives: NativeBox[] = [];
   /** Where the pointer is (panel pixels), for hover highlights; null without a pointer. */
   hover: { x: number; y: number } | null = null;
 
@@ -143,6 +168,12 @@ export class Gfx {
   screenFields(ox: number, oy: number): FieldBox[] {
     const b = this.buf;
     return this.fields.map((f) => ({ ...f, x: ox + b.sx(f.x), y: oy + b.sx(f.y), w: b.sx(f.x + f.w) - b.sx(f.x), h: b.sx(f.y + f.h) - b.sx(f.y), carets: f.carets.map((c) => c * b.scale) }));
+  }
+
+  /** The native buttons in screen pixels, for a drawing placed at (ox, oy) on the screen. */
+  screenNatives(ox: number, oy: number): NativeBox[] {
+    const b = this.buf;
+    return this.natives.map((n) => ({ ...n, x: ox + b.sx(n.x), y: oy + b.sx(n.y), w: b.sx(n.x + n.w) - b.sx(n.x), h: b.sx(n.y + n.h) - b.sx(n.y) }));
   }
 
   box(x: number, y: number, w: number, h: number, bg: Color = UI.panel, border: Color | null = UI.line): void {
