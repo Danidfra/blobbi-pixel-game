@@ -18,6 +18,7 @@ import { TextInputs } from './text-inputs';
 import { NativeActions } from './native-actions';
 import { fieldFocus } from '../ui/text-field';
 import { keyboardLift, visibleBand } from './keyboard-lift';
+import { AutonomyGate } from './autonomy';
 import { JoystickHint, hintAnchor, readLearned, writeLearned } from '../ui/joystick-hint';
 import { InterfaceSize, TOUCH_SCREEN_QUERY, playedBefore } from '../ui/ui-size';
 import type { PanelScroll } from '../ui/panel-fit';
@@ -289,7 +290,7 @@ app.innerHTML = `
       <label class="check"><input id="live-wind" type="checkbox" /> animate wind</label>
       <label class="check"><input id="live-shadows" type="checkbox" /> shadows</label>
       <label class="check"><input id="live-debug" type="checkbox" /> debug collision</label>
-      <label class="check"><input id="live-autonomy" type="checkbox" /> autonomy (WASD takes over, resumes after 5 s)</label>
+      <label class="check"><input id="live-autonomy" type="checkbox" /> autonomy (WASD takes over; the delay is SETTINGS &gt; wanders alone)</label>
       <label class="check"><input id="live-path" type="checkbox" /> debug path and nav grid</label>
       <div class="hint">WASD / arrows move · E or Space: pick up, then farm (harvest, water, plant, till with the hoe), then chop / mine, else look · F feed · H pet · R rest (again to wake) · T next seed · C / V / G craft axe / pickaxe / hoe · Q switch tool · B build (cycles what), Esc cancel · O goals on/off · P plant a tree · Z camera mode (or the wheel) · click the view first</div>
       <h2>Objectives</h2>
@@ -1026,6 +1027,9 @@ gameUI.onInviteExplore = () => {
 };
 /** When the player last pressed a key or touched the game (ms, performance clock): idle time is not active play. */
 let lastInputAt = -Infinity;
+/** P1.3A: when autonomy may walk (autonomy.ts), and the last input it has seen. */
+const autonomyGate = new AutonomyGate();
+let autonomyInputAt = lastInputAt;
 /** The moment is not calm: the invitation waits (menus, speech, notices, timed actions, the first tips). */
 function inviteBusy(): boolean {
   const l = live;
@@ -2621,11 +2625,13 @@ function playFrame(now: number): void {
   lastFrameTime = now;
   push(frameTimes, real * 1000);
   if (intro) {
+    autonomyGate.pause();
     introFrame(real);
     syncTextInputs();
     return;
   }
   if (title.active) {
+    autonomyGate.pause();
     titleFrame(now, real);
     return;
   }
@@ -2633,6 +2639,11 @@ function playFrame(now: number): void {
   playStarted = true;
   // An open menu pauses the world: no steps, no input; a stick held when it opened ends (no walking on after it).
   if (gameUI.capturing) touch.cancel();
+  // P1.3A: the player's setting, and autonomy waits while the player is busy with the game (autonomy.ts).
+  const acted = lastInputAt !== autonomyInputAt;
+  autonomyInputAt = lastInputAt;
+  const busy = gameUI.capturing || !!fieldFocus.id || !!touch.stick || live.teleport.locked || !!(live.reveal || live.buildMode || live.placing || live.manage || live.moving);
+  autonomyGate.frame(live, gameUI.settings.wander, busy, acted);
   const stickPushing = Object.values(touch.directions()).some(Boolean);
   const input = readInput();
   hintFrom = { live, x: live.blobbi.x, y: live.blobbi.y };
@@ -3010,7 +3021,11 @@ if (import.meta.env.DEV)
 window.addEventListener('beforeunload', () => {
   if (playStarted) live?.save();
 });
+// A page restored from the back-forward cache (the installed app resumed) starts the delay again too.
+window.addEventListener('pageshow', () => autonomyGate.pause());
 document.addEventListener('visibilitychange', () => {
+  // P1.3A: away and back, the Blobbi's delay starts again (time away is not the player's inactivity in the game).
+  autonomyGate.pause();
   if (document.hidden && playStarted) live?.save();
   // A hidden tab is silent; showing it again resumes (the world itself pauses with the animation frames).
   if (document.hidden) audioEngine.suspend();
@@ -3814,6 +3829,11 @@ view.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       return;
     }
+    // P1.3A: a second finger while the stick is held does nothing (no takeover, no walk to it).
+    if (took === 'ignored') {
+      e.preventDefault();
+      return;
+    }
     // Click the world: the Blobbi walks there.
     if (live && lastView) {
       const wx = lastView.originX + sx / lastView.scale;
@@ -3922,6 +3942,8 @@ function resize(): void {
   draw();
 }
 window.addEventListener('resize', resize);
+// P1.3A: a turn of the phone ends the stick (its centre was where the finger went down on the old layout).
+window.addEventListener('orientationchange', () => touch.cancel());
 // A new pixel ratio (the window moved to another screen, a browser zoom) fits the canvas again.
 (function watchPixelRatio(): void {
   const query = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);

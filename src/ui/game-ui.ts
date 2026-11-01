@@ -61,12 +61,19 @@ export interface UiSettings {
    * follows the screen (P1.2A, `ui-size.ts`).
    */
   textSize: TextSize;
+  /**
+   * P1.3A: whether the player's Blobbi walks about on its own, and after how long without the player (`autonomy.ts`).
+   * Off, it stays where it is (it still breathes, blinks and rests).
+   */
+  wander: WanderSetting;
 }
 
 export type TextSize = 'small' | 'normal' | 'large';
 export const TEXT_SIZES: readonly TextSize[] = ['small', 'normal', 'large'];
+export type WanderSetting = 'after60' | 'after120' | 'off';
+export const WANDER_SETTINGS: readonly WanderSetting[] = ['after60', 'after120', 'off'];
 
-export const DEFAULT_SETTINGS: UiSettings = { daylight: true, goals: true, sound: true, reducedMotion: false, largeText: false, textSize: 'normal' };
+export const DEFAULT_SETTINGS: UiSettings = { daylight: true, goals: true, sound: true, reducedMotion: false, largeText: false, textSize: 'normal', wander: 'after60' };
 
 /**
  * Settings read from a browser (any older shape): unknown fields dropped, bad values replaced by defaults, and the
@@ -81,6 +88,7 @@ export function readSettings(raw: unknown, base: UiSettings = DEFAULT_SETTINGS):
   for (const k of ['daylight', 'goals', 'sound', 'reducedMotion'] as const) if (typeof v[k] === 'boolean') out[k] = v[k] as boolean;
   if (TEXT_SIZES.includes(v.textSize as TextSize)) out.textSize = v.textSize as TextSize;
   else if (v.largeText === true) out.textSize = 'large';
+  if (WANDER_SETTINGS.includes(v.wander as WanderSetting)) out.wander = v.wander as WanderSetting;
   out.largeText = false;
   return out;
 }

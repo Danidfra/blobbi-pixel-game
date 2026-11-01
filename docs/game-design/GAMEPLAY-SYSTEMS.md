@@ -9,7 +9,7 @@ The game as the player meets it, system by system, with the numbers the code use
 
 | Key | Action | Source |
 |---|---|---|
-| WASD / arrows | move (autonomy resumes 5 s after the last input) | `src/playground/main.ts`, `src/sim/brain.ts` |
+| WASD / arrows | move (autonomy resumes after the SETTINGS delay, 60 s by default, see below) | `src/playground/main.ts`, `src/sim/brain.ts` |
 | E / Space | the context action: pick up, harvest / water / plant / till, chop, mine, fish, use, enter a door, listen to or open the Carrier | `LiveWorld.step` |
 | Click / tap the world | walk there (tap-to-walk); drag on touch: floating stick | `src/ui/touch.ts` |
 | I · K · J · U · N · L · Y · 1 · ? / F1 | bag · crafting · journal · Blobbi panel · map · island growth · worlds · home (M8) · guide (M8) | `OPEN_KEYS` in `src/ui/game-ui.ts` |
@@ -166,3 +166,23 @@ and when visiting another local island as a read-only visitor. See
 Day and night light, goal box, sound, reduced motion (defaults to the system preference), large HUD text, menu scale;
 volumes for music, effects and ambience, music on or off, softer sound, mute. Stored per browser, never in a save.
 Source: `src/ui/screens/settings.ts`.
+
+### My Blobbi wanders (P1.3A, 2026-10-31)
+
+SETTINGS > GAME, "Wanders alone": **after 60 s** (default), **after 120 s**, or **off**. Stored as `wander` in the
+same settings record; a record without a valid value reads as after 60 s, an explicit choice is kept.
+
+- The time is continuous inactivity in play: any key, press, stick or USE, and any menu, starts it again
+  (`AutonomyGate`, `src/playground/autonomy.ts`). Until it runs out the Blobbi only follows the player.
+- Busy UI holds autonomy every frame and the frame after: an open menu or dialog, a focused text field, a finger on
+  the screen, build/place/move/manage mode, a reveal, a teleport. An autonomous walk under way stops where it is
+  (`Brain.hold`); the player's own tap-walk and rest (R, a bed, the Carrier) are never cancelled by it.
+- Play starting again restarts the delay: a new world (load, travel, new island), the first frame after the title or
+  an intro, the page shown again after being hidden, a page restored from the back-forward cache.
+- **Off** (`Brain.options.walk = false`): no wander, no inspection walk, no walk home. Breathing, blinking and the
+  other idle animations go on (the animator, not the brain); a tired Blobbi sleeps where it stands after 60 s of
+  inactivity and recovers energy as usual. Turning it off mid-walk stops the walk at once.
+- Changing the delay applies to the count already running (it is kept as the time of the last input).
+- The setting goes to every brain: the island's (also when rebuilt) and a room's (`LiveWorld.setAutonomy`). A
+  `LiveWorld` that is never given it (tests, tools) keeps the brain's own defaults (5 s, walking).
+- The lab's `live-autonomy` checkbox still switches the brain off entirely for development.

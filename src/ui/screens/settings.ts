@@ -9,7 +9,7 @@
  * the `AccountPort` (the Nostr module itself is never imported here).
  */
 import { Gfx, UI } from '../gfx';
-import { isConfirm, moveSelection, TEXT_SIZES, type GameUI, type Screen, type TextSize } from '../game-ui';
+import { isConfirm, moveSelection, TEXT_SIZES, WANDER_SETTINGS, type GameUI, type Screen, type TextSize } from '../game-ui';
 import type { AudioSettings } from '../../audio/engine';
 import type { AccountPort, AccountSnapshot, ShareStatus } from '../../nostr/port';
 import { getLocale, LOCALES, setLocale, t, type MessageKey } from '../../i18n';
@@ -99,6 +99,8 @@ export class SettingsScreen implements Screen {
     if (this.page === 'game') {
       const size = (d: number) => change(() => (s.textSize = TEXT_SIZES[(TEXT_SIZES.indexOf(s.textSize) + d + TEXT_SIZES.length) % TEXT_SIZES.length] as TextSize))();
       const language = (d: number) => change(() => nextLocale(d))();
+      // P1.3A: when the Blobbi walks about on its own (after 60 s, after 120 s, off).
+      const wander = (d: number) => change(() => (s.wander = WANDER_SETTINGS[(WANDER_SETTINGS.indexOf(s.wander) + d + WANDER_SETTINGS.length) % WANDER_SETTINGS.length]))();
       return [
         { label: t('settings.language', { language: LOCALES.find((l) => l.id === getLocale())!.name }), run: () => language(1), adjust: (d) => language(Math.sign(d)) },
         { label: t('settings.textSize', { size: t(`settings.textSize.${s.textSize}`) }), run: () => size(1), adjust: (d) => size(Math.sign(d)) },
@@ -106,6 +108,7 @@ export class SettingsScreen implements Screen {
         { label: t('settings.goals', { state: onOff(s.goals) }), run: change(() => (s.goals = !s.goals)) },
         { label: t('settings.sound', { state: onOff(s.sound) }), run: change(() => (s.sound = !s.sound)) },
         { label: t('settings.reducedMotion', { state: onOff(s.reducedMotion) }), run: change(() => (s.reducedMotion = !s.reducedMotion)) },
+        { label: t('settings.wander', { when: t(`settings.wander.${s.wander}`) }), run: () => wander(1), adjust: (d) => wander(Math.sign(d)) },
         // Tips belong to the island (saved with it), so a new island starts with them on.
         ...(ui.live && !ui.live.visitor ? [{ label: t('settings.tips', { state: onOff(!ui.live.tutorial.skipped) }), run: () => ui.live!.setTips(ui.live!.tutorial.skipped) }] : []),
         ...(this.onMainMenu && (this.mainMenuAvailable?.() ?? true) ? [{ label: t('settings.mainMenu'), run: () => this.onMainMenu?.() }] : []),

@@ -9,6 +9,11 @@ How a phone or tablet player moves and acts (P1.1, 2026-10-23). One movement sys
   there. Past `DEAD_ZONE` it walks the Blobbi at its angle (8 ways); a short tap without a drag walks to the tapped
   spot instead. Past the rim the base follows the finger.
 - The USE button (bottom right, above the menu bar) presses E.
+- One finger owns the stick (P1.3A): while it is held, another finger on the world is `'ignored'` by
+  `TouchControls.down`, so it neither takes the stick over nor walks to where it lifts; it can still press USE, the
+  hotbar and menu buttons (those are hit first). Turning the phone (`orientationchange`) ends the stick too.
+- A finger on the screen holds the Blobbi's autonomy (it never wanders off under a press); see "My Blobbi wanders"
+  in `docs/game-design/GAMEPLAY-SYSTEMS.md`.
 - The stick ends on `pointerup`; it is cancelled without walking on `pointercancel`, `lostpointercapture`, the window
   losing focus, the page being hidden, and a menu opening (`TouchControls.cancel`), so it never stays held.
 - The canvas has `touch-action: none`, no text selection, no long-press callout and no tap flash; the page has

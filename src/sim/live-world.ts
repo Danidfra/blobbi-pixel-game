@@ -671,6 +671,27 @@ export class LiveWorld {
   get brain(): Brain {
     return this.interior?.brain ?? this.islandBrain;
   }
+  /**
+   * P1.3A: how long the player is idle before autonomy takes over (seconds), and whether it may walk; set from the
+   * player's settings and given to every brain, the rooms' and rebuilt ones too. Null: the brain's defaults.
+   */
+  private autonomy: { delay: number; walk: boolean } | null = null;
+  setAutonomy(a: { delay: number; walk: boolean }): void {
+    if (this.autonomy && this.autonomy.delay === a.delay && this.autonomy.walk === a.walk) return;
+    this.autonomy = { delay: a.delay, walk: a.walk };
+    for (const b of [this.islandBrain, this.interior?.brain]) if (b) this.applyAutonomy(b);
+  }
+  private applyAutonomy(b: Brain): void {
+    if (!this.autonomy) return;
+    b.options.manualTimeout = this.autonomy.delay;
+    b.options.walk = this.autonomy.walk;
+    // Turned off mid-walk: it stops where it is.
+    if (!this.autonomy.walk) b.stopWalking(this.clock.time);
+  }
+  /** P1.3A: the player is busy with the game (a menu, a field, a press): autonomy waits, see `Brain.hold`. */
+  holdAutonomy(): void {
+    this.brain.hold(this.clock.time);
+  }
   set brain(b: Brain) {
     this.islandBrain = b;
   }
@@ -3390,6 +3411,7 @@ export class LiveWorld {
     const nav = new NavGrid(roomCollision(state.furniture, true, layout), this.blobbi.footRx, this.blobbi.footRy);
     const brain = new Brain(`${this.world.seed}/${this.blobbi.seed}/${state.shelterId}`, nav, []);
     brain.enabled = this.islandBrain.enabled;
+    this.applyAutonomy(brain);
     brain.wants = () => ({ tired: isTired(this.care), rested: isRested(this.care), shelter: this.bedSpot() });
     brain.extras = () => this.pointsOfInterest();
     return { state, collision, nav, brain, particles: new ParticleSystem(`${this.world.seed}/${state.shelterId}/room`) };
@@ -4879,6 +4901,7 @@ export class LiveWorld {
     const wasEnabled = this.brain?.enabled ?? true;
     this.islandBrain = new Brain(`${this.world.seed}/${this.blobbi.seed}`, this.islandNav, this.world.objects);
     this.brain.enabled = wasEnabled;
+    this.applyAutonomy(this.islandBrain);
     // Read-only views: the brain may rest and look, never take or change anything.
     this.brain.wants = () => ({ tired: isTired(this.care), rested: isRested(this.care), shelter: this.shelterDoor() });
     this.brain.extras = () => this.pointsOfInterest();

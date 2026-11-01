@@ -243,12 +243,14 @@ describe('the touch stick ends cleanly', () => {
     expect(t.directions()).toEqual({ up: false, down: false, left: false, right: false });
   });
 
-  it('a second finger takes over; the first one lifting later does nothing', () => {
+  it('a second finger never takes over (P1.3A); the stick is free once the first one lifts', () => {
     const t = new TouchControls(() => 2);
     t.down(1, 100, 100, true);
-    t.down(2, 300, 100, true);
-    expect(t.up(1)).toBe(false);
-    expect(t.stick?.id).toBe(2);
+    expect(t.down(2, 300, 100, true)).toBe('ignored');
+    expect(t.stick?.id).toBe(1);
+    expect(t.up(2)).toBe(false);
+    expect(t.up(1)).toBe(true); // a tap that never moved
+    expect(t.stick).toBeNull();
   });
 });
 

@@ -220,6 +220,11 @@ export interface BrainOptions {
   speed: number;
   /** Seconds without input before autonomy resumes. */
   manualTimeout: number;
+  /**
+   * P1.3A: autonomy may walk (wander, inspect, go home to sleep). Off, the Blobbi stays where it is: it still breathes
+   * and blinks (the animator), and a tired Blobbi rests on the spot. The player's own taps and rests always walk.
+   */
+  walk: boolean;
 }
 
 export class Brain {
@@ -230,14 +235,17 @@ export class Brain {
   private next = 0;
   /** When the current state ends (sim seconds). */
   until = 0;
-  private manualUntil = -1;
+  /** When the player last spoke (sim seconds): autonomy resumes `manualTimeout` after it. */
+  private manualSince = -Infinity;
+  /** The current walk or rest was the player's (a tap, the rest key), not autonomy's. */
+  private ordered = false;
   private wanders = 0;
   private stuckSince = -1;
   private lastPos = { x: 0, y: 0 };
   private inspecting: { x: number; y: number; kind: string } | null = null;
   private interactAt = -1;
   readonly rng: Rng;
-  readonly options: BrainOptions = { speed: 30, manualTimeout: 5 };
+  readonly options: BrainOptions = { speed: 30, manualTimeout: 5, walk: true };
   enabled = true;
   /** For the UI: why the current state was chosen. */
   note = '';
@@ -262,11 +270,12 @@ export class Brain {
 
   /** The keyboard spoke: take manual control for a while. */
   manual(time: number): void {
-    this.manualUntil = time + this.options.manualTimeout;
+    this.manualSince = time;
     if (this.state !== 'manual') {
       this.state = 'manual';
       this.target = null;
       this.path = [];
+      this.ordered = false;
       this.note = 'manual control';
     }
   }
@@ -277,14 +286,32 @@ export class Brain {
 
   /** Seconds of manual control left (0 when autonomous). */
   manualLeft(time: number): number {
-    return this.state === 'manual' ? Math.max(0, this.manualUntil - time) : 0;
+    return this.state === 'manual' ? Math.max(0, this.manualSince + this.options.manualTimeout - time) : 0;
+  }
+
+  /** P1.3A: autonomy is walking now (a wander, an inspection, going home tired), not the player's tap or rest. */
+  get autonomousWalk(): boolean {
+    return this.state === 'wander' || this.state === 'inspect' || (this.state === 'to-shelter' && !this.ordered);
+  }
+
+  /**
+   * P1.3A: the player is busy with the game (a menu, a field, a press): autonomy waits, its delay counting from now,
+   * and an autonomous walk stops where it is. The player's own tap-walk or rest, and a nap on the spot, go on.
+   */
+  hold(time: number): void {
+    if (this.state === 'manual' || this.state === 'idle' || this.autonomousWalk) this.manual(time);
+  }
+
+  /** P1.3A: an autonomous walk under way stops at once (walking was turned off); anything else is left alone. */
+  stopWalking(time: number): void {
+    if (this.autonomousWalk) this.manual(time);
   }
 
   /** One simulation step: returns what the Blobbi wants to do. */
   step(time: number, dt: number, pos: { x: number; y: number }, moved: boolean): BrainIntent {
     const still: BrainIntent = { dx: 0, dy: 0, moving: false, interact: false };
     if (this.state === 'manual') {
-      if (time >= this.manualUntil && this.enabled) {
+      if (time >= this.manualSince + this.options.manualTimeout && this.enabled) {
         this.state = 'idle';
         this.until = time + this.rng.range(0.5, 1.5);
         this.note = 'autonomy resumed';
@@ -316,7 +343,7 @@ export class Brain {
           if (this.state === 'goto') {
             // The player's tap: there. Autonomy waits a moment before it takes over again.
             this.state = 'manual';
-            this.manualUntil = time + this.options.manualTimeout;
+            this.manualSince = time;
             this.note = 'arrived where you tapped';
             return still;
           }
@@ -390,6 +417,11 @@ export class Brain {
    * Used by tiredness and by the player's rest key; the player's movement keys still take over at once.
    */
   restNow(time: number, pos: { x: number; y: number }, shelter: { x: number; y: number } | null): void {
+    this.ordered = true;
+    this.goRest(time, pos, shelter);
+  }
+
+  private goRest(time: number, pos: { x: number; y: number }, shelter: { x: number; y: number } | null): void {
     if (shelter) {
       const cell = this.grid.nearestFree(shelter.x, shelter.y, 3);
       const to = cell ? this.grid.centre(cell.c, cell.r) : null;
@@ -427,6 +459,7 @@ export class Brain {
     const path = findPath(this.grid, pos, to);
     if (!path || path.length < 2) return false;
     this.state = 'goto';
+    this.ordered = true;
     this.setPath(path, to);
     this.note = 'walking where you tapped';
     void time;
@@ -447,10 +480,20 @@ export class Brain {
   /** Pick the next thing to do. */
   private choose(time: number, pos: { x: number; y: number }): void {
     // Needs first, without drawing from the stream: a tired Blobbi goes to rest.
+    this.ordered = false;
     const wants = this.wants?.();
     if (wants?.tired) {
-      this.restNow(time, pos, wants.shelter);
+      // P1.3A: with walking off, a tired Blobbi sleeps where it stands.
+      if (!this.options.walk) return this.beginRest(time, 'recover', false, 'tired, sleeping');
+      this.goRest(time, pos, wants.shelter);
       if (this.state === 'rest') this.note = wants.shelter ? 'tired, sleeping in the shelter' : 'tired, sleeping';
+      return;
+    }
+    if (!this.options.walk) {
+      // Nothing to walk to: look again in a moment (no draw from the stream).
+      this.state = 'idle';
+      this.until = time + 2;
+      this.note = 'staying put';
       return;
     }
     const roll = this.rng.next();

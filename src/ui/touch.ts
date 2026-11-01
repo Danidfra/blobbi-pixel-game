@@ -65,12 +65,16 @@ export class TouchControls {
 
   constructor(private uiScale: () => number) {}
 
-  /** A pointer went down on the world. Returns true when the USE button took it. */
-  down(id: number, x: number, y: number, touch: boolean): 'use' | 'stick' | null {
+  /**
+   * A pointer went down on the world: the USE button, the stick, or (P1.3A) `'ignored'` for a second finger while one
+   * already holds the stick (it neither takes the stick over nor walks on release; it can still press USE).
+   */
+  down(id: number, x: number, y: number, touch: boolean): 'use' | 'stick' | 'ignored' | null {
     if (touch) this.enabled = true;
     const b = this.button;
     if (this.enabled && b && Math.hypot(x - b.x, y - b.y) <= b.r * 1.15) return 'use';
     if (!touch) return null;
+    if (this.stick && this.stick.id !== id) return 'ignored';
     this.stick = { id, ox: x, oy: y, x, y, active: false };
     return 'stick';
   }
