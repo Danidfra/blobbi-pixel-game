@@ -9,7 +9,10 @@ import { hash32 } from '../src/core/rng';
 import { PixelBuffer } from '../src/core/pixel';
 import { DAY_SECONDS, FULL_ROOM_LIGHT, START_HOUR, rainAt, roomLightAt, roomLightKey, type RoomLight } from '../src/game/daylight';
 import { LAYOUTS, roomSprite, sunlitFloor } from '../src/game/interior';
-import { drawWindowRain, drawWindowStars } from '../src/render/interior-render';
+import { blanketOf, drawWindowRain, drawWindowStars } from '../src/render/interior-render';
+import { buildingSprite } from '../src/game/buildings';
+import { ART, FABRICS } from '../src/game/furniture-art';
+import { PLACEABLE_CONTENT } from '../src/content/placeables';
 import { paletteFor } from '../src/world/generate';
 import { generateWhaleWorld } from '../src/carriers/whale-world';
 import { IDLE_INPUT, LiveWorld, MAX_MOTES } from '../src/sim/live-world';
@@ -317,3 +320,48 @@ describe('dust motes in the daylight', () => {
   });
 });
 
+describe('furniture polish (bed, chest, workbench)', () => {
+  const sprite = (kind: string, variant = 0) => buildingSprite({ id: `${kind}:0`, kind, x: 0, y: 0, placedAt: 0, seed: `polish/${kind}`, ...(variant ? { variant } : {}) }, palette, 1, 1.6);
+  const opaque = (b: PixelBuffer) => {
+    let n = 0;
+    for (const c of b.data) if (c >>> 24) n++;
+    return n;
+  };
+
+  it('keeps every sprite\'s size, anchor and footprint (so collision, placement and the room layouts stay as they were)', () => {
+    const expected: Record<string, [number, number, number, number, number, number]> = {
+      bed: [18, 16, 9, 11, 7, 4],
+      chest: [13, 11, 6, 8, 5, 2],
+      workbench: [17, 12, 8, 9, 7, 2],
+      table: [13, 11, 6, 8, 5, 2],
+      chair: [9, 13, 4, 10, 3, 2],
+    };
+    for (const [kind, [w, h, ax, ay, rx, ry]] of Object.entries(expected)) {
+      const s = sprite(kind);
+      expect([s.buffer.width, s.buffer.height, s.anchorX, s.anchorY, s.footRx, s.footRy], kind).toEqual([w, h, ax, ay, rx, ry]);
+      // A solid piece: opaque over more than half its box (no holes that would read as a changed silhouette).
+      expect(opaque(s.buffer) / (w * h), kind).toBeGreaterThan(0.55);
+    }
+    for (const kind of ['bed', 'chest', 'workbench']) expect(PLACEABLE_CONTENT.find((p) => p.kind === kind)?.variants ?? 1).toBe(kind === 'bed' ? FABRICS.length : 1);
+  });
+
+  it('the bed\'s blanket still starts at row 8 of the outlined sprite, in every colourway, so the sleeping Blobbi is tucked in as before', () => {
+    for (let v = 0; v < FABRICS.length; v++) {
+      const f = FABRICS[v];
+      const s = sprite('bed', v);
+      // Row 8: the blanket's folded top edge, all the way across the mattress.
+      for (let x = 2; x <= 15; x++) expect(s.buffer.get(x, 8), `variant ${v} x ${x}`).toBe(f.light);
+      // Row 7: sheet and pillow, no blanket.
+      for (let x = 2; x <= 15; x++) expect([f.light, f.mid, f.dark], `variant ${v} x ${x}`).not.toContain(s.buffer.get(x, 7));
+      // The blanket cut keeps rows 8 and below, nothing above.
+      const cut = blanketOf(s);
+      for (let y = 0; y < 8; y++) for (let x = 0; x < cut.buffer.width; x++) expect(cut.buffer.get(x, y) >>> 24).toBe(0);
+      expect(cut.buffer.get(8, 8)).toBe(f.light);
+      expect(cut.anchorY).toBe(s.anchorY);
+    }
+    // Colourways still differ from one another, and the art is a pure function of its inputs.
+    const a = ART.bed({ seed: 's', palette, variant: 0 });
+    expect(h(a)).toBe(h(ART.bed({ seed: 's', palette, variant: 0 })));
+    expect(h(a)).not.toBe(h(ART.bed({ seed: 's', palette, variant: 1 })));
+  });
+});

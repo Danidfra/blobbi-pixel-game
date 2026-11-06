@@ -57,18 +57,34 @@ const done = (b: PixelBuffer, outline: Color): PixelBuffer => {
 
 export const ART: Record<string, ArtFn> = {
   // ─── Indoor furniture ────────────────────────────────────────────────────
+  // The bed: a panelled headboard between two posts, a mattress with a plump pillow, a quilted blanket folded back
+  // at the top (its top edge is row 7 here, row 8 of the outlined sprite: `blanketOf` cuts there), side rails and a
+  // foot rail. 16 × 14, as the M5 bed.
   bed: ({ palette, variant }) => {
     const w = palette.wood;
     const f = fab(variant);
     const b = new PixelBuffer(16, 14);
     block(b, 0, 0, 16, 5, w); // headboard
+    b.fillRect(2, 1, 12, 3, w.mid); // its panel, set back
+    b.hline(2, 13, 1, mix(w.mid, w.dark, 0.35));
+    b.vline(1, 0, 4, w.light); // the posts
+    b.vline(14, 0, 4, w.dark);
     b.fillRect(1, 4, 14, 8, CREAM.light); // sheet
+    b.hline(1, 14, 4, CREAM.mid); // in the headboard's shadow
     b.fillRect(2, 5, 5, 3, CREAM.highlight); // pillow
+    b.set(6, 5, CREAM.light);
+    b.set(6, 6, CREAM.light);
+    b.hline(7, 13, 6, CREAM.mid); // the sheet's turned edge
     b.fillRect(1, 7, 14, 5, f.mid); // blanket
-    b.hline(1, 14, 7, f.light);
+    b.hline(1, 14, 7, f.light); // folded back: a light top edge over a lighter fold
+    b.hline(1, 14, 8, mix(f.light, f.mid, 0.5));
+    for (let x = 3; x < 14; x += 4) b.set(x, 9, f.light); // quilting
+    for (let x = 5; x < 14; x += 4) b.set(x, 10, f.dark);
     b.hline(1, 14, 11, f.dark);
-    for (let x = 3; x < 14; x += 4) b.set(x, 9, f.light);
+    b.vline(0, 5, 11, w.mid); // side rails
+    b.vline(15, 5, 11, w.dark);
     b.fillRect(0, 12, 16, 2, w.dark); // frame foot
+    b.hline(1, 14, 12, w.mid);
     return done(b, w.outline);
   },
   'pet-bed': ({ variant }) => {
@@ -286,30 +302,60 @@ export const ART: Record<string, ArtFn> = {
     return done(b, f.outline);
   },
   // ─── Workstations and storage (indoor or outdoor) ──────────────────────
+  // The chest: a domed lid in shadow at its lower edge, a planked front, two iron straps with rivets, iron corner
+  // caps, and a lock plate with a lit keyhole. 11 × 9, as before.
   chest: ({ palette }) => {
     const w = palette.wood;
     const b = new PixelBuffer(11, 9);
-    b.fillRect(0, 0, 11, 3, w.light);
-    b.hline(0, 10, 2, w.mid);
-    block(b, 0, 3, 11, 6, w, 0);
-    b.hline(0, 10, 3, IRON.dark);
-    b.vline(1, 0, 8, IRON.dark);
+    b.fillRect(0, 0, 11, 3, w.mid); // lid
+    b.hline(1, 9, 0, w.light);
+    b.hline(0, 10, 1, w.light);
+    b.hline(0, 10, 2, mix(w.mid, w.dark, 0.5));
+    block(b, 0, 3, 11, 6, w, 0); // front
+    b.hline(0, 9, 6, w.dark); // a plank seam
+    b.hline(0, 10, 3, IRON.dark); // the band under the lid
+    b.vline(1, 0, 8, IRON.dark); // straps
     b.vline(9, 0, 8, IRON.dark);
-    b.fillRect(5, 3, 1, 2, LIGHT);
+    for (const x of [1, 9]) {
+      b.set(x, 1, IRON.light); // rivets
+      b.set(x, 5, IRON.light);
+      b.set(x, 7, IRON.mid);
+    }
+    b.set(0, 8, IRON.dark); // corner caps
+    b.set(10, 8, IRON.dark);
+    b.fillRect(4, 3, 3, 3, IRON.mid); // lock plate
+    b.hline(4, 6, 3, IRON.light);
+    b.set(5, 4, LIGHT); // keyhole
+    b.set(5, 5, IRON.dark);
     return done(b, w.outline);
   },
+  // The workbench: a thick top with a grain line, a drawer with an iron knob, two-pixel legs, a lower shelf with an
+  // offcut on it; on top a toothed saw, a hammer, a vice at the right end and a curl of shaving. 15 × 10, as before.
   workbench: ({ palette }) => {
     const w = palette.wood;
     const b = new PixelBuffer(15, 10);
     block(b, 0, 0, 15, 4, w, 3);
-    b.vline(1, 4, 9, w.dark);
-    b.vline(13, 4, 9, w.dark);
-    b.hline(1, 13, 7, w.mid);
-    // A saw and a hammer on top.
-    b.hline(2, 6, 1, IRON.light);
-    b.set(7, 1, w.dark);
-    b.vline(10, 0, 2, w.dark);
+    b.hline(0, 13, 2, mix(w.light, w.mid, 0.5)); // the grain
+    b.fillRect(2, 4, 11, 2, w.mid); // drawer
+    b.hline(2, 12, 5, w.dark);
+    b.set(7, 4, IRON.light);
+    for (const x of [0, 13]) {
+      b.vline(x, 4, 9, w.mid); // legs
+      b.vline(x + 1, 4, 9, w.dark);
+    }
+    b.hline(2, 12, 7, w.mid); // the shelf
+    b.hline(2, 12, 8, w.dark);
+    b.hline(4, 6, 6, w.light); // an offcut on it
+    b.hline(2, 7, 1, IRON.light); // the saw
+    for (let x = 2; x <= 6; x += 2) b.set(x, 2, IRON.mid); // its teeth
+    b.set(8, 1, w.dark); // its handle
+    b.vline(10, 0, 2, w.dark); // the hammer
     b.hline(9, 11, 0, IRON.mid);
+    b.set(9, 0, IRON.light);
+    b.fillRect(13, 0, 2, 3, IRON.mid); // the vice
+    b.set(13, 0, IRON.light);
+    b.set(14, 2, IRON.dark);
+    b.set(12, 2, w.highlight); // a shaving
     return done(b, w.outline);
   },
   'cooking-station': ({ palette }) => {
