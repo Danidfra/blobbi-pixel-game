@@ -8,7 +8,7 @@ import { stream, type Rng } from '../core/rng';
 import { type Color, hex } from '../core/color';
 import type { PixelBuffer } from '../core/pixel';
 
-export type ParticleKind = 'leaf' | 'sparkle' | 'heart' | 'smoke' | 'petal' | 'note' | 'exclaim' | 'dust' | 'ripple' | 'drop' | 'zzz' | 'butterfly' | 'firefly' | 'bird' | 'rain';
+export type ParticleKind = 'leaf' | 'sparkle' | 'heart' | 'smoke' | 'petal' | 'note' | 'exclaim' | 'dust' | 'ripple' | 'drop' | 'zzz' | 'butterfly' | 'firefly' | 'bird' | 'rain' | 'mote';
 
 export interface Particle {
   kind: ParticleKind;
@@ -85,6 +85,16 @@ export class ParticleSystem {
   rain(x: number, y: number): void {
     this.spawn({ kind: 'rain', x, y, vx: -6, vy: 90, life: this.rng.range(0.5, 0.9), color: hex('#c8dcf8'), phase: 0, front: true });
   }
+  /** A dust mote in a room's daylight: one pixel, a slow drift, a slow blink (interior atmosphere). */
+  mote(x: number, y: number, color: Color): void {
+    this.spawn({ kind: 'mote', x, y, vx: this.rng.range(-1.5, 1.5), vy: this.rng.range(-0.6, 0.6), life: this.rng.range(4, 7), color, phase: this.rng.range(0, 6.28), front: false });
+  }
+  /** How many of a kind are alive. */
+  count(kind: ParticleKind): number {
+    let n = 0;
+    for (const p of this.particles) if (p.kind === kind) n++;
+    return n;
+  }
   /** A small "z" rising from a sleeping Blobbi. */
   zzz(x: number, y: number): void {
     this.spawn({ kind: 'zzz', x, y, vx: this.rng.range(1, 3), vy: -5, life: 1.6, color: hex('#e8f0ff'), phase: this.rng.range(0, 6.28), front: true });
@@ -128,6 +138,9 @@ export class ParticleSystem {
       } else if (p.kind === 'zzz') {
         p.x += (p.vx + Math.sin(p.age * 2 + p.phase) * 2) * dt;
         p.y += p.vy * dt;
+      } else if (p.kind === 'mote') {
+        p.x += (p.vx + Math.sin(p.age * 0.7 + p.phase) * 1.5) * dt;
+        p.y += (p.vy + Math.cos(p.age * 0.5 + p.phase) * 1) * dt;
       }
     }
   }
@@ -222,6 +235,10 @@ export class ParticleSystem {
         case 'rain':
           buf.set(x, y, p.color);
           buf.set(x, y - 1, p.color);
+          break;
+        case 'mote':
+          // A slow blink, and gone before its end: the dust catches the light, then drifts out of it.
+          if (t < 0.9 && Math.sin(p.age * 1.5 + p.phase) > -0.2) buf.set(x, y, p.color);
           break;
         case 'zzz':
           // A dot that opens into a 3×3 "z".

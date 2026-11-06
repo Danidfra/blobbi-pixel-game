@@ -37,9 +37,12 @@ import { babyHeightFor } from '../blobbi/canonical';
 import { buildEggSprite, type EggPose } from '../blobbi/egg';
 import { hex as hexColour, mix as mixColour } from '../core/color';
 
-/** The window's sky over the day: blue, gold at dawn and dusk, a deep blue at night. */
+/**
+ * The window's sky over the day: blue, gold at dawn and dusk, a deep blue at night. In quarter-hour steps, so the
+ * room it is painted into is repainted a few times through a dawn, not every frame.
+ */
 function skyColour(t: number): number {
-  const h = hourAt(t);
+  const h = Math.floor(hourAt(t) * 4) / 4;
   const day = hexColour('#9ad0f0');
   const gold = hexColour('#f0b878');
   const night = hexColour('#1f2c4d');

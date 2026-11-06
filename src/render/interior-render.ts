@@ -4,11 +4,13 @@
  * the UI work indoors exactly as outside. The room is painted once per style; rugs lie flat, wall items hang on the
  * back wall, everything else stands in painter's order with the Blobbi.
  */
-import { hex } from '../core/color';
+import { hex, mix } from '../core/color';
 import { PixelBuffer, type Sprite } from '../core/pixel';
+import { hash32 } from '../core/rng';
 import { paletteFor } from '../world/generate';
 import { BUILDINGS, buildingSprite } from '../game/buildings';
-import { isWallKind, layoutFor, roomSprite } from '../game/interior';
+import { roomLightAt, roomLightKey, type RoomLight } from '../game/daylight';
+import { isWallKind, layoutFor, roomSprite, type RoomLayout } from '../game/interior';
 import { attachTool, EQUIPMENT } from '../game/equipment';
 import type { LiveWorld } from '../sim/live-world';
 import { drawTinyText, type LiveRenderOptions, type SplitLayers } from './live-render';
@@ -31,18 +33,24 @@ export class InteriorRenderer {
 
   constructor(readonly live: LiveWorld) {}
 
-  private room(): PixelBuffer {
+  /** The room in a light state, painted once per style, sky and state (all quantized) and kept. */
+  private room(light: RoomLight): PixelBuffer {
     const state = this.live.interior!.state;
     const st = state.style;
     const palette = paletteFor(this.live.world.options.palette);
-    const key = `${state.level}|${st.floor}|${st.wall}|${st.finish ?? 0}|${this.sky}`;
+    const key = `${state.level}|${st.floor}|${st.wall}|${st.finish ?? 0}|${this.sky}|${roomLightKey(light)}`;
     let hit = this.roomCache.get(key);
     if (!hit) {
-      if (this.roomCache.size > 8) this.roomCache.clear();
-      hit = roomSprite(st, palette, this.sky, layoutFor(state.level));
+      if (this.roomCache.size >= ROOM_CACHE) this.roomCache.clear();
+      hit = roomSprite(st, palette, this.sky, layoutFor(state.level), light);
       this.roomCache.set(key, hit);
     }
     return hit;
+  }
+
+  /** How many painted rooms are kept (a dusk passes through about a dozen states). */
+  get cachedRooms(): number {
+    return this.roomCache.size;
   }
 
   render(viewW: number, viewH: number, camX: number, camY: number, time: number, o: LiveRenderOptions, split?: SplitLayers): PixelBuffer {
@@ -54,7 +62,13 @@ export class InteriorRenderer {
     const ox = Math.round(camX);
     const oy = Math.round(camY);
     frame.fill(this.background);
-    frame.blit(this.room(), -ox, -oy);
+    const light = roomLightAt(live.world.seed, live.worldTime);
+    frame.blit(this.room(light), -ox, -oy);
+    // Live weather in the windows: a few streaks while it rains, a few stars at night (a handful of pixels).
+    for (const win of layoutFor(scene.state.level).windows) {
+      if (light.rain > 0) drawWindowRain(frame, win, light.rain, live.worldTime, live.world.seed, ox, oy);
+      if (light.night) drawWindowStars(frame, win, this.sky, live.worldTime, live.world.seed, ox, oy);
+    }
     const furniture = scene.state.furniture;
     const sprite = (f: (typeof furniture)[number]) => buildingSprite(f, palette, 1, live.world.options.scale);
     // Wall items, then rugs: behind everything.
@@ -118,6 +132,51 @@ export class InteriorRenderer {
     }
     void o;
     return frame;
+  }
+}
+
+const ROOM_CACHE = 16;
+const RAIN = hex('#c8dcf8');
+type Window = RoomLayout['windows'][number];
+
+/**
+ * Rain seen through a window: short streaks falling down the glass, one column in three or so (more in heavier
+ * rain), never over the frame's cross. Where each streak is comes from a hash of (seed, window, column) and the world
+ * time step, so the same moment shows the same rain on every machine; nothing is kept between frames.
+ */
+export function drawWindowRain(buf: PixelBuffer, win: Window, rain: number, time: number, seed: string, ox: number, oy: number): void {
+  const midX = Math.round((win.x0 + win.x1) / 2);
+  const midY = Math.round((win.y0 + win.y1) / 2);
+  const period = win.y1 - win.y0 + 7;
+  const step = Math.floor(time * 24);
+  for (let i = 0; win.x0 + i * 3 <= win.x1; i++) {
+    const h = hash32(`${seed}/window-rain/${win.x0},${win.y0}/${i}`);
+    if (h % 8 >= rain * 6) continue;
+    const x = win.x0 + i * 3 + ((h >>> 3) & 1);
+    if (x === midX || x > win.x1) continue;
+    const top = win.y0 - 2 + ((step + (h >>> 4)) % period);
+    for (const y of [top, top + 1]) if (y >= win.y0 && y <= win.y1 && y !== midY) buf.set(x - ox, y - oy, RAIN);
+  }
+}
+
+/**
+ * Stars in a night window: up to three pixels, each twinkling on a two-second step (bright, dim, gone), placed by a
+ * hash of (seed, window, star), never over the frame's cross.
+ */
+export function drawWindowStars(buf: PixelBuffer, win: Window, sky: number, time: number, seed: string, ox: number, oy: number): void {
+  const midX = Math.round((win.x0 + win.x1) / 2);
+  const midY = Math.round((win.y0 + win.y1) / 2);
+  const bright = mix(sky, hex('#ffffff'), 0.75);
+  const dim = mix(sky, hex('#ffffff'), 0.4);
+  const tick = Math.floor(time / 2);
+  for (let i = 0; i < 3; i++) {
+    const h = hash32(`${seed}/window-stars/${win.x0},${win.y0}/${i}`);
+    const x = win.x0 + (h % (win.x1 - win.x0 + 1));
+    const y = win.y0 + ((h >>> 8) % (win.y1 - win.y0 + 1));
+    if (x === midX || y === midY) continue;
+    const phase = (tick + (h >>> 16)) % 3;
+    if (phase === 0) continue;
+    buf.set(x - ox, y - oy, phase === 1 ? dim : bright);
   }
 }
 

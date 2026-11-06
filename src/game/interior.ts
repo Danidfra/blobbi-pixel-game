@@ -26,6 +26,7 @@ import { ramp, type WorldPalette } from '../core/palette';
 import { PixelBuffer } from '../core/pixel';
 import { CollisionMap } from '../sim/collision';
 import { BUILDINGS, type Building, type BuildingKind, type PlacementCheck } from './buildings';
+import { FULL_ROOM_LIGHT, type RoomLight } from './daylight';
 
 interface Rect {
   x0: number;
@@ -452,21 +453,21 @@ export const WALL_STYLES = WALLS.length;
 export const FINISH_STYLES = FINISH_NAMES.length;
 
 /** The floor's pattern at a pixel: planks (0–2), stones (3), tiles (4), carpet (5). */
-function floorPixel(style: number, fl: ReturnType<typeof ramp>, x: number, y: number, wallH: number, sun: boolean): Color {
+function floorPixel(style: number, fl: ReturnType<typeof ramp>, x: number, y: number, wallH: number, sun: boolean, sunColour: Color = fl.light): Color {
   const yy = y - wallH;
   if (style === 3) {
     const row = Math.floor(yy / 6);
     const seam = yy % 6 === 5 || (x + (row % 2) * 5) % 10 === 0;
-    return seam ? fl.dark : sun ? fl.light : (x * 5 + row * 7) % 11 === 0 ? mix(fl.mid, fl.light, 0.4) : fl.mid;
+    return seam ? fl.dark : sun ? sunColour : (x * 5 + row * 7) % 11 === 0 ? mix(fl.mid, fl.light, 0.4) : fl.mid;
   }
   if (style === 4) {
     const seam = yy % 6 === 5 || x % 6 === 5;
-    return seam ? fl.dark : sun ? fl.light : (Math.floor(x / 6) + Math.floor(yy / 6)) % 2 ? fl.mid : mix(fl.mid, fl.light, 0.3);
+    return seam ? fl.dark : sun ? sunColour : (Math.floor(x / 6) + Math.floor(yy / 6)) % 2 ? fl.mid : mix(fl.mid, fl.light, 0.3);
   }
-  if (style === 5) return sun ? fl.light : (x + yy * 3) % 7 === 0 ? mix(fl.mid, fl.dark, 0.3) : fl.mid;
+  if (style === 5) return sun ? sunColour : (x + yy * 3) % 7 === 0 ? mix(fl.mid, fl.dark, 0.3) : fl.mid;
   const row = Math.floor(yy / 4);
   const seam = yy % 4 === 3 || (x + row * 11) % 23 === 0;
-  return seam ? fl.dark : sun ? fl.light : (x * 7 + row * 3) % 13 === 0 ? mix(fl.mid, fl.light, 0.4) : fl.mid;
+  return seam ? fl.dark : sun ? sunColour : (x * 7 + row * 3) % 13 === 0 ? mix(fl.mid, fl.light, 0.4) : fl.mid;
 }
 
 /** The wall face's pattern at a pixel (row `y` from the top of the face, `x` across): logs, plaster, stripes, flowers, wainscot. */
@@ -495,18 +496,42 @@ function wallPixel(finish: number, wl: ReturnType<typeof ramp>, x: number, y: nu
   }
 }
 
+/** The daylight's colour on the floor: the floor's light tone, gold toward dawn and dusk. */
+const SUN_GOLD = hex('#f0b878');
+/** A rainy window's sky: the day's sky greyed. */
+const RAIN_SKY = hex('#8a98a8');
+
 /**
- * The room itself (walls, windows, partitions, floor, door), drawn once per style and layout; furniture is drawn over
- * it. Level 1 with the M5 styles (logs) is pixel for pixel the M5 room.
+ * Where, in a light state, the daylight reaches the floor: a band below each window that leans with the hour (to the
+ * right in the morning, straight down at noon, to the left in the evening), dithered thinner as the light fades: full
+ * at day, a checkerboard in half light, one pixel in four at the edges of the day, none at night or under heavy rain.
+ * Ordered dither on the pixel grid, never a gradient. Full light with the morning lean is the M5 pool, pixel for pixel.
  */
-export function roomSprite(style: InteriorStyle, palette: WorldPalette, sky: number = hex('#9ad0f0'), layout: RoomLayout = L1): PixelBuffer {
+export function sunlitFloor(layout: RoomLayout, light: RoomLight, x: number, y: number): boolean {
+  if (light.shaft < 0.125 || y >= layout.wallH + 34) return false;
+  const dy = y - layout.wallH;
+  const shift = (dy * light.lean) / 3;
+  if (!layout.windows.some((win) => x >= win.x0 - 6 + shift && x <= win.x1 + 6 + shift)) return false;
+  if (light.shaft >= 0.875) return true;
+  if (light.shaft >= 0.375) return (x + y) % 2 === 0;
+  return (x + 2 * y) % 4 === 0;
+}
+
+/**
+ * The room itself (walls, windows, partitions, floor, door), drawn once per style, layout and light; furniture is
+ * drawn over it. Level 1 with the M5 styles (logs) in the default light is pixel for pixel the M5 room.
+ */
+export function roomSprite(style: InteriorStyle, palette: WorldPalette, sky: number = hex('#9ad0f0'), layout: RoomLayout = L1, light: RoomLight = FULL_ROOM_LIGHT): PixelBuffer {
   const { w, h, wallH } = layout;
   const fs = style.floor % FLOORS.length;
   const fl = FLOORS[fs];
   const wl = WALLS[style.wall % WALLS.length];
   const finish = (style.finish ?? 0) % FINISH_STYLES;
   const buf = new PixelBuffer(w, h);
-  const sunny = (x: number, y: number) => layout.windows.some((win) => x >= win.x0 - 6 + (y - wallH) / 3 && x <= win.x1 + 6 + (y - wallH) / 3 && y < wallH + 34);
+  // The daylight's colour and the window's sky in this light.
+  const sun = light.warm > 0 ? mix(fl.light, SUN_GOLD, light.warm * 0.45) : fl.light;
+  const glass = light.rain > 0 ? mix(sky, RAIN_SKY, light.rain * 0.55) : sky;
+  const sunny = (x: number, y: number) => sunlitFloor(layout, light, x, y);
   // Floor: the chosen material; a pool of light under each window; the kitchen tiled.
   const tile = ramp(hex('#e4dccb'), { step: 0.06, hueShift: 4 });
   for (let y = wallH; y < h; y++)
@@ -515,17 +540,20 @@ export function roomSprite(style: InteriorStyle, palette: WorldPalette, sky: num
       if (tiled) {
         const seam = (y - wallH) % 6 === 5 || x % 6 === 5;
         buf.set(x, y, seam ? tile.dark : (Math.floor(x / 6) + Math.floor((y - wallH) / 6)) % 2 ? tile.mid : mix(tile.mid, hex('#a8c8b8'), 0.35));
-      } else buf.set(x, y, floorPixel(fs, fl, x, y, wallH, sunny(x, y)));
+      } else buf.set(x, y, floorPixel(fs, fl, x, y, wallH, sunny(x, y), sun));
     }
   // Back wall: the finish, lit from the left, a dark baseboard.
   for (let y = 0; y < wallH; y++) for (let x = 0; x < w; x++) buf.set(x, y, wallPixel(finish, wl, x, y, wallH, w));
   buf.hline(0, w - 1, wallH - 2, wl.outline);
   buf.hline(0, w - 1, wallH - 1, mix(fl.dark, wl.outline, 0.5));
-  // Windows: sky, a cross frame, a sill.
+  // Windows: sky (greyed by rain), a glint of day in the glass (none at night: the stars are drawn live), a cross
+  // frame, a sill.
   for (const win of layout.windows) {
-    buf.fillRect(win.x0, win.y0, win.x1 - win.x0 + 1, win.y1 - win.y0 + 1, sky);
-    buf.set(win.x0 + 2, win.y0 + 2, mix(sky, hex('#ffffff'), 0.6));
-    buf.set(win.x0 + 3, win.y0 + 2, mix(sky, hex('#ffffff'), 0.6));
+    buf.fillRect(win.x0, win.y0, win.x1 - win.x0 + 1, win.y1 - win.y0 + 1, glass);
+    if (!light.night) {
+      buf.set(win.x0 + 2, win.y0 + 2, mix(glass, hex('#ffffff'), 0.6));
+      buf.set(win.x0 + 3, win.y0 + 2, mix(glass, hex('#ffffff'), 0.6));
+    }
     buf.strokeRect(win.x0 - 1, win.y0 - 1, win.x1 - win.x0 + 3, win.y1 - win.y0 + 3, palette.wood.dark);
     buf.vline(Math.round((win.x0 + win.x1) / 2), win.y0, win.y1, palette.wood.mid);
     buf.hline(win.x0, win.x1, Math.round((win.y0 + win.y1) / 2), palette.wood.mid);

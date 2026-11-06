@@ -57,7 +57,7 @@ import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
 import { JOY, addHappiness, eat, isHungry, isRested, isTired, mood, newCare, pet as petCare, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
-import { nextDawn, clockLabel, clockHour, lightAt, rainAt, type LightSource } from '../game/daylight';
+import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
@@ -264,6 +264,10 @@ export interface InteriorScene {
   particles: ParticleSystem;
 }
 
+/** Dust motes alive in a room at most (interior atmosphere). */
+export const MAX_MOTES = 6;
+const MOTE_COLOUR = hex('#fffbe8');
+
 /** How long newly grown land stays lit after its reveal (simulated seconds). */
 export const REVEAL_GLOW_SECONDS = 3.5;
 
@@ -385,6 +389,8 @@ export class LiveWorld {
   private baseListenSpot: { x: number; y: number } | null = null;
   /** Ambient creatures' own stream (never disturbs the older ambient sequence). */
   private creatures!: Rng;
+  /** The dust motes' own stream: a visit indoors never changes the island's birds or butterflies after it. */
+  private motes!: Rng;
   private wasRaining = false;
   /** Flowers and flower beds, where butterflies gather. */
   private flowerSpots: { x: number; y: number }[] = [];
@@ -558,6 +564,7 @@ export class LiveWorld {
     this.useCompanion(this.blobbi.seed);
     this.placeWorldSecrets(world === base ? this.islandNav : new NavGrid(baseCollision, this.blobbi.footRx, this.blobbi.footRy), baseCollision, baseNodes);
     this.creatures = stream(world.seed, 'creatures');
+    this.motes = stream(world.seed, 'motes');
     this.flowerSpots = world.objects.filter((o) => o.kind === 'flower').map((o) => ({ x: o.x, y: o.y }));
     this.shoreSpots = this.findShoreSpots();
     if (save) {
@@ -3196,9 +3203,28 @@ export class LiveWorld {
     return out;
   }
 
+  /** Dust motes in a room's daylight: at most `MAX_MOTES` alive, about one a second while the sun is in, none at dawn, dusk, night or in rain. */
+  private stepRoomAtmosphere(dt: number): void {
+    const scene = this.interior!;
+    const light = roomLightAt(this.world.seed, this.worldTime);
+    if (light.shaft < 0.5 || light.rain > 0) return;
+    const p = scene.particles;
+    if (p.count('mote') >= MAX_MOTES) return;
+    const rng = this.motes;
+    if (!rng.chance(dt * 0.8)) return;
+    const layout = layoutFor(scene.state.level);
+    const win = rng.pick(layout.windows);
+    const y = layout.wallH + rng.range(2, 30);
+    const shift = ((y - layout.wallH) * light.lean) / 3;
+    p.mote(rng.range(win.x0 - 4 + shift, win.x1 + 4 + shift), y, MOTE_COLOUR);
+  }
+
   /** Butterflies, birds, fireflies and rain around the Blobbi (island scenery; its own stream). */
   private stepAtmosphere(dt: number): void {
-    if (this.inside) return;
+    if (this.inside) {
+      this.stepRoomAtmosphere(dt);
+      return;
+    }
     const rng = this.creatures;
     const b = this.blobbi;
     const l = lightAt(this.worldTime);

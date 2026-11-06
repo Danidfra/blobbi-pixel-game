@@ -66,6 +66,43 @@ export function rainAt(worldSeed: string, t: number): number {
   return Math.min(1, (hour - 13) / 0.5, (16 - hour) / 0.5);
 }
 
+// ─── The light in a room (interior atmosphere) ──────────────────────────────────────────────────────────────────
+
+/**
+ * What the day does to a house interior: the daylight through the windows, its warmth and its lean across the
+ * floor, the rain outside and the deep night. QUANTIZED, so a room is painted once per state and cached, never per
+ * frame (the sky's own colour is quantized the same way by the view). A pure function of (seed, world time).
+ */
+export interface RoomLight {
+  /** How strong the daylight through the windows is: 0 (night, or hidden by rain) .. 1 (full day), in eighths. */
+  shaft: number;
+  /** The golden hour's warmth in that light: 0..1 in quarters. */
+  warm: number;
+  /** Which way the light leans across the floor: +1 in the morning (to the right), 0 at noon, -1 in the evening; quarters. */
+  lean: number;
+  /** Rain outside: 0..1 in quarters (it greys the window; the streaks themselves are drawn live). */
+  rain: number;
+  /** Deep night: no daylight at all, stars in the windows. */
+  night: boolean;
+}
+
+const quantize = (v: number, steps: number) => Math.round(Math.max(0, Math.min(1, v)) * steps) / steps;
+
+export function roomLightAt(worldSeed: string, t: number): RoomLight {
+  const l = lightAt(t);
+  const h = hourAt(t);
+  const rain = quantize(rainAt(worldSeed, t), 4);
+  const shaft = quantize((1 - l.dark / 0.45) * (1 - rain * 0.6), 8);
+  const lean = shaft > 0 ? Math.round(Math.max(-1, Math.min(1, (12 - h) / 5)) * 4) / 4 : 0;
+  return { shaft, warm: shaft > 0 ? quantize(l.warm, 4) : 0, lean, rain, night: l.dark >= 0.45 - 1e-9 };
+}
+
+/** The state as a cache key. */
+export const roomLightKey = (l: RoomLight): string => `${l.shaft}|${l.warm}|${l.lean}|${l.rain}|${l.night ? 'n' : 'd'}`;
+
+/** Full morning daylight, as the M5 room was always painted: the default wherever no light is given. */
+export const FULL_ROOM_LIGHT: RoomLight = { shaft: 1, warm: 0, lean: 1, rain: 0, night: false };
+
 /** A light source for the night: where and how far its warm pool reaches (world pixels). */
 export interface LightSource {
   x: number;
