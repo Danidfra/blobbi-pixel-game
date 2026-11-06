@@ -1939,9 +1939,14 @@ export class LiveWorld {
     }
     const time = this.clock.time;
     const b = this.blobbi;
-    if (this.brain.state === 'rest' || this.brain.state === 'to-shelter') {
+    // In bed (climbing in, tucked in or climbing out) counts as asleep even when a key press already put the brain in
+    // manual: E on the bed reaches here that way, and a fresh rest from inside the bed would discard the plan and
+    // leave the Blobbi standing in the bed's own collision. Waking climbs out, always.
+    const bed = this.inBed();
+    if (this.brain.state === 'rest' || this.brain.state === 'to-shelter' || bed) {
       this.brain.wake(time);
       b.animator.state.sleeping = false;
+      if (bed && this.restPlan!.phase !== 'climb-out') this.climbOut(time, bed.bed);
       b.animator.react('surprised', time, 0.5, 1);
       this.sound('wake');
       return;

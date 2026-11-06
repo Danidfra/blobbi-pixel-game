@@ -212,3 +212,70 @@ describe('the prompt in bed', () => {
     expect(live.prompt()).toBe('R  wake up');
   });
 });
+
+describe('getting up with E (regression: never left standing inside the bed)', () => {
+  const E = { up: false, down: false, left: false, right: false, interact: true, plant: false };
+  const walkable = (live: LiveWorld) => live.collision.canStand(Math.round(live.blobbi.x), Math.round(live.blobbi.y), live.blobbi.footRx, live.blobbi.footRy);
+  const walks = (live: LiveWorld) => {
+    const x0 = live.blobbi.x;
+    const y0 = live.blobbi.y;
+    for (let i = 0; i < 60; i++) live.update(1 / 60, { up: false, down: true, left: false, right: false, interact: false, plant: false });
+    for (let i = 0; i < 60; i++) live.update(1 / 60, { up: false, down: false, left: true, right: false, interact: false, plant: false });
+    return Math.hypot(live.blobbi.x - x0, live.blobbi.y - y0);
+  };
+  const tucked = (autonomy = false, tired = false) => {
+    const { live, home } = withHome('whale');
+    live.enterInterior(home);
+    live.brain.enabled = autonomy;
+    if (tired) live.care.energy = 0.05;
+    run(live, 2);
+    live.rest();
+    expect(until(live, () => live.restPlan?.phase === 'in-bed').ok).toBe(true);
+    run(live, 60);
+    const bed = live.inBed()!.bed;
+    expect(walkable(live)).toBe(false); // the sleep spot lies inside the bed
+    return { live, bed };
+  };
+
+  for (const [label, autonomy, tired] of [['autonomy off', false, false], ['autonomy on', true, false], ['autonomy on and tired', true, true]] as const)
+    it(`E while tucked in (${label}): climbs out to stand in front of the bed, then walks`, () => {
+      const { live, bed } = tucked(autonomy, tired);
+      live.update(1 / 60, E);
+      expect(live.restPlan?.phase).toBe('climb-out');
+      expect(live.blobbi.animator.state.sleeping).toBe(false);
+      expect(until(live, () => live.restPlan?.phase !== 'climb-out', 120).ok).toBe(true);
+      const at = live.bedApproach(bed);
+      expect(Math.hypot(live.blobbi.x - at.x, live.blobbi.y - at.y)).toBeLessThan(4);
+      expect(walkable(live)).toBe(true);
+      expect(walks(live)).toBeGreaterThan(20);
+    });
+
+  it('E during the climb out, or E twice in a row, never restarts a rest from inside the bed', () => {
+    const { live } = tucked();
+    live.update(1 / 60, E);
+    run(live, 5);
+    live.update(1 / 60, E); // mid-climb
+    expect(live.restPlan?.phase).toBe('climb-out');
+    expect(until(live, () => live.restPlan === null, 120).ok).toBe(true);
+    expect(walkable(live)).toBe(true);
+    expect(walks(live)).toBeGreaterThan(20);
+    // R (the wake-up key) behaves the same as E.
+    const again = tucked();
+    again.live.rest();
+    expect(again.live.restPlan?.phase).toBe('climb-out');
+    expect(until(again.live, () => again.live.restPlan === null, 120).ok).toBe(true);
+    expect(walkable(again.live)).toBe(true);
+  });
+
+  it('E while climbing in wakes it on the spot and it walks away', () => {
+    const { live, home } = withHome('whale');
+    live.enterInterior(home);
+    run(live, 2);
+    live.rest();
+    expect(until(live, () => live.restPlan?.phase === 'climb-in').ok).toBe(true);
+    live.update(1 / 60, E);
+    expect(until(live, () => live.restPlan === null, 120).ok).toBe(true);
+    expect(walkable(live)).toBe(true);
+    expect(walks(live)).toBeGreaterThan(20);
+  });
+});
