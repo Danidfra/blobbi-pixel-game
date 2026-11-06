@@ -15,7 +15,7 @@
 import { SimClock } from './clock';
 import { SOLID_KINDS, CollisionMap } from './collision';
 import { ParticleSystem } from './particles';
-import { stream, type Rng } from '../core/rng';
+import { hash32, stream, type Rng } from '../core/rng';
 import { getLocale, t as lang, sentence, tOr, type MessageKey } from '../i18n';
 import { buildingNoun, cropNoun, itemNoun, placeText } from '../content/text';
 import type { Sprite } from '../core/pixel';
@@ -62,6 +62,7 @@ import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type Lig
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
+import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
 import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
 import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
 import { GENERATOR_VERSION } from '../game/archipelago';
@@ -263,6 +264,32 @@ export interface InteriorScene {
   nav: NavGrid;
   brain: Brain;
   particles: ParticleSystem;
+}
+
+/** A land creature as posed for one step (Living World): where, what it does, which way it faces. */
+export interface LandView {
+  id: string;
+  kind: LandKind;
+  x: number;
+  y: number;
+  dir: 1 | -1;
+  pose: LandPose;
+  /** A hop's lift (world px, negative is up). */
+  dy: number;
+}
+
+/** One appearance's memory while it lasts (never saved). */
+interface LandMood {
+  /** Seconds its routine stood still (watching, hiding). */
+  frozen: number;
+  hiddenUntil: number;
+  bolt: { from: LandPt; to: LandPt; t0: number } | null;
+  rest: LandPt | null;
+  /** When a bird flew off (clock time), or 0. */
+  gone: number;
+  /** Seconds the Blobbi has kept still nearby. */
+  still: number;
+  lastNote: number;
 }
 
 /** Dust motes alive in a room at most (interior atmosphere). */
@@ -2802,6 +2829,131 @@ export class LiveWorld {
   }
   private marineLife: MarineLife | null = null;
   private marineAt: { t: number; list: Sighting[] } = { t: NaN, list: [] };
+  // ─── Land life (Living World, batch 1): a crab, a bunny, a songbird ─────────────────────────────────────────
+
+  /** The island's small creatures (a pure function of the world, time, rain and feeders). Made when first asked. */
+  get land(): LandLife {
+    return (this.landLife ??= new LandLife(this.world, (x, y) => this.islandCollision.canStand(Math.round(x), Math.round(y), LAND_FOOT.rx, LAND_FOOT.ry)));
+  }
+  private landLife: LandLife | null = null;
+  /** Each appearance's little memory (hiding, a bolt, a rest, flown off): never saved, pruned with it. */
+  private landMoods = new Map<string, LandMood>();
+  /** The creatures as posed this step, for the renderer (empty indoors or while the Blobbi is away). */
+  landViews: LandView[] = [];
+
+  /** The perches the player's finished bird feeders offer (the top of each). */
+  private perches(): LandPt[] {
+    const out: LandPt[] = [];
+    const palette = paletteFor(this.world.options.palette);
+    for (const r of this.buildings) {
+      if (BUILDINGS[r.kind].use !== 'birds' || this.buildingAt(r) < 1) continue;
+      out.push({ x: r.x, y: r.y - buildingSprite(r, palette, 1, this.world.options.scale).anchorY + 1 });
+    }
+    return out;
+  }
+
+  /** What is about on land now, near the Blobbi (nothing indoors). */
+  landSightings(): LandSighting[] {
+    if (this.inside) return [];
+    return this.land.at(this.worldTime, this.rainOutside(), this.perches(), { x: this.blobbi.x, y: this.blobbi.y }, 260);
+  }
+
+  /** Each step: pose every creature about (its routine, and its reaction to the Blobbi), and let the Blobbi notice. */
+  private stepLandLife(dt: number, time: number): void {
+    const views: LandView[] = [];
+    const seen = new Set<string>();
+    if (!this.inside && this.teleport.state === 'present') {
+      const b = this.blobbi;
+      const bp = { x: b.x, y: b.y };
+      for (const s of this.landSightings()) {
+        seen.add(s.id);
+        let m = this.landMoods.get(s.id);
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, still: 0, lastNote: 0 }));
+        const view = this.poseLand(s, m, bp, dt, time);
+        if (!view) continue;
+        views.push(view);
+      }
+    }
+    for (const id of this.landMoods.keys()) if (!seen.has(id)) this.landMoods.delete(id);
+    this.landViews = views;
+  }
+
+  /** One creature this step: where it is, what it does, which way it faces; null when it has flown off. */
+  private poseLand(s: LandSighting, m: LandMood, bp: LandPt, dt: number, time: number): LandView | null {
+    const tr = s.traits;
+    const dist = (p: LandPt) => Math.hypot(p.x - bp.x, p.y - bp.y);
+    const facing = (p: LandPt): 1 | -1 => (bp.x >= p.x ? 1 : -1);
+    const view = (x: number, y: number, pose: LandPose, dir: 1 | -1, dy = 0): LandView => ({ id: s.id, kind: s.kind, x, y, dir, pose, dy });
+    const ease = (k: number) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
+    if (s.kind === 'crab') {
+      // Its routine pauses while it watches or hides: time stands still for it.
+      const r = this.land.routine(s, s.age - m.frozen);
+      const d = dist(r);
+      if (d < reach(LAND_REACH.crabHide, tr)) m.hiddenUntil = time + 2.5;
+      if (time < m.hiddenUntil) {
+        m.frozen += dt;
+        return view(r.x, r.y, 'hide', r.dir);
+      }
+      if (d < reach(LAND_REACH.crabWatch, tr)) {
+        m.frozen += dt;
+        return view(r.x, r.y, 'watch', facing(r));
+      }
+      return view(r.x, r.y, r.moving ? 'walk' : 'idle', r.dir);
+    }
+    if (s.kind === 'bunny') {
+      if (m.bolt) {
+        const k = (time - m.bolt.t0) / BUNNY_BOLT;
+        if (k < 1) {
+          const e = ease(k);
+          return view(m.bolt.from.x + (m.bolt.to.x - m.bolt.from.x) * e, m.bolt.from.y + (m.bolt.to.y - m.bolt.from.y) * e, 'hop', m.bolt.to.x >= m.bolt.from.x ? 1 : -1, -3 * Math.abs(Math.sin(k * Math.PI * 3)));
+        }
+        m.rest = m.bolt.to;
+        m.bolt = null;
+      }
+      const r = m.rest ? null : this.land.routine(s, s.age - m.frozen);
+      const at: LandPt = m.rest ?? { x: r!.x, y: r!.y };
+      const d = dist(at);
+      if (d < reach(LAND_REACH.bunnyFlee, tr)) {
+        // Too close: it bolts away from the Blobbi to dry, standable ground and rests there; nowhere to go: it sits.
+        const to = this.land.boltSpot(at, bp, hash32(`${s.id}:${Math.round(time * 60)}`));
+        if (to) m.bolt = { from: { x: at.x, y: at.y }, to, t0: time };
+        else m.rest = { x: at.x, y: at.y };
+        return view(at.x, at.y, 'hop', to ? (to.x >= at.x ? 1 : -1) : facing(at));
+      }
+      if (d < reach(LAND_REACH.bunnyWatch, tr)) {
+        if (!m.rest) m.frozen += dt;
+        return view(at.x, at.y, 'sit', facing(at));
+      }
+      if (m.rest) return view(at.x, at.y, 'idle', facing(at));
+      return view(r!.x, r!.y, r!.moving ? 'hop' : r!.pause < 2.4 ? 'nibble' : 'idle', r!.dir, r!.moving ? -3 * Math.abs(Math.sin(r!.progress * Math.PI * 3)) : 0);
+    }
+    // The songbird.
+    if (m.gone) {
+      const k = (time - m.gone) / BIRD_FLIGHT;
+      if (k >= 1) return null;
+      const e = ease(k);
+      return view(s.home.x - s.dir * 48 * e, s.home.y - 40 * e, 'fly', s.dir > 0 ? -1 : 1);
+    }
+    const r = this.land.routine(s, s.age);
+    if (r.flight) return view(r.x, r.y, 'fly', r.dir);
+    const d = dist(r);
+    if (d < reach(LAND_REACH.birdStartle, tr)) {
+      m.gone = time;
+      return view(r.x, r.y, 'fly', s.dir > 0 ? -1 : 1);
+    }
+    m.still = this.movedLastStep ? 0 : m.still + dt;
+    if (d < LAND_REACH.birdSing && m.still > 1.2 && tr.bold > 0.35) {
+      // A tame bird sings to a Blobbi that keeps still: a note now and then (from a hash, never from a stream).
+      if (time - m.lastNote > 1.1) {
+        m.lastNote = time;
+        const hh = hash32(`${s.id}:note:${Math.round(time * 60)}`);
+        this.islandParticles.spawn({ kind: 'note', x: r.x, y: r.y - 4, vx: (hh % 5) - 2, vy: -9, life: 1.2, color: hex('#3b2a5a'), phase: ((hh >>> 8) % 628) / 100, front: true });
+      }
+      return view(r.x, r.y, 'sing', facing(r));
+    }
+    return view(r.x, r.y, r.pause % 5 < 1.2 ? 'peck' : 'perch', r.dir);
+  }
+
   /** The seal rolling over after a wave: which appearance, until when (clock time). */
   sealHappy: { id: string; until: number } | null = null;
 
@@ -5300,6 +5452,7 @@ export class LiveWorld {
     this.stepCare(dt);
     this.stepFishing();
     this.stepAtmosphere(dt);
+    this.stepLandLife(dt, time);
     this.stepCarrierBreath(dt);
     this.stepReveal();
     if (!this.visitor) this.stepGrowthNotice(time);

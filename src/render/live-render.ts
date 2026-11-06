@@ -22,6 +22,7 @@ import { attachTool, toolIcon, EQUIPMENT, type Attachment } from '../game/equipm
 import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { OpenSea } from './open-sea';
 import { drawMarine, drawOceanFeatures } from './marine-render';
+import { landDrawables } from './land-render';
 import { canoeSprites, paddleSprite } from './canoe-render';
 import { CANOE, SeaNav } from '../game/canoe';
 import type { WorldPalette as WorldPaletteLike } from '../core/palette';
@@ -521,6 +522,8 @@ export class LiveRenderer {
       if (o.shadows) this.paintShadow(frame, building.x, building.y, sprite.footRx, sprite.footRy, ox, oy);
       drawables.push({ y: building.y, x: building.x, sprite, sway: 0, dy: 0 });
     }
+    // ── Land life (Living World): the crab, the bunny and the songbird, in the painter's order (a flying bird last) ──
+    for (const d of landDrawables(live, time, ox, oy, viewW, viewH)) drawables.push(d);
     // The Blobbi.
     const b = live.blobbi;
     const pose = b.animator.pose(time);
