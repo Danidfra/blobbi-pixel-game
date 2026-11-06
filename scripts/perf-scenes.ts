@@ -74,23 +74,10 @@ const SCENES: Scene[] = [
   { name: 'turtle-stage4', mode: 'exploration', make: () => liveAt(turtle, 4), input: walk },
   { name: 'manta-stage4', mode: 'exploration', make: () => liveAt(manta, 4), input: walk },
   { name: 'whale-stage4', mode: 'exploration', make: () => liveAt(whale, 4), input: walk },
-  {
-    name: 'interior',
-    mode: 'exploration',
-    make: () => {
-      const live = liveAt(whale, 0);
-      live.inventory.add(ITEMS.wood.id, 6);
-      live.inventory.add(ITEMS.stone.id, 3);
-      live.objectives.completed.materials = 0;
-      findBuildSpot(live, 'shelter');
-      live.setBuildMode('shelter');
-      pressE(live);
-      run(live, 60 * 26);
-      live.enterInterior(live.home()!);
-      return live;
-    },
-    input: walk,
-  },
+  { name: 'interior', mode: 'exploration', make: indoors, input: walk },
+  // Interior atmosphere: the room at the first rainy afternoon (rain through the windows), and at night (stars).
+  { name: 'interior-rain', mode: 'exploration', make: () => indoors(firstRain(14.5)), input: walk },
+  { name: 'interior-night', mode: 'exploration', make: () => indoors(23), input: walk },
   {
     name: 'rain',
     mode: 'exploration',
@@ -125,6 +112,31 @@ const SCENES: Scene[] = [
   { name: 'canoe-edge-overview', mode: 'overview', make: () => atEdge(afloat(liveAt(turtle, 2))) },
   { name: 'canoe-edge-exploration', mode: 'exploration', make: () => atEdge(afloat(liveAt(turtle, 2))) },
 ];
+
+/** A Cozy Shelter built and entered; `hour` (or a world time) sets when it is. */
+function indoors(when = 0): LiveWorld {
+  const live = liveAt(whale, 0);
+  live.inventory.add(ITEMS.wood.id, 6);
+  live.inventory.add(ITEMS.stone.id, 3);
+  live.objectives.completed.materials = 0;
+  findBuildSpot(live, 'shelter');
+  live.setBuildMode('shelter');
+  pressE(live);
+  run(live, 60 * 26);
+  live.enterInterior(live.home()!);
+  if (when) live.timeOffset = when < 24 ? ((when - 7 + 24) % 24) * 50 : when;
+  return live;
+}
+
+/** The first world time at `hour` o'clock on a rainy day of the perf whale world. */
+function firstRain(hour: number): number {
+  const seed = whale().seed;
+  for (let day = 0; day < 40; day++) {
+    const t = day * 1200 + ((hour - 7 + 24) % 24) * 50;
+    if (rainAt(seed, t) > 0.9) return t;
+  }
+  return 0;
+}
 
 /** Launch the canoe from the shore nearest the hub and step in (and, if asked, cast a line from it). */
 function afloat(live: LiveWorld, fishing = false): LiveWorld {
