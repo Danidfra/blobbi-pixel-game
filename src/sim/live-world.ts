@@ -19,7 +19,8 @@ import { stream, type Rng } from '../core/rng';
 import { getLocale, t as lang, sentence, tOr, type MessageKey } from '../i18n';
 import { buildingNoun, cropNoun, itemNoun, placeText } from '../content/text';
 import type { Sprite } from '../core/pixel';
-import { hex } from '../core/color';
+import { hex, type Color } from '../core/color';
+import type { WorldPalette } from '../core/palette';
 import { OBJECT_GENERATORS } from '../objects';
 import type { TreeResult } from '../objects/tree';
 import type { HouseResult } from '../objects/structures';
@@ -268,6 +269,34 @@ export interface InteriorScene {
 export const MAX_MOTES = 6;
 const MOTE_COLOUR = hex('#fffbe8');
 
+/** Pixels walked between two puffs of walking dust. */
+export const DUST_STRIDE = 6;
+
+/**
+ * The colour of the dust a step kicks up on a terrain class, or null where a step raises none: water of every kind,
+ * foam, wet sand, rock faces and the Carrier's body. Sand and gravel paths puff pale, grass and meadow a lighter green;
+ * `alt` picks the second tone so a trail is not one flat colour.
+ */
+export function dustColourFor(cls: number, palette: WorldPalette, alt = false): Color | null {
+  switch (cls) {
+    case T.SAND:
+      return alt ? palette.sand.light : palette.sand.highlight;
+    case T.PATH:
+    case T.GRAVEL:
+      return alt ? palette.path.light : palette.stone.light;
+    case T.GRASS:
+    case T.GRASS_EDGE:
+    case T.GRASS_PATCH:
+    case T.GRASS_DARK:
+    case T.MEADOW:
+    case T.MOSS:
+    case T.CLOVER:
+      return alt ? palette.grass.light : palette.grass.highlight;
+    default:
+      return null;
+  }
+}
+
 /** How long newly grown land stays lit after its reveal (simulated seconds). */
 export const REVEAL_GLOW_SECONDS = 3.5;
 
@@ -391,6 +420,9 @@ export class LiveWorld {
   private creatures!: Rng;
   /** The dust motes' own stream: a visit indoors never changes the island's birds or butterflies after it. */
   private motes!: Rng;
+  /** The walking dust's own stream, and the pixels walked since the last puff. */
+  private footDust!: Rng;
+  private dustStride = 0;
   private wasRaining = false;
   /** Flowers and flower beds, where butterflies gather. */
   private flowerSpots: { x: number; y: number }[] = [];
@@ -565,6 +597,7 @@ export class LiveWorld {
     this.placeWorldSecrets(world === base ? this.islandNav : new NavGrid(baseCollision, this.blobbi.footRx, this.blobbi.footRy), baseCollision, baseNodes);
     this.creatures = stream(world.seed, 'creatures');
     this.motes = stream(world.seed, 'motes');
+    this.footDust = stream(world.seed, 'foot-dust');
     this.flowerSpots = world.objects.filter((o) => o.kind === 'flower').map((o) => ({ x: o.x, y: o.y }));
     this.shoreSpots = this.findShoreSpots();
     if (save) {
@@ -4340,6 +4373,14 @@ export class LiveWorld {
   }
 
   /** What the Blobbi walks on, for footsteps: wood indoors, else the island's ground. */
+  /** The terrain class under a world point (DEEP beyond the map). */
+  terrainClassAt(x: number, y: number): number {
+    const { width, height, cls } = this.world.terrain;
+    const xi = Math.round(x);
+    const yi = Math.round(y);
+    return xi < 0 || yi < 0 || xi >= width || yi >= height ? T.DEEP : cls[yi * width + xi];
+  }
+
   surfaceUnder(): 'wood' | 'grass' | 'sand' | 'path' | 'shallow' {
     if (this.interior) return 'wood';
     const { width, height, cls } = this.world.terrain;
@@ -5197,6 +5238,17 @@ export class LiveWorld {
       this.stride = 0;
       this.sound(`step-${this.surfaceUnder()}`);
     }
+    // Walking dust: a pixel kicked up behind the feet every few pixels walked on dry ground outdoors; none standing
+    // still, asleep, afloat, indoors, on wet sand or over water. Its own stream, so nothing else changes.
+    if (!afloat && !this.inside && walked > 0.01 && this.brain.state !== 'rest') {
+      this.dustStride += walked;
+      if (this.dustStride >= DUST_STRIDE) {
+        this.dustStride = 0;
+        const r = this.footDust;
+        const colour = dustColourFor(this.terrainClassAt(b.x, b.y), paletteFor(this.world.options.palette), r.chance(0.5));
+        if (colour !== null) this.particles.puff(b.x + r.range(-b.footRx * 0.6, b.footRx * 0.6), b.y + r.range(-1, 1), colour, -dx * r.range(3, 9) + r.range(-2, 2), -dy * r.range(1, 4) - r.range(2, 6), r.range(0.28, 0.48));
+      }
+    } else this.dustStride = 0;
     if (!afloat) b.animator.step(dt, time, { moving, direction });
     b.animator.state.sleeping = !away && !afloat && this.brain.state === 'rest';
     this.stepRestPlan(time);

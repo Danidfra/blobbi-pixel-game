@@ -65,6 +65,14 @@ export class ParticleSystem {
   dust(x: number, y: number, color: Color): void {
     this.spawn({ kind: 'dust', x, y, vx: this.rng.range(-6, 6), vy: this.rng.range(-6, -2), life: 0.35, color, phase: 0, front: false });
   }
+  /**
+   * A puff of dust kicked up by a step: one pixel, sent the way given, gone within half a second. Everything comes
+   * from the caller (its own stream): this never draws from the system's stream, so the leaves and sparkles that
+   * follow fall exactly as they would have.
+   */
+  puff(x: number, y: number, color: Color, vx: number, vy: number, life: number): void {
+    this.spawn({ kind: 'dust', x, y, vx, vy, life, color, phase: 0, front: false });
+  }
   /** A water drop: falls from a watering, a short arc under gravity. */
   drop(x: number, y: number, color: Color): void {
     this.spawn({ kind: 'drop', x, y, vx: this.rng.range(-5, 5), vy: this.rng.range(-14, -6), life: 0.45, color, phase: 0, front: true });
