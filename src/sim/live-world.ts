@@ -62,7 +62,7 @@ import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type Lig
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
-import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
+import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_STAY, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
 import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
 import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
 import { GENERATOR_VERSION } from '../game/archipelago';
@@ -278,6 +278,9 @@ export interface LandView {
   dy: number;
 }
 
+/** The bunny encounter's phases (Living World, phase 2); `bolting` and `resting` are the fright and its aftermath. */
+export type BunnyPhase = 'routine' | 'wary' | 'curious' | 'approaching' | 'beside' | 'leaving' | 'bolting' | 'resting';
+
 /** One appearance's memory while it lasts (never saved). */
 interface LandMood {
   /** Seconds its routine stood still (watching, hiding). */
@@ -285,12 +288,28 @@ interface LandMood {
   hiddenUntil: number;
   bolt: { from: LandPt; to: LandPt; t0: number } | null;
   rest: LandPt | null;
-  /** When a bird flew off (clock time), or 0. */
+  /** When a bird flew off (clock time), or 0; for a bunny, 1 once it has left. */
   gone: number;
   noticed: boolean;
   /** Seconds the Blobbi has kept still nearby. */
   still: number;
   lastNote: number;
+  // ── The bunny encounter ──
+  phase: BunnyPhase;
+  /** When the phase began (clock time). */
+  since: number;
+  /** A hop under way (an encounter's own, not a bolt). */
+  hop: { from: LandPt; to: LandPt; t0: number } | null;
+  /** The gap when it grew curious, and how many curious hops it has made. */
+  curiousGap: number;
+  curiousHops: number;
+  lastHop: number;
+  /** How long it will sit beside the Blobbi (seconds). */
+  stay: number;
+  /** It has come to the Blobbi of its own accord: closeness no longer frightens it, only haste does. */
+  trust: boolean;
+  /** Seconds the Blobbi has been closing in fast (a single step is forgiven; a stride is not). */
+  haste: number;
 }
 
 /** Dust motes alive in a room at most (interior atmosphere). */
@@ -2871,7 +2890,7 @@ export class LiveWorld {
       for (const s of this.landSightings()) {
         seen.add(s.id);
         let m = this.landMoods.get(s.id);
-        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0 }));
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0 }));
         const view = this.poseLand(s, m, bp, dt, time);
         if (!view) continue;
         views.push(view);
@@ -2914,33 +2933,7 @@ export class LiveWorld {
       }
       return view(r.x, r.y, r.moving ? 'walk' : 'idle', r.dir);
     }
-    if (s.kind === 'bunny') {
-      if (m.bolt) {
-        const k = (time - m.bolt.t0) / BUNNY_BOLT;
-        if (k < 1) {
-          const e = ease(k);
-          return view(m.bolt.from.x + (m.bolt.to.x - m.bolt.from.x) * e, m.bolt.from.y + (m.bolt.to.y - m.bolt.from.y) * e, 'hop', m.bolt.to.x >= m.bolt.from.x ? 1 : -1, -3 * Math.abs(Math.sin(k * Math.PI * 3)));
-        }
-        m.rest = m.bolt.to;
-        m.bolt = null;
-      }
-      const r = m.rest ? null : this.land.routine(s, s.age - m.frozen);
-      const at: LandPt = m.rest ?? { x: r!.x, y: r!.y };
-      const d = dist(at);
-      if (d < reach(LAND_REACH.bunnyFlee, tr)) {
-        // Too close: it bolts away from the Blobbi to dry, standable ground and rests there; nowhere to go: it sits.
-        const to = this.land.boltSpot(at, bp, hash32(`${s.id}:${Math.round(time * 60)}`));
-        if (to) m.bolt = { from: { x: at.x, y: at.y }, to, t0: time };
-        else m.rest = { x: at.x, y: at.y };
-        return view(at.x, at.y, 'hop', to ? (to.x >= at.x ? 1 : -1) : facing(at));
-      }
-      if (d < reach(LAND_REACH.bunnyWatch, tr)) {
-        if (!m.rest) m.frozen += dt;
-        return view(at.x, at.y, 'sit', facing(at));
-      }
-      if (m.rest) return view(at.x, at.y, 'idle', facing(at));
-      return view(r!.x, r!.y, r!.moving ? 'hop' : r!.pause < 2.4 ? 'nibble' : 'idle', r!.dir, r!.moving ? -3 * Math.abs(Math.sin(r!.progress * Math.PI * 3)) : 0);
-    }
+    if (s.kind === 'bunny') return this.poseBunny(s, m, bp, dt, time);
     // The songbird.
     if (m.gone) {
       const k = (time - m.gone) / BIRD_FLIGHT;
@@ -2966,6 +2959,200 @@ export class LiveWorld {
       return view(r.x, r.y, 'sing', facing(r));
     }
     return view(r.x, r.y, r.pause % 5 < 1.2 ? 'peck' : 'perch', r.dir);
+  }
+
+  /**
+   * THE BUNNY (Living World, phase 2): its routine until the Blobbi comes within its watch; then it sits up, wary.
+   * A Blobbi that closes in fast (or, before any trust, comes within its flee reach) sends it bolting away to rest.
+   * A Blobbi that keeps still makes it curious (a hop or two closer, never past two thirds of the gap), then, still
+   * longer, it comes over by itself and sits beside the Blobbi a while, and at last hops off home and is gone. A shy
+   * bunny needs more stillness for each step (`patience`), never forever. Everything is kept in its mood for this
+   * appearance only; every hop lands on standable dry ground, checked along the way, and it never blocks anything.
+   */
+  private poseBunny(s: LandSighting, m: LandMood, bp: LandPt, dt: number, time: number): LandView | null {
+    const tr = s.traits;
+    const b = this.blobbi;
+    const dist = (p: LandPt) => Math.hypot(p.x - bp.x, p.y - bp.y);
+    const facing = (p: LandPt): 1 | -1 => (bp.x >= p.x ? 1 : -1);
+    const view = (x: number, y: number, pose: LandPose, dir: 1 | -1, dy = 0): LandView => ({ id: s.id, kind: s.kind, x, y, dir, pose, dy });
+    const ease = (k: number) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
+    const arc = (k: number) => -3 * Math.abs(Math.sin(k * Math.PI));
+    if (m.gone) return null;
+    const enter = (phase: BunnyPhase) => {
+      m.phase = phase;
+      m.since = time;
+      m.still = 0;
+    };
+    // A bolt under way, then its rest.
+    if (m.bolt) {
+      const k = (time - m.bolt.t0) / BUNNY_BOLT;
+      if (k < 1) {
+        const e = ease(k);
+        return view(m.bolt.from.x + (m.bolt.to.x - m.bolt.from.x) * e, m.bolt.from.y + (m.bolt.to.y - m.bolt.from.y) * e, 'hop', m.bolt.to.x >= m.bolt.from.x ? 1 : -1, -3 * Math.abs(Math.sin(k * Math.PI * 3)));
+      }
+      m.rest = m.bolt.to;
+      m.bolt = null;
+      enter('resting');
+    }
+    // Where it is: mid-hop, at its resting spot, or in its routine (frozen while it pays attention).
+    let hopping: { dir: 1 | -1; dy: number } | null = null;
+    let at: LandPt;
+    let routine: ReturnType<LandLife['routine']> | null = null;
+    if (m.hop) {
+      const k = (time - m.hop.t0) / BUNNY_HOP;
+      if (k < 1) {
+        const e = ease(k);
+        at = { x: m.hop.from.x + (m.hop.to.x - m.hop.from.x) * e, y: m.hop.from.y + (m.hop.to.y - m.hop.from.y) * e };
+        hopping = { dir: m.hop.to.x >= m.hop.from.x ? 1 : -1, dy: arc(k) };
+      } else {
+        at = m.rest = m.hop.to;
+        m.hop = null;
+      }
+    } else if (m.rest) at = m.rest;
+    else {
+      routine = this.land.routine(s, s.age - m.frozen);
+      at = { x: routine.x, y: routine.y };
+    }
+    const d = dist(at);
+    const watchR = reach(LAND_REACH.bunnyWatch, tr);
+    // How fast the Blobbi closed in this step (px/s, negative: away), from where it stood before the step.
+    const from = this.stepFrom;
+    const closing = from ? (Math.hypot(from.x - at.x, from.y - at.y) - d) / dt : 0;
+    // Haste: closing in fast for more than a moment (one step is forgiven, a stride is not).
+    m.haste = closing > BUNNY_FAST * b.speed && d < watchR ? m.haste + dt : 0;
+    const fast = m.haste >= BUNNY_HASTE;
+    const moved = this.movedLastStep;
+    const attentive = m.phase === 'wary' || m.phase === 'curious' || m.phase === 'approaching' || m.phase === 'beside';
+    // Frights: haste within its watch; closeness too, until it has come over of its own accord.
+    // (Coming over is its own choice: closeness does not count against it on the way, nor once it trusts.)
+    if (m.phase !== 'leaving' && (fast || (!m.trust && m.phase !== 'approaching' && d < reach(LAND_REACH.bunnyFlee, tr)))) {
+      const to = this.land.boltSpot(at, bp, hash32(`${s.id}:${Math.round(time * 60)}`));
+      m.hop = null;
+      m.trust = false;
+      if (to) {
+        m.bolt = { from: { x: at.x, y: at.y }, to, t0: time };
+        enter('bolting');
+      } else {
+        m.rest = { x: at.x, y: at.y };
+        enter('resting');
+      }
+      return view(at.x, at.y, 'hop', to ? (to.x >= at.x ? 1 : -1) : facing(at));
+    }
+    // While it pays attention from close by, the Blobbi's autonomy waits (a deliberate stillness is not undone by a
+    // wander); the player's own keys, taps and rest go on as ever.
+    if (attentive && d < watchR + 8) this.holdAutonomy();
+    if (moved) m.still = 0;
+    else if (attentive) m.still += dt;
+    const sitting = (pose: LandPose = 'sit') => view(at.x, at.y, pose, facing(at));
+    switch (m.phase) {
+      case 'routine':
+        if (d < watchR) {
+          enter('wary');
+          return sitting();
+        }
+        return view(routine!.x, routine!.y, routine!.moving ? 'hop' : routine!.pause < 2.4 ? 'nibble' : 'idle', routine!.dir, routine!.moving ? -3 * Math.abs(Math.sin(routine!.progress * Math.PI * 3)) : 0);
+      case 'resting':
+        if (d < watchR) {
+          enter('wary');
+          return sitting();
+        }
+        return view(at.x, at.y, 'idle', facing(at));
+      case 'wary':
+        if (d >= watchR + 8) {
+          enter(m.rest ? 'resting' : 'routine');
+          return view(at.x, at.y, 'idle', facing(at));
+        }
+        if (!m.rest) m.frozen += dt;
+        if (m.still >= BUNNY_CURIOUS_AFTER * patience(tr)) {
+          enter('curious');
+          m.curiousGap = d;
+          m.curiousHops = 0;
+          m.lastHop = time;
+          m.rest = { x: at.x, y: at.y }; // from here on it keeps its own place
+        }
+        return sitting();
+      case 'curious': {
+        if (moved) {
+          enter('wary');
+          return sitting();
+        }
+        if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
+        if (m.still >= BUNNY_APPROACH_AFTER * patience(tr)) {
+          enter('approaching');
+          return sitting('curious');
+        }
+        // A hop or two closer, never nearer than two thirds of the gap it started from.
+        if (m.curiousHops < 2 && time - m.lastHop > 1.2) {
+          const keep = Math.max(m.curiousGap * BUNNY_CURIOUS_KEEP, BUNNY_BESIDE + 2);
+          if (d > keep + 2) {
+            const a = Math.atan2(at.y - bp.y, at.x - bp.x);
+            const goal = { x: bp.x + Math.cos(a) * keep, y: bp.y + Math.sin(a) * keep };
+            const to = this.land.hopAlong(at, goal, 8);
+            m.lastHop = time;
+            m.curiousHops++;
+            if (to) {
+              m.hop = { from: { x: at.x, y: at.y }, to, t0: time };
+              return view(at.x, at.y, 'hop', to.x >= at.x ? 1 : -1);
+            }
+          }
+        }
+        return sitting((time - m.since) % 3 < 0.5 ? 'twitch' : 'curious');
+      }
+      case 'approaching': {
+        if (moved) {
+          enter('wary');
+          return sitting();
+        }
+        if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
+        const spot = this.land.approachSpot(at, bp, { rx: b.footRx, ry: b.footRy }, hash32(`${s.id}:beside:${Math.round(m.since * 60)}`));
+        if (!spot) {
+          enter(d <= BUNNY_BESIDE + 6 ? 'beside' : 'curious');
+          return sitting('curious');
+        }
+        if (Math.hypot(spot.x - at.x, spot.y - at.y) < 1.5) {
+          // Here: it settles in, and the Blobbi turns to it, glad; a heart (from a hash, never from a stream).
+          enter('beside');
+          m.trust = true;
+          m.stay = BUNNY_STAY.min + (s.seed % (BUNNY_STAY.max - BUNNY_STAY.min + 1));
+          b.animator.state.direction = Math.abs(at.x - b.x) > Math.abs(at.y - b.y) ? (at.x > b.x ? 'right' : 'left') : at.y > b.y ? 'down' : 'up';
+          b.animator.react('happy', time, 1.5, 2);
+          const hh = hash32(`${s.id}:heart`);
+          this.islandParticles.spawn({ kind: 'heart', x: at.x, y: at.y - 6, vx: (hh % 5) - 2, vy: -10, life: 1.1, color: hex('#ff6b9a'), phase: ((hh >>> 8) % 628) / 100, front: true });
+          return sitting('nibble');
+        }
+        const next = this.land.hopAlong(at, spot, BUNNY_HOP_LENGTH);
+        if (!next) {
+          enter(d <= BUNNY_BESIDE + 6 ? 'beside' : 'curious');
+          return sitting('curious');
+        }
+        m.hop = { from: { x: at.x, y: at.y }, to: next, t0: time };
+        return view(at.x, at.y, 'hop', next.x >= at.x ? 1 : -1);
+      }
+      case 'beside': {
+        if (moved) {
+          enter('wary');
+          return sitting();
+        }
+        if (time - m.since >= m.stay || s.age >= s.span - 4) {
+          enter('leaving');
+          return sitting();
+        }
+        const k = (time - m.since) % 6;
+        return sitting(k < 2.5 ? 'nibble' : k < 3 ? 'twitch' : 'idle');
+      }
+      case 'leaving': {
+        if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
+        const next = this.land.hopAlong(at, s.home, BUNNY_HOP_LENGTH);
+        if (!next || Math.hypot(s.home.x - at.x, s.home.y - at.y) < 2 || time - m.since > 4) {
+          m.gone = 1;
+          return null;
+        }
+        m.hop = { from: { x: at.x, y: at.y }, to: next, t0: time };
+        return view(at.x, at.y, 'hop', next.x >= at.x ? 1 : -1);
+      }
+      case 'bolting':
+        return sitting(); // (handled above; unreachable)
+    }
   }
 
   /** The seal rolling over after a wave: which appearance, until when (clock time). */

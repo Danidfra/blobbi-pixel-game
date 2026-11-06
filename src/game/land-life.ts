@@ -73,6 +73,27 @@ export const BIRD_FLIGHT = 1.5;
 export const BUNNY_BOLT = 0.9;
 export const BUNNY_BOLT_DISTANCE = 30;
 
+/**
+ * THE BUNNY ENCOUNTER (Living World, phase 2): a bunny that watches the Blobbi grows curious when it keeps still,
+ * comes over on its own, sits beside it a while, and goes about its business again.
+ */
+/** One hop of an encounter: seconds, and the longest hop (world px). */
+export const BUNNY_HOP = 0.32;
+export const BUNNY_HOP_LENGTH = 12;
+/** How close it comes to the Blobbi (world px from the Blobbi's centre), and how close a curious hop may bring it: no nearer than two thirds of the gap it started from. */
+export const BUNNY_BESIDE = 10;
+export const BUNNY_CURIOUS_KEEP = 2 / 3;
+/** The Blobbi closing in faster than this share of its walking speed, for longer than `BUNNY_HASTE` seconds, frightens a bunny that is watching. */
+export const BUNNY_FAST = 0.6;
+export const BUNNY_HASTE = 0.2;
+/** Seconds of the Blobbi's stillness, times `patience`, before a watching bunny grows curious, and before a curious one comes over. */
+export const BUNNY_CURIOUS_AFTER = 2;
+export const BUNNY_APPROACH_AFTER = 4;
+/** How long it sits beside the Blobbi (seconds, seeded between these). */
+export const BUNNY_STAY = { min: 8, max: 14 } as const;
+/** A shy bunny takes longer to trust, never forever: 1 (bold) .. 2.5 (shy). */
+export const patience = (traits: LandTraits): number => 1 + (1 - traits.bold) * 1.5;
+
 const CRAB_SEGMENT = 3;
 const CRAB_MOVE = 1.2;
 const BUNNY_SEGMENT = 4.5;
@@ -85,7 +106,7 @@ const isWater = (c: number) => c === T.DEEP || c === T.WATER || c === T.SHALLOW 
 export const isEdge = (c: number): boolean => isWater(c) || c === T.RIM || c === T.SKIN;
 
 /** What a creature can be seen doing (the renderer has a sprite for each). */
-export type LandPose = 'walk' | 'idle' | 'watch' | 'hide' | 'hop' | 'sit' | 'nibble' | 'perch' | 'peck' | 'sing' | 'fly';
+export type LandPose = 'walk' | 'idle' | 'watch' | 'hide' | 'hop' | 'sit' | 'nibble' | 'twitch' | 'curious' | 'perch' | 'peck' | 'sing' | 'fly';
 
 /** What a creature is doing in its routine at a moment (no reactions). */
 export interface Routine {
@@ -238,6 +259,42 @@ export class LandLife {
       const d = BUNNY_BOLT_DISTANCE - (i > 5 ? 8 : 0);
       const x = Math.round(at.x + Math.cos(a) * d);
       const y = Math.round(at.y + Math.sin(a) * d * 0.7);
+      if (this.canStand(x, y) && !this.wet(x, y)) return { x, y };
+    }
+    return null;
+  }
+
+  /**
+   * The next hop from `at` toward `to`: the whole way when it is within `maxLen`, else `maxLen` along the line; null
+   * when the ground there, or on the way (checked at quarter points), is not standable dry ground.
+   */
+  hopAlong(at: Pt, to: Pt, maxLen = BUNNY_HOP_LENGTH): Pt | null {
+    const d = Math.hypot(to.x - at.x, to.y - at.y);
+    if (d < 0.5) return null;
+    const k = Math.min(1, maxLen / d);
+    const end = { x: Math.round(at.x + (to.x - at.x) * k), y: Math.round(at.y + (to.y - at.y) * k) };
+    for (const q of [0.25, 0.5, 0.75, 1]) {
+      const x = Math.round(at.x + (end.x - at.x) * q);
+      const y = Math.round(at.y + (end.y - at.y) * q);
+      if (!this.canStand(x, y) || this.wet(x, y)) return null;
+    }
+    return end;
+  }
+
+  /**
+   * Where a bunny sits beside the Blobbi: `BUNNY_BESIDE` from the Blobbi's centre, on the bunny's own side first and
+   * then fanning round, on standable dry ground and never inside the Blobbi's foot (plus a pixel or two); null when
+   * nowhere fits.
+   */
+  approachSpot(at: Pt, blobbi: Pt, foot: { rx: number; ry: number }, seed: number): Pt | null {
+    const base = Math.atan2(at.y - blobbi.y, at.x - blobbi.x);
+    for (let i = 0; i < 9; i++) {
+      const a = base + ((i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI) / 5 + ((seed >>> (i * 2)) & 3) * 0.04;
+      const x = Math.round(blobbi.x + Math.cos(a) * BUNNY_BESIDE);
+      const y = Math.round(blobbi.y + Math.sin(a) * BUNNY_BESIDE * 0.7);
+      const dx = (x - blobbi.x) / (foot.rx + 2);
+      const dy = (y - blobbi.y) / (foot.ry + 2);
+      if (dx * dx + dy * dy < 1) continue;
       if (this.canStand(x, y) && !this.wet(x, y)) return { x, y };
     }
     return null;

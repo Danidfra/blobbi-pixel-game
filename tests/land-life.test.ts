@@ -5,13 +5,13 @@
  * them. Nothing draws from the island's random streams.
  */
 import { describe, expect, it } from 'vitest';
-import { LandLife, LAND_REACH, LAND_SCHEDULE, MAX_LAND_CREATURES, isEdge, reach, type LandKind, type LandSighting } from '../src/game/land-life';
+import { LandLife, LAND_REACH, LAND_SCHEDULE, MAX_LAND_CREATURES, BUNNY_BESIDE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_CURIOUS_KEEP, BUNNY_STAY, isEdge, patience, reach, type LandKind, type LandSighting } from '../src/game/land-life';
 import { IDLE_INPUT, LiveWorld } from '../src/sim/live-world';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS } from '../src/render/live-render';
 import { landSprite } from '../src/render/land-render';
 import { generateTurtleWorld } from '../src/world/turtle-world';
 import { NEW_WORLD_SHELL_VARIANT } from '../src/carrier/types';
-import { memoryStore } from '../src/game/persistence';
+import { loadSave, memoryStore } from '../src/game/persistence';
 import { DAY_SECONDS, START_HOUR, dayAt } from '../src/game/daylight';
 import { BUILDINGS } from '../src/game/buildings';
 import { findBuildSpot, pressE, run, stand } from '../src/dev/scripted-play';
@@ -23,8 +23,7 @@ const make = (seed = 'land-test') => generateTurtleWorld(seed, { turtleSeed: 'lt
 const at = (hour: number, day = 0) => day * DAY_SECONDS + (((hour - START_HOUR + 24) % 24) / 24) * DAY_SECONDS;
 
 /** A live world grown to `stage` (the land reaching the water), as a save makes it; autonomy off. */
-function grown(stage = 2, seed = 'land-test'): LiveWorld {
-  const store = memoryStore();
+function grown(stage = 2, seed = 'land-test', store = memoryStore()): LiveWorld {
   const probe = new LiveWorld(make(seed), 'blobbi-9', 16, { store });
   probe.growth = { stage, version: 3, history: [], regions: [] };
   probe.save();
@@ -307,5 +306,151 @@ describe('land life: meeting the Blobbi', () => {
         for (const c of r.buffer.data) if (c >>> 24) opaque++;
         expect(opaque).toBeGreaterThan(3);
       }
+  });
+});
+
+describe('the bunny encounter (phase 2)', () => {
+  type Mood = { phase: string; trust: boolean; curiousHops: number; curiousGap: number };
+  const mood = (live: LiveWorld, id: string) => (live as unknown as { landMoods: Map<string, Mood> }).landMoods.get(id);
+  const still = (live: LiveWorld, seconds: number) => {
+    for (let i = 0; i < Math.round(seconds * 60); i++) live.update(1 / 60, IDLE_INPUT);
+  };
+  const press = (live: LiveWorld, key: 'left' | 'right' | 'up' | 'down', steps: number) => {
+    for (let i = 0; i < steps; i++) live.update(1 / 60, { ...IDLE_INPUT, [key]: true });
+  };
+  const gap = (live: LiveWorld, id: string) => {
+    const v = view(live, id)!;
+    return Math.hypot(v.x - live.blobbi.x, v.y - live.blobbi.y);
+  };
+  /** A bunny watching the Blobbi from just inside its watch (the Blobbi to its left, so "right" walks at it). */
+  const watched = (live: LiveWorld, pick: (s: LandSighting) => boolean = () => true) => {
+    const { t, s } = moment(live, 'bunny', pick);
+    arrange(live, t, s.home, 120);
+    live.update(1 / 60, IDLE_INPUT);
+    const v = view(live, s.id)!;
+    const wr = reach(LAND_REACH.bunnyWatch, s.traits);
+    const { rx, ry } = foot(live);
+    const spot = live.collision.nearestFree(Math.round(v.x - (wr - 5)), Math.round(v.y), rx, ry);
+    expect(spot && Math.abs(Math.hypot(spot.x - v.x, spot.y - v.y) - (wr - 5)) < 5, 'a spot to its left').toBe(true);
+    stand(live, spot!.x, spot!.y, 'down'); // (facing is not required; a step across never counts as haste)
+    live.update(1 / 60, IDLE_INPUT);
+    expect(view(live, s.id)?.pose).toBe('sit');
+    expect(mood(live, s.id)?.phase).toBe('wary');
+    return s;
+  };
+  /** Keep still until the bunny sits beside the Blobbi (or give up after `max` seconds). */
+  const untilBeside = (live: LiveWorld, id: string, max: number) => {
+    for (let i = 0; i < max * 60 && mood(live, id)?.phase !== 'beside'; i++) live.update(1 / 60, IDLE_INPUT);
+    return mood(live, id)?.phase === 'beside';
+  };
+
+  it('a wary bunny bolts from a Blobbi walking straight at it, but not from one walking across', () => {
+    const a = grown();
+    const s = watched(a);
+    press(a, 'right', 4); // a single step toward it is forgiven
+    expect(mood(a, s.id)?.phase).toBe('wary');
+    press(a, 'right', 20); // a stride is not
+    expect(mood(a, s.id)?.phase).toBe('bolting');
+    expect(view(a, s.id)?.pose).toBe('hop');
+    const b = grown();
+    const s2 = watched(b);
+    press(b, 'down', 24);
+    expect(mood(b, s2.id)?.phase).toBe('wary');
+    expect(view(b, s2.id)?.pose).toBe('sit');
+  });
+
+  it('stillness makes it curious (a hop or two, keeping two thirds of the gap), then it comes over, sits beside the Blobbi, and the Blobbi is glad', () => {
+    const live = grown();
+    const s = watched(live, (x) => x.traits.bold > 0.6);
+    const p = patience(s.traits);
+    const gap0 = gap(live, s.id);
+    still(live, BUNNY_CURIOUS_AFTER * p + 0.2);
+    expect(mood(live, s.id)?.phase).toBe('curious');
+    still(live, 1.5);
+    expect(mood(live, s.id)!.curiousHops).toBeLessThanOrEqual(2);
+    expect(gap(live, s.id)).toBeGreaterThanOrEqual(Math.max(gap0 * BUNNY_CURIOUS_KEEP, BUNNY_BESIDE + 2) - 2);
+    expect(['curious', 'twitch', 'hop']).toContain(view(live, s.id)?.pose);
+    live.particles.particles.length = 0;
+    const before = live.blobbi.animator.state.direction;
+    expect(untilBeside(live, s.id, BUNNY_APPROACH_AFTER * p + 6)).toBe(true);
+    const v = view(live, s.id)!;
+    const d = Math.hypot(v.x - live.blobbi.x, v.y - live.blobbi.y);
+    expect(d).toBeLessThanOrEqual(BUNNY_BESIDE + 2);
+    expect(d).toBeGreaterThan(live.blobbi.footRx);
+    expect(live.land.canStand(Math.round(v.x), Math.round(v.y))).toBe(true);
+    expect(live.land.wet(v.x, v.y)).toBe(false);
+    expect(mood(live, s.id)?.trust).toBe(true);
+    expect(live.particles.particles.some((q) => q.kind === 'heart')).toBe(true);
+    expect(live.blobbi.animator.state.direction).toBe(v.x > live.blobbi.x ? 'right' : 'left');
+    void before;
+    // It stays a while, then hops off home and is gone; its memory goes with the appearance.
+    still(live, BUNNY_STAY.max + 5);
+    expect(view(live, s.id)).toBeUndefined();
+  });
+
+  it('a shy bunny needs more stillness, never forever: it comes over too', () => {
+    const live = grown();
+    const s = watched(live, (x) => x.traits.bold < 0.3);
+    const p = patience(s.traits);
+    expect(p).toBeGreaterThan(2);
+    still(live, BUNNY_APPROACH_AFTER * 1 + 1);
+    expect(mood(live, s.id)?.phase).not.toBe('beside'); // a bold one would be there by now
+    expect(untilBeside(live, s.id, BUNNY_APPROACH_AFTER * p + 8)).toBe(true);
+  });
+
+  it('beside the Blobbi, a gentle step away only makes it wary; a step toward it sends it bolting', () => {
+    const live = grown();
+    const s = watched(live, (x) => x.traits.bold > 0.6);
+    expect(untilBeside(live, s.id, BUNNY_APPROACH_AFTER * patience(s.traits) + 6)).toBe(true);
+    const v = view(live, s.id)!;
+    const away = v.x > live.blobbi.x ? 'left' : 'right';
+    press(live, away, 3);
+    expect(mood(live, s.id)?.phase).toBe('wary');
+    expect(mood(live, s.id)?.trust).toBe(true);
+    still(live, 0.5);
+    expect(mood(live, s.id)?.phase).toBe('wary'); // closeness alone no longer frightens it
+    press(live, away === 'left' ? 'right' : 'left', 24);
+    expect(mood(live, s.id)?.phase).toBe('bolting');
+    expect(mood(live, s.id)?.trust).toBe(false);
+  });
+
+  it('autonomy waits while a bunny pays attention from close by, so a deliberate stillness is not undone by a wander', () => {
+    const live = grown();
+    live.brain.enabled = true;
+    live.setAutonomy({ delay: 2, walk: true });
+    const s = watched(live);
+    const x0 = live.blobbi.x;
+    const y0 = live.blobbi.y;
+    still(live, 8);
+    expect(Math.hypot(live.blobbi.x - x0, live.blobbi.y - y0)).toBeLessThan(0.5);
+    expect(['curious', 'approaching', 'beside']).toContain(mood(live, s.id)?.phase);
+    // The same Blobbi with no bunny near wanders as ever.
+    const other = grown();
+    other.brain.enabled = true;
+    other.setAutonomy({ delay: 2, walk: true });
+    const far = moment(other, 'bunny');
+    arrange(other, far.t, far.s.home, 160);
+    const ox = other.blobbi.x;
+    const oy = other.blobbi.y;
+    still(other, 12);
+    expect(Math.hypot(other.blobbi.x - ox, other.blobbi.y - oy)).toBeGreaterThan(2);
+  });
+
+  it('is the same on every run for the same inputs, and nothing of it is saved', () => {
+    const store = memoryStore();
+    const a = grown(2, 'land-test', store);
+    const b = grown(2, 'land-test');
+    const sa = watched(a, (x) => x.traits.bold > 0.6);
+    const sb = watched(b, (x) => x.traits.bold > 0.6);
+    expect(sb.id).toBe(sa.id);
+    for (let i = 0; i < 60 * 14; i++) {
+      a.update(1 / 60, IDLE_INPUT);
+      b.update(1 / 60, IDLE_INPUT);
+      expect(JSON.stringify(a.landViews)).toBe(JSON.stringify(b.landViews));
+    }
+    expect(mood(a, sa.id)?.phase).toBe('beside');
+    a.save();
+    const raw = JSON.stringify(loadSave(store, a.identity));
+    for (const word of ['"phase"', '"trust"', '"curiousGap"', 'landMoods', 'landViews']) expect(raw).not.toContain(word);
   });
 });

@@ -325,6 +325,12 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
       `presence  ${live.getPresenceState()}${live.teleport.reducedMotion ? ' (reduced motion)' : ''}`,
       `brain     ${live.brain.state} (${live.brain.restGoal}${live.brain.restAtShelter ? ', shelter' : ''}) ${live.brain.note}`,
       `scene     ${live.interior ? `inside ${live.interior.state.shelterId} (${live.interior.state.furniture.length} pieces)` : 'island'}`,
+      // Living World: every creature about, its pose, a bunny's encounter phase, how bold it is (0 shy .. 1 bold) and how far.
+      `land      ${live.landViews.map((v) => {
+        const s = live.landSightings().find((x) => x.id === v.id);
+        const phase = (live as unknown as { landMoods: Map<string, { phase?: string }> }).landMoods.get(v.id)?.phase;
+        return `${v.kind} ${v.pose}${v.kind === 'bunny' && phase ? `/${phase}` : ''} bold ${s ? s.traits.bold.toFixed(2) : '?'} at ${Math.round(v.x)},${Math.round(v.y)} (${Math.round(Math.hypot(v.x - live.blobbi.x, v.y - live.blobbi.y))} px)`;
+      }).join(' · ') || 'nothing about'}`,
       `quests    active ${activeQuests(live.objectives).map((q) => q.id).join(' ')}`,
       `request   ${req ? `${req.request.id} ${req.have}/${req.need}` : `none (next at ${(live.objectives.nextRequestAt ?? 0).toFixed(0)} s)`}`,
       `finds     ${live.found.size}/${live.discoveries.length}: ${live.hiddenDiscoveries.map((d) => `${d.id}@${d.x},${d.y}`).join(' ')}`,

@@ -53,6 +53,12 @@ const ART: Record<LandKind, Partial<Record<LandPose, string[][]>>> = {
       ['...b.', '..bb.', '.bbbb', 'bbbeb', 'bbbbb', '.d.d.'],
     ],
     sit: [['.b.b.', '.b.b.', '.b.b.', '.bbb.', 'bbbeb', '.bbb.', 'wbbbw', '.d.d.']],
+    // An ear flicks; the nose comes up, ears forward: it is interested.
+    twitch: [
+      ['.b.b.', '.bb..', '.bbb.', 'bbbeb', 'bbbbb', 'wbbbw', '.d.d.'],
+      ['.b.b.', '..bb.', '.bbb.', 'bbbeb', 'bbbbb', 'wbbbw', '.d.d.'],
+    ],
+    curious: [['.b.b.', '.b.b.', '.bbbe', '.bbbb', 'bbbbb', 'wbbbw', '.d.d.']],
   },
   songbird: {
     perch: [['..Bl.', '.BBek', 'BByy.', '.yy..', '.f.f.']],
@@ -106,7 +112,7 @@ export function landDrawables(live: LiveWorld, time: number, ox: number, oy: num
   const out: LandDrawable[] = [];
   for (const v of live.landViews) {
     if (v.x < ox - 16 || v.x > ox + viewW + 16 || v.y < oy - 48 || v.y > oy + viewH + 16) continue;
-    const frame = Math.floor(time * (v.pose === 'fly' ? 10 : v.pose === 'hop' ? 8 : v.pose === 'nibble' || v.pose === 'peck' ? 3 : v.pose === 'sing' ? 4 : 6));
+    const frame = Math.floor(time * (v.pose === 'fly' ? 10 : v.pose === 'hop' ? 8 : v.pose === 'nibble' || v.pose === 'peck' ? 3 : v.pose === 'sing' ? 4 : v.pose === 'twitch' ? 5 : 6));
     const sprite = landSprite(v.kind, v.pose, frame, v.dir);
     out.push({ y: v.pose === 'fly' ? oy + viewH + 1e6 : v.y, x: v.x, sprite, sway: 0, dy: v.pose === 'fly' ? v.y - (oy + viewH + 1e6) : v.dy });
   }
