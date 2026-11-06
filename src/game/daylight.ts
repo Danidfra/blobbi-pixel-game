@@ -88,10 +88,10 @@ export interface RoomLight {
 
 const quantize = (v: number, steps: number) => Math.round(Math.max(0, Math.min(1, v)) * steps) / steps;
 
-export function roomLightAt(worldSeed: string, t: number): RoomLight {
+export function roomLightAt(worldSeed: string, t: number, rainNow: number = rainAt(worldSeed, t)): RoomLight {
   const l = lightAt(t);
   const h = hourAt(t);
-  const rain = quantize(rainAt(worldSeed, t), 4);
+  const rain = quantize(rainNow, 4);
   const shaft = quantize((1 - l.dark / 0.45) * (1 - rain * 0.6), 8);
   const lean = shaft > 0 ? Math.round(Math.max(-1, Math.min(1, (12 - h) / 5)) * 4) / 4 : 0;
   return { shaft, warm: shaft > 0 ? quantize(l.warm, 4) : 0, lean, rain, night: l.dark >= 0.45 - 1e-9 };

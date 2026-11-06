@@ -18,7 +18,7 @@ import { SPECIES, renderSpeciesPreview } from '../carriers/species';
 import { generateTurtleWorld } from '../world/turtle-world';
 import { generateMantaWorld } from '../carriers/manta-world';
 import { generateWhaleWorld } from '../carriers/whale-world';
-import { LiveWorld } from '../sim/live-world';
+import { LiveWorld, type WeatherOverride } from '../sim/live-world';
 import { localStore, saveKey, worldIdentity } from '../game/persistence';
 import { findBuildSpot } from './scripted-play';
 import { paletteFor } from '../world/generate';
@@ -64,6 +64,7 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     <h2>Dev tools <small>(dev server only)</small></h2>
     <div class="row"><button data-dev="test-world">Test world</button><button data-dev="test-world-turtle">Turtle</button><button data-dev="test-world-manta">Manta</button><button data-dev="test-world-whale">Whale</button></div>
     <div class="row"><button data-dev="time-60">+1 min</button><button data-dev="time-600">+10 min</button><button data-dev="time-hour">+1 h</button><button data-dev="time-dawn">Morning</button></div>
+    <div class="row"><button data-dev="weather-natural">Natural weather</button><button data-dev="weather-rain">Force rain</button><button data-dev="weather-dry">Force dry</button></div>
     <div class="row"><button data-dev="kit-basics">Materials</button><button data-dev="kit-seeds">Seeds</button><button data-dev="kit-food">Food</button></div>
     <div class="row"><button data-dev="kit-tools">All tools</button><button data-dev="kit-furniture">Furniture</button><button data-dev="unlock">Unlock all</button></div>
     <div class="row"><button data-dev="hungry">Hungry</button><button data-dev="tired">Tired</button><button data-dev="sad">Sad</button><button data-dev="well">Well</button></div>
@@ -124,7 +125,8 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
       if (arg === 'hour') live.timeOffset += DAY_SECONDS / 24;
       else if (arg === 'dawn') live.timeOffset += ((((8 - hourAt(now)) % 24) + 24) % 24) * (DAY_SECONDS / 24);
       else live.timeOffset += Number(arg);
-    } else if (action.startsWith('kit-')) for (const [item, n] of KITS[action.slice(4)] ?? []) live.inventory.add(item, n);
+    } else if (action.startsWith('weather-')) live.weather = action.slice(8) as WeatherOverride; // this world only; never saved
+    else if (action.startsWith('kit-')) for (const [item, n] of KITS[action.slice(4)] ?? []) live.inventory.add(item, n);
     else if (action === 'unlock') for (const q of QUESTS) live.objectives.completed[q.id] ??= now;
     else if (action === 'hungry') live.care.hunger = 20;
     else if (action === 'tired') live.care.energy = 20;
@@ -316,7 +318,7 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     const req = requestProgress(live.objectives, live.tally);
     const lines = [
       `world     ${t.toFixed(1)} s, ${clockLabel(t)} (offset ${live.timeOffset.toFixed(0)})`,
-      `light     dark ${live.ambientLight().dark.toFixed(2)} rain ${live.rainNow().toFixed(2)}`,
+      `light     dark ${live.ambientLight().dark.toFixed(2)} rain ${live.rainNow().toFixed(2)} (outside ${live.rainOutside().toFixed(2)}, weather ${live.weather})`,
       `needs     fed ${c.hunger.toFixed(1)} energy ${c.energy.toFixed(1)} joy ${c.happiness.toFixed(1)}`,
       `friend    ${live.companion.friendship} pts, level ${friendLevel(live.companion.friendship)}; likes ${live.tastes.foods.map((f) => itemPlural(f)).join(', ')}; thing ${live.tastes.thing}`,
       audioLine(),

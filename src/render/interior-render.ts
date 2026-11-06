@@ -62,7 +62,7 @@ export class InteriorRenderer {
     const ox = Math.round(camX);
     const oy = Math.round(camY);
     frame.fill(this.background);
-    const light = roomLightAt(live.world.seed, live.worldTime);
+    const light = roomLightAt(live.world.seed, live.worldTime, live.rainOutside());
     frame.blit(this.room(light), -ox, -oy);
     // Live weather in the windows: a few streaks while it rains, a few stars at night (a handful of pixels).
     for (const win of layoutFor(scene.state.level).windows) {

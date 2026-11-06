@@ -272,6 +272,9 @@ const MOTE_COLOUR = hex('#fffbe8');
 /** Pixels walked between two puffs of walking dust. */
 export const DUST_STRIDE = 6;
 
+/** What the dev tools may force the weather to; `natural` is the world's own rain. */
+export type WeatherOverride = 'natural' | 'rain' | 'dry';
+
 /**
  * The colour of the dust a step kicks up on a terrain class, or null where a step raises none: water of every kind,
  * foam, wet sand, rock faces and the Carrier's body. Sand and gravel paths puff pale, grass and meadow a lighter green;
@@ -423,6 +426,11 @@ export class LiveWorld {
   /** The walking dust's own stream, and the pixels walked since the last puff. */
   private footDust!: Rng;
   private dustStride = 0;
+  /**
+   * DEVELOPMENT ONLY: the weather forced by the dev tools (`natural` follows the world's own rain). Never saved,
+   * never sent anywhere; a new world starts natural. Production has no way to set it.
+   */
+  weather: WeatherOverride = 'natural';
   private wasRaining = false;
   /** Flowers and flower beds, where butterflies gather. */
   private flowerSpots: { x: number; y: number }[] = [];
@@ -1868,7 +1876,7 @@ export class LiveWorld {
     if (this.farmTimer > 0 || !this.plots.length) return;
     this.farmTimer = 1;
     // Rain waters every dry crop it falls on (outdoors; no tally: that is the sky's work, not the player's).
-    if (rainAt(this.world.seed, this.worldTime) > 0.3)
+    if (this.rainOutside() > 0.3)
       for (const plot of this.plots) if (plot.crop && needsWater(plot.crop, this.worldTime)) plot.crop = waterCrop(plot.crop, this.worldTime) ?? plot.crop;
     // Sprinklers water every dry crop within a step of them.
     for (const sp of this.buildings) {
@@ -3224,7 +3232,12 @@ export class LiveWorld {
 
   /** Rain now (0..1), outdoors only. */
   rainNow(): number {
-    return this.inside ? 0 : rainAt(this.world.seed, this.worldTime);
+    return this.inside ? 0 : this.rainOutside();
+  }
+
+  /** The rain outside now (0..1), wherever the Blobbi is: the world's own weather, unless the dev tools force it. */
+  rainOutside(): number {
+    return this.weather === 'rain' ? 1 : this.weather === 'dry' ? 0 : rainAt(this.world.seed, this.worldTime);
   }
 
   /** Lamps in the current scene: lanterns outside, wall lanterns and lamps inside. */
@@ -3244,7 +3257,7 @@ export class LiveWorld {
   /** Dust motes in a room's daylight: at most `MAX_MOTES` alive, about one a second while the sun is in, none at dawn, dusk, night or in rain. */
   private stepRoomAtmosphere(dt: number): void {
     const scene = this.interior!;
-    const light = roomLightAt(this.world.seed, this.worldTime);
+    const light = roomLightAt(this.world.seed, this.worldTime, this.rainOutside());
     if (light.shaft < 0.5 || light.rain > 0) return;
     const p = scene.particles;
     if (p.count('mote') >= MAX_MOTES) return;
@@ -3266,7 +3279,7 @@ export class LiveWorld {
     const rng = this.creatures;
     const b = this.blobbi;
     const l = lightAt(this.worldTime);
-    const rain = rainAt(this.world.seed, this.worldTime);
+    const rain = this.rainOutside();
     const p = this.islandParticles;
     if (rain > 0) {
       for (let i = 0; i < Math.round(rain * 3); i++) if (rng.chance(dt * 30)) p.rain(b.x + rng.range(-150, 150), b.y + rng.range(-110, 60));
