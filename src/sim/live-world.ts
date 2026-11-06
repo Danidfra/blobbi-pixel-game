@@ -287,6 +287,7 @@ interface LandMood {
   rest: LandPt | null;
   /** When a bird flew off (clock time), or 0. */
   gone: number;
+  noticed: boolean;
   /** Seconds the Blobbi has kept still nearby. */
   still: number;
   lastNote: number;
@@ -2836,8 +2837,10 @@ export class LiveWorld {
     return (this.landLife ??= new LandLife(this.world, (x, y) => this.islandCollision.canStand(Math.round(x), Math.round(y), LAND_FOOT.rx, LAND_FOOT.ry)));
   }
   private landLife: LandLife | null = null;
-  /** Each appearance's little memory (hiding, a bolt, a rest, flown off): never saved, pruned with it. */
+  /** Each appearance's little memory (hiding, a bolt, a rest, flown off, noticed): never saved, pruned with it. */
   private landMoods = new Map<string, LandMood>();
+  /** The world day on which the Blobbi last remarked on each kind: one remark per kind per day (never saved). */
+  private landRemarked = new Map<LandKind, number>();
   /** The creatures as posed this step, for the renderer (empty indoors or while the Blobbi is away). */
   landViews: LandView[] = [];
 
@@ -2868,10 +2871,21 @@ export class LiveWorld {
       for (const s of this.landSightings()) {
         seen.add(s.id);
         let m = this.landMoods.get(s.id);
-        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, still: 0, lastNote: 0 }));
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0 }));
         const view = this.poseLand(s, m, bp, dt, time);
         if (!view) continue;
         views.push(view);
+        // The Blobbi notices a creature when it comes close: a word and a smile, once per kind per world day, and
+        // once per appearance at most (unless it is busy, in which case the remark waits for the next one).
+        if (!m.noticed && view.pose !== 'hide' && view.pose !== 'fly' && Math.hypot(view.x - b.x, view.y - b.y) < LAND_REACH.notice) {
+          m.noticed = true;
+          const day = dayAt(this.worldTime);
+          if (this.landRemarked.get(s.kind) !== day && !this.bubble && !this.restPlan && !this.fishing && !this.boat?.aboard) {
+            this.landRemarked.set(s.kind, day);
+            this.bubble = { text: lang(s.kind === 'crab' ? 'idle.seeCrab' : s.kind === 'bunny' ? 'idle.seeBunny' : 'idle.seeBird'), until: time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+            b.animator.react('happy', time, 1.2, 0);
+          }
+        }
       }
     }
     for (const id of this.landMoods.keys()) if (!seen.has(id)) this.landMoods.delete(id);

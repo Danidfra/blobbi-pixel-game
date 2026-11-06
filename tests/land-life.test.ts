@@ -12,10 +12,11 @@ import { landSprite } from '../src/render/land-render';
 import { generateTurtleWorld } from '../src/world/turtle-world';
 import { NEW_WORLD_SHELL_VARIANT } from '../src/carrier/types';
 import { memoryStore } from '../src/game/persistence';
-import { DAY_SECONDS, START_HOUR } from '../src/game/daylight';
+import { DAY_SECONDS, START_HOUR, dayAt } from '../src/game/daylight';
 import { BUILDINGS } from '../src/game/buildings';
 import { findBuildSpot, pressE, run, stand } from '../src/dev/scripted-play';
 import { T } from '../src/world/types';
+import { t as lang } from '../src/i18n';
 import { hex } from '../src/core/color';
 
 const make = (seed = 'land-test') => generateTurtleWorld(seed, { turtleSeed: 'lt', shellVariant: NEW_WORLD_SHELL_VARIANT, generatedHouse: false });
@@ -231,6 +232,39 @@ describe('land life: meeting the Blobbi', () => {
     for (let i = 0; i < 60 * 4; i++) live.update(1 / 60, IDLE_INPUT);
     expect(view(live, tame.s.id)?.pose).toBe('sing');
     expect(live.particles.particles.some((p) => p.kind === 'note')).toBe(true);
+  });
+
+  it('the Blobbi remarks on a creature once per kind per world day, never while it hides, and nothing is saved', () => {
+    const live = grown();
+    const bubble = () => live.bubble as { text: string } | null;
+    /** Come upon a creature: far first, then within noticing distance; what the Blobbi says, if anything. */
+    const meet = (m: { t: number; s: LandSighting }) => {
+      arrange(live, m.t, m.s.home, 120);
+      live.update(1 / 60, IDLE_INPUT);
+      live.bubble = null;
+      arrange(live, live.worldTime, view(live, m.s.id) ?? m.s.home, LAND_REACH.notice - 6); // (standing there runs one step)
+      live.update(1 / 60, IDLE_INPUT);
+      return bubble()?.text ?? null;
+    };
+    const first = moment(live, 'bunny');
+    arrange(live, first.t, first.s.home, 120);
+    live.update(1 / 60, IDLE_INPUT);
+    expect(bubble()).toBeNull(); // nothing from afar
+    expect(meet(first)).toBe(lang('idle.seeBunny'));
+    live.bubble = null;
+    for (let i = 0; i < 30; i++) live.update(1 / 60, IDLE_INPUT);
+    expect(bubble()).toBeNull(); // not again for this one
+    const D = dayAt(live.worldTime);
+    // Another bunny the same day: no remark. A crab the same day: its own remark. A bunny the next day: again.
+    const second = moment(live, 'bunny', (x) => x.id !== first.s.id, 3, live.worldTime);
+    expect(dayAt(second.t)).toBe(D);
+    expect(meet(second)).toBeNull();
+    const crab = moment(live, 'crab', () => true, 3, live.worldTime);
+    expect(dayAt(crab.t)).toBe(D);
+    expect(meet(crab)).toBe(lang('idle.seeCrab'));
+    const next = moment(live, 'bunny', () => true, 3, at(10, D));
+    expect(dayAt(next.t)).toBe(D + 1);
+    expect(meet(next)).toBe(lang('idle.seeBunny'));
   });
 
   it('never draws from the island\'s streams: leaves, sparkles, butterflies and birds fall the same with or without it', () => {
