@@ -533,6 +533,21 @@ export const ART: Record<string, ArtFn> = {
     b.set(7, 6, s.outline);
     return done(b, s.outline);
   },
+  // The washing tub: staves round a pool of clear water, an iron hoop, a glint on the surface. 13 × 9.
+  'washing-tub': ({ palette }) => {
+    const w = palette.wood;
+    const b = new PixelBuffer(13, 9);
+    block(b, 0, 2, 13, 7, w, 1); // the tub
+    for (let x = 2; x < 12; x += 3) b.vline(x, 3, 7, w.dark); // staves
+    b.hline(0, 12, 5, IRON.dark); // the hoop
+    b.set(1, 5, IRON.light);
+    b.fillRect(1, 1, 11, 2, WATER.mid); // the water
+    b.hline(1, 11, 1, WATER.light);
+    b.set(3, 1, mix(WATER.light, hex('#ffffff'), 0.6));
+    b.set(4, 1, mix(WATER.light, hex('#ffffff'), 0.6));
+    b.set(8, 2, WATER.light);
+    return done(b, w.outline);
+  },
   'herb-planter': ({ palette, seed }) => {
     const w = palette.wood;
     const rng = stream(seed, 'herbs');

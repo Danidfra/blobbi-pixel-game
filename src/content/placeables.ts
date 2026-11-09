@@ -12,7 +12,7 @@ import type { ItemDefinition } from '../game/items';
 
 export type Where = 'outdoor' | 'indoor' | 'both';
 export type Layer = 'solid' | 'floor' | 'open' | 'wall';
-export type Use = 'storage' | 'cook' | 'craft' | 'sit' | 'sleep' | 'nap' | 'read' | 'light' | 'admire' | 'play' | 'music' | 'sprinkle' | 'birds' | 'time' | 'herbs';
+export type Use = 'storage' | 'cook' | 'craft' | 'sit' | 'sleep' | 'nap' | 'read' | 'light' | 'admire' | 'play' | 'music' | 'sprinkle' | 'birds' | 'time' | 'herbs' | 'wash';
 
 export interface PlaceableContent {
   kind: string;
@@ -91,6 +91,7 @@ export const PLACEABLE_CONTENT: readonly PlaceableContent[] = [
   { kind: 'bird-feeder', label: 'bird feeder', plural: 'bird feeders', description: 'A little roof over seeds. Birds visit often.', art: 'bird-feeder', where: 'outdoor', layer: 'solid', footRx: 2, footRy: 1, recipe: [{ item: I.wood, quantity: 3 }, { item: I.stick, quantity: 1 }, { item: I.seed, quantity: 2 }], station: 'workbench', unlock: 'improve', use: 'birds', joy: 1 },
   { kind: 'flower-arch', label: 'flower arch', plural: 'flower arches', description: 'A wooden arch wound with flowers. Walk under it.', art: 'flower-arch', where: 'outdoor', layer: 'open', footRx: 8, footRy: 1, recipe: [{ item: I.wood, quantity: 3 }, { item: I.stick, quantity: 2 }, { item: I.fibre, quantity: 3 }], station: 'workbench', unlock: 'improve', use: 'admire', joy: 2, variants: 4 },
   { kind: 'blobbi-statue', label: 'Blobbi statue', plural: 'Blobbi statues', description: 'A round stone friend on a plinth. Blobbi finds it very flattering.', art: 'blobbi-statue', where: 'outdoor', layer: 'solid', footRx: 4, footRy: 2, recipe: [{ item: I.stone, quantity: 8 }], station: 'workbench', unlock: 'side-friend', use: 'admire', joy: 4 },
+  { kind: 'washing-tub', label: 'washing tub', plural: 'washing tubs', description: 'A wooden tub of clear water. A splash, and Blobbi is clean again.', art: 'washing-tub', where: 'both', layer: 'solid', footRx: 5, footRy: 2, recipe: [{ item: I.wood, quantity: 4 }, { item: I.stone, quantity: 1 }, { item: I.fibre, quantity: 2 }], station: 'workbench', unlock: 'home', use: 'wash', joy: 2 },
   { kind: 'herb-planter', label: 'herb planter', plural: 'herb planters', description: 'A box of kitchen herbs. Grows a fresh herb every few minutes.', art: 'herb-planter', where: 'outdoor', layer: 'solid', footRx: 6, footRy: 2, recipe: [{ item: I.wood, quantity: 4 }, { item: I.herb, quantity: 2 }], station: 'workbench', unlock: 'cook', use: 'herbs' },
   { kind: 'wind-chime', label: 'wind chime', plural: 'wind chimes', description: 'Shell chimes that ring in the breeze.', art: 'wind-chime', where: 'outdoor', layer: 'solid', footRx: 2, footRy: 1, recipe: [{ item: I.stick, quantity: 2 }, { item: I.shell, quantity: 3 }], station: 'workbench', unlock: 'side-shells', use: 'music', joy: 2 },
   // M10 phase C: prepared land. Wild things (trees, rocks, bushes, sticks and stones) do not come back within its

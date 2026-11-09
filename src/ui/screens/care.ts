@@ -5,7 +5,7 @@
 import { BUILDINGS } from '../../game/buildings';
 import { describeSource } from '../../blobbi/source';
 import { FRIEND_LEVELS, FRIEND_TITLES, friendLevel, toNextLevel } from '../../game/friendship';
-import { isHungry, isTired, mood } from '../../game/care';
+import { isHungry, isTired, mood, isGrubby } from '../../game/care';
 import { itemLabel } from '../../game/items';
 import { itemIcon } from '../icons';
 import { Gfx, UI } from '../gfx';
@@ -44,6 +44,7 @@ export class CareScreen implements Screen {
     bar(t('care.fed'), c.hunger, hex('#ffb13b'), isHungry(c) ? t('care.hungry') : '');
     bar(t('care.energy'), c.energy, hex('#7ab8ff'), isTired(c) ? t('care.tired') : '');
     bar(t('care.joy'), c.happiness, hex('#ff7cc4'));
+    bar(t('care.clean'), c.hygiene, hex('#7fd0c4'), isGrubby(c) ? t('care.grubby') : '');
     const m = mood(c);
     g.text(upper(`${t('care.feeling', { mood: t(`mood.${m ?? 'calm'}`) })}${live.brain.state === 'rest' ? `  ${t('care.asleep')}` : ''}`), x, cy + 1, UI.ink);
     cy += 14;

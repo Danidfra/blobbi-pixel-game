@@ -152,10 +152,10 @@ describe('exploration stamina: work costs a little energy', () => {
   });
 
   it('is fair: the passive rates, the save record and an old save are exactly as before', () => {
-    expect(RATES).toEqual({ hunger: 0.06, energyAwake: 0.08, energyWalking: 0.11, energyResting: 1.5, energyInShelter: 3, happinessDrift: 0.02 });
-    expect(Object.keys(careToSave(newCare())).sort()).toEqual(['energy', 'happiness', 'hunger', 'lastPet']);
+    expect(RATES).toEqual({ hunger: 0.06, energyAwake: 0.08, energyWalking: 0.11, energyResting: 1.5, energyInShelter: 3, happinessDrift: 0.02, hygieneDrift: 0.012 });
+    expect(Object.keys(careToSave(newCare())).sort()).toEqual(['energy', 'happiness', 'hunger', 'hygiene', 'lastPet']); // hygiene joined the record (Living World, phase 2)
     const old = careFromSave({ hunger: 40, energy: 12, happiness: 55, lastPet: 3 });
-    expect(old).toEqual({ hunger: 40, energy: 12, happiness: 55, lastPet: 3 });
+    expect(old).toEqual({ hunger: 40, energy: 12, happiness: 55, hygiene: 100, lastPet: 3 }); // (hygiene: clean, when the save predates it)
     expect(EXHAUSTED).toBeLessThan(TIRED);
     // Spending never goes below zero, and reports the crossing into tired exactly once.
     const c = newCare();

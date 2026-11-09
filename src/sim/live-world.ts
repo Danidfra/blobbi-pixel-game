@@ -56,7 +56,7 @@ import type { HouseLook } from '../game/house-art';
 import { doorOffsetX, doorSpot, doorwayRect, footOf, footprintRect, houseChimney, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
-import { JOY, STAMINA, addHappiness, eat, isExhausted, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
+import { DIRT, JOY, STAMINA, addHappiness, eat, getDirty, isExhausted, isGrubby, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, wash as washCare, type CareState } from '../game/care';
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
@@ -2045,6 +2045,27 @@ export class LiveWorld {
       this.bubble = { text: lang('care.gettingTired'), until: this.clock.time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
     }
   }
+
+  /** Work dirties a little; the moment it makes the Blobbi grubby, a word (unless another is showing). */
+  private dirty(amount: number): void {
+    if (this.visitor) return;
+    if (getDirty(this.care, amount) && (!this.bubble || this.bubble.until < this.clock.time)) {
+      const b = this.blobbi;
+      this.bubble = { text: lang('say.grubby'), until: this.clock.time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    }
+  }
+
+  /** A grubby Blobbi sheds a speck of dust now and then (a hash, never a stream): the look of needing a wash. */
+  private stepGrubby(time: number): void {
+    if (!isGrubby(this.care) || this.inside || this.teleport.state !== 'present') return;
+    const tick = Math.floor(time / 2.5);
+    if (tick === this.lastGrubbyTick) return;
+    this.lastGrubbyTick = tick;
+    const b = this.blobbi;
+    const h = hash32(`${this.world.seed}:grubby:${tick}`);
+    this.particles.puff(b.x + ((h % 7) - 3) * 0.6 * b.footRx, b.y - this.bodyH * 0.5 + ((h >>> 4) % 5) - 2, hex('#a08c74'), ((h >>> 8) % 5) - 2, -2 - ((h >>> 12) % 3), 0.5);
+  }
+  private lastGrubbyTick = -1;
 
   rest(): void {
     if (this.boat?.aboard) {
@@ -5681,6 +5702,7 @@ export class LiveWorld {
     this.stepFishing();
     this.stepAtmosphere(dt);
     this.stepLandLife(dt, time);
+    this.stepGrubby(time);
     this.stepCarrierBreath(dt);
     this.stepReveal();
     if (!this.visitor) this.stepGrowthNotice(time);
@@ -5698,8 +5720,10 @@ export class LiveWorld {
         else if (this.swing.action === 'till') this.landTill(this.swing.cell!);
         else if (this.swing.action === 'clear') this.landClear(this.swing.index);
         else this.landChop(this.swing.index);
-        // A landed swing is work (after the landing's own words, so the word about tiredness is the one that shows).
+        // A landed swing is work (after the landing's own words, so the word about tiredness is the one that shows),
+        // and it dirties: rock dust, soil, bark.
         this.work(this.swing.action === 'mine' ? STAMINA.mine : this.swing.action === 'till' ? STAMINA.till : STAMINA.chop);
+        this.dirty(this.swing.action === 'mine' ? DIRT.mine : this.swing.action === 'till' ? DIRT.till : DIRT.chop);
       }
       if (time >= this.swing.start + SWING.end) this.swing = null;
     }
@@ -5909,7 +5933,7 @@ export class LiveWorld {
     };
     const joy = (amount = def.joy ?? 0) => amount > 0 && cheer(amount);
     // On its own, the Blobbi only looks: it never opens a chest, cooks, crafts, picks herbs or goes indoors.
-    if (!fromPlayer && (def.use === 'storage' || def.use === 'cook' || def.use === 'craft' || def.use === 'herbs' || def.use === 'sleep' || def.use === 'read' || def.use === 'time')) {
+    if (!fromPlayer && (def.use === 'storage' || def.use === 'cook' || def.use === 'craft' || def.use === 'herbs' || def.use === 'sleep' || def.use === 'read' || def.use === 'time' || def.use === 'wash')) {
       say(def.use === 'cook' ? lang('say.smellsGood') : def.use === 'sleep' && building.kind === 'shelter' ? lang('say.home') : lang('say.aThing', buildingNoun(building.kind)));
       b.animator.react('happy', time, 0.8, 1);
       return;
@@ -6011,6 +6035,23 @@ export class LiveWorld {
         this.producers.set(this.containerKey(building), this.worldTime - Math.max(0, (this.worldTime - (this.producers.get(this.containerKey(building)) ?? building.placedAt)) - got * HERB_SECONDS));
         say(lang('bubble.gotN', { ...itemNoun('blobbi-pixel:resource:herb'), count: got, what: got === 1 ? itemLabel('blobbi-pixel:resource:herb') : itemPlural('blobbi-pixel:resource:herb') }));
         b.animator.react('happy', time, 0.8, 2);
+        this.save();
+        return;
+      }
+      case 'wash': {
+        // A splash in the tub: clean again, glad of it; clean enough already: no wasted water.
+        if (!washCare(this.care)) {
+          say(lang('say.alreadyClean'));
+          b.animator.react('neutral', time, 0.6, 0);
+          return;
+        }
+        say(lang('say.allClean'));
+        b.animator.react('happy', time, 1.2, 3);
+        this.sound('water');
+        for (let i = 0; i < 8; i++) {
+          const h = hash32(`${building.id}:splash:${Math.round(time * 60)}:${i}`);
+          this.particles.spawn({ kind: 'drop', x: b.x + ((h % 9) - 4), y: b.y - this.bodyH * 0.7, vx: ((h >>> 4) % 11) - 5, vy: -8 - ((h >>> 8) % 7), life: 0.45, color: i % 3 ? hex('#5fb3f0') : hex('#d8f1ff'), phase: 0, front: true });
+        }
         this.save();
         return;
       }

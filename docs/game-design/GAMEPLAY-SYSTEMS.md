@@ -72,7 +72,11 @@ waste). **Exploration stamina (Living World, phase 2):** work costs a little ene
 axe or pickaxe hit 0.5, a tilled cell 0.5, a watering 0.25, a cast 0.25); the drift itself stops at 20, so idling or
 exploring never exhausts the Blobbi. Below 8 the axe, the pickaxe and the hoe wait ("too tired for that... a rest, or
 a bite to eat") while planting, harvesting, walking, feeding, petting and rest go on; a nap or a bed brings the work
-back ([Blobbi energy](../architecture/BLOBBI-ENERGY.md)). Friendship (`src/game/friendship.ts`) only grows: pet +1 (8 s cooldown), feed +2, a favourite +5, a meal +3,
+back ([Blobbi energy](../architecture/BLOBBI-ENERGY.md)). **Hygiene (clean, 0–100):** the axe (0.5 a hit), the
+pickaxe (1) and the hoe (1) dirty it; a gentle drift (0.012/s) stops at 40, so time alone never makes it grubby; below
+30 it sheds a speck of dust now and then and says so once; a splash in a washing tub (furniture, from "Make it home")
+makes it clean again (+4 joy). Nothing is refused for being grubby. Island-local, like every need here: never the
+canonical Blobbi stats. Friendship (`src/game/friendship.ts`) only grows: pet +1 (8 s cooldown), feed +2, a favourite +5, a meal +3,
 rest +2, a quest +3; levels at 0, 15, 45, 100, 180 and 300 points. Each Blobbi has two favourite foods and a
 favourite kind of thing from its own seed.
 

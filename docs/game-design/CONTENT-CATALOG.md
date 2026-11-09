@@ -160,6 +160,7 @@
 | flower arch | `blobbi-pixel:furniture:flower-arch` | 10 | places: flower-arch |
 | Blobbi statue | `blobbi-pixel:furniture:blobbi-statue` | 10 | places: blobbi-statue |
 | herb planter | `blobbi-pixel:furniture:herb-planter` | 10 | places: herb-planter |
+| washing tub | `blobbi-pixel:furniture:washing-tub` | 10 | places: washing-tub |
 | wind chime | `blobbi-pixel:furniture:wind-chime` | 10 | places: wind-chime |
 | hay bale | `blobbi-pixel:furniture:hay-bale` | 10 | places: hay-bale |
 | wooden fence | `blobbi-pixel:furniture:fence` | 10 | places: fence |
@@ -266,6 +267,7 @@
 | flower-arch | flower arch | decoration | outdoor | open | admire | 3 wood, 2 stick, 3 wild fibre | 2 |
 | blobbi-statue | Blobbi statue | decoration | outdoor | solid | admire | 8 stone | 2 |
 | herb-planter | herb planter | decoration | outdoor | solid | herbs | 4 wood, 2 wild herb | 2 |
+| washing-tub | washing tub | furniture | both | solid | wash | 4 wood, 1 stone, 2 fibre | 5 |
 | wind-chime | wind chime | decoration | outdoor | solid | music | 2 stick, 3 sea shell | 2 |
 | hay-bale | hay bale | decoration | outdoor | solid | sit | 4 wheat, 1 wild fibre | 2 |
 
