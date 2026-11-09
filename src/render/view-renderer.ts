@@ -471,7 +471,7 @@ export class ViewRenderer {
       .map(([k, n]) => `${k} ${n}`);
     const away = live.getPresenceState() !== 'present';
     const level = friendLevel(live.companion.friendship);
-    const info: StatusInfo = { name: opts.blobbiName || (live.blobbi.seed.length > 14 ? 'Blobbi' : live.blobbi.seed), title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), carried, face: null, away };
+    const info: StatusInfo = { name: opts.blobbiName || (live.blobbi.seed.length > 14 ? 'Blobbi' : live.blobbi.seed), title: FRIEND_TITLES[Math.max(0, level - 1)], fed: steps(c.hunger), energy: steps(c.energy), joy: steps(c.happiness), clean: steps(c.hygiene), carried, face: null, away };
     const status = this.cachedText(`status|${JSON.stringify(info)}`, (k) => statusCard({ ...info, face: this.portrait() }, k), ui);
     const left = this.ins.left + 2 * ui;
     const top = this.ins.top + 2 * ui;

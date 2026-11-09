@@ -265,7 +265,7 @@ describe('HUD', () => {
   });
 
   it('cards are pure (no flashing: the same values draw the same pixels) and needs carry icons', () => {
-    const info = { name: 'blobbi-9', title: 'friends', fed: 20, energy: 60, joy: 90, carried: ['WOOD 3'], face: null, away: false };
+    const info = { name: 'blobbi-9', title: 'friends', fed: 20, energy: 60, joy: 90, clean: 70, carried: ['WOOD 3'], face: null, away: false };
     const a = statusCard(info);
     const b = statusCard(info);
     expect(Array.from(a.data)).toEqual(Array.from(b.data));

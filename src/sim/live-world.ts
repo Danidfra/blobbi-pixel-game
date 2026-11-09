@@ -63,6 +63,7 @@ import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type Lig
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
+import type { Use } from '../content/placeables';
 import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_STAY, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
 import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
 import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
@@ -217,7 +218,7 @@ export const BITE_SECONDS = 1.2;
 export const CAST = { back: 0.22, release: 0.4, land: 0.78 };
 
 /** The prompt for E on something placed, by its use (in the current language, M11B). */
-const USE_VERB: Record<string, (r: Building) => string> = {
+export const USE_VERB: Record<Use, (r: Building) => string> = {
   storage: (r) => lang(r.kind === 'crate' ? 'use.look' : 'use.open', buildingNoun(r.kind)),
   cook: () => lang('use.cook'),
   craft: () => lang('use.craft'),
@@ -233,6 +234,7 @@ const USE_VERB: Record<string, (r: Building) => string> = {
   birds: (r) => lang('use.look', buildingNoun(r.kind)),
   time: () => lang('use.time'),
   herbs: () => lang('use.herbs'),
+  wash: () => lang('use.wash'),
 };
 
 /** What the Blobbi says when looking at something the player made (keys of `admire.<kind>`). */

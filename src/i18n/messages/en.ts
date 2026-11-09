@@ -359,6 +359,7 @@ export const en = {
   'use.look': 'look at {the}',
   'use.open': 'open {the}',
   'use.cook': 'cook',
+  'use.wash': 'wash',
   'use.craft': 'craft at the workbench',
   'use.sit': 'sit {on_the}',
   'use.goInside': 'go inside',

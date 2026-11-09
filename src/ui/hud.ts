@@ -38,6 +38,7 @@ export const DESIGN = {
   fed: hex('#ffb13b'),
   energy: hex('#7ab8ff'),
   joy: hex('#ff7cc4'),
+  clean: hex('#7fd0c4'),
   pad: 3,
   line: 7,
 } as const;
@@ -61,6 +62,7 @@ const GLYPHS: Record<string, string[]> = {
   fed: ['..#..', '.###.', '#####', '#####', '.###.'], // a fruit
   energy: ['..##.', '.##..', '####.', '..##.', '.##..'], // a bolt
   joy: ['.#.#.', '#####', '#####', '.###.', '..#..'], // a heart
+  clean: ['..#..', '.#.#.', '#...#', '#...#', '.###.'], // a drop
   sun: ['#.#.#', '.###.', '##.##', '.###.', '#.#.#'],
   moon: ['.###.', '##...', '#....', '##...', '.###.'],
   rain: ['.###.', '#####', '.....', '#.#.#', '.#.#.'],
@@ -105,6 +107,8 @@ export interface StatusInfo {
   fed: number;
   energy: number;
   joy: number;
+  /** Clean (hygiene, the island's own need), like the others 0..100. */
+  clean: number;
   /** Up to three carried things worth showing, e.g. "WOOD 3". */
   carried: string[];
   /** The Blobbi's face for the portrait (the canonical sprite, small), or null. */
@@ -122,7 +126,7 @@ export function statusCard(s: StatusInfo, scale = 1): PixelBuffer {
   const carried = s.carried.join('  ');
   const textW = Math.max(w0(name) + 4 + w0(title), 42, w0(carried));
   const w = DESIGN.pad * 2 + portrait + 3 + textW + 1;
-  const h = carried ? 34 : 27;
+  const h = carried ? 40 : 33; // four meters now (fed, energy, joy, clean)
   const b = new UiSurface(w, h, scale);
   b.blit(card(w, h), 0, 0);
   // Portrait: a framed square with the Blobbi in it.
@@ -140,6 +144,7 @@ export function statusCard(s: StatusInfo, scale = 1): PixelBuffer {
   meter(b, 'fed', s.fed, DESIGN.fed, tx, py + 7);
   meter(b, 'energy', s.energy, DESIGN.energy, tx, py + 13);
   meter(b, 'joy', s.joy, DESIGN.joy, tx, py + 19);
+  meter(b, 'clean', s.clean, DESIGN.clean, tx, py + 25);
   if (carried) b.text(carried, DESIGN.pad, h - 8, DESIGN.muted);
   return b.out;
 }

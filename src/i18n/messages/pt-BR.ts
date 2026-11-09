@@ -352,6 +352,7 @@ export const ptBR: Catalog = {
   'use.look': 'olhar {the}',
   'use.open': 'abrir {the}',
   'use.cook': 'cozinhar',
+  'use.wash': 'tomar banho',
   'use.craft': 'criar na bancada',
   'use.sit': 'sentar {on_the}',
   'use.goInside': 'entrar',

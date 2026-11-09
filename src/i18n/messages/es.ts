@@ -352,6 +352,7 @@ export const es: Catalog = {
   'use.look': 'mirar {the}',
   'use.open': 'abrir {the}',
   'use.cook': 'cocinar',
+  'use.wash': 'lavarse',
   'use.craft': 'crear en el banco de trabajo',
   'use.sit': 'sentarse {on_the}',
   'use.goInside': 'entrar',
