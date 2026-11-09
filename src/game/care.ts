@@ -76,7 +76,12 @@ export function spendEnergy(c: CareState, amount: number): boolean {
 }
 
 /** Happiness gained from positive moments. */
-export const JOY = { feed: 10, hungryFeed: 5, pet: 6, rested: 5, explore: 2, harvest: 3, decoration: 3, built: 5, objective: 4, favourite: 10, wash: 4 } as const;
+export const JOY = { feed: 10, hungryFeed: 5, pet: 6, rested: 5, explore: 2, harvest: 3, decoration: 3, built: 5, objective: 4, favourite: 10, wash: 4, bunny: 3, song: 2, music: 2 } as const;
+/** Seconds between two gains from the same living-world source (the music box, the wind chime); creatures count once per appearance. */
+export const JOY_SOURCE_COOLDOWN = 20;
+/** Condition shows (Living World, phase 2): tired idling runs slower; a glad Blobbi smiles on its own above this joy. */
+export const TIRED_TEMPO = 0.6;
+export const GLAD = 85;
 
 /**
  * HYGIENE (Living World, phase 2): an island-local need like the others, never the canonical one. Work dirties the

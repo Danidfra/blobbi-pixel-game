@@ -38,6 +38,8 @@ export interface AnimatorState {
   sleeping: boolean;
   /** The resting face the Blobbi's needs suggest (M4 care), or null for neutral. Reactions and sleep win. */
   mood: Expression | null;
+  /** How briskly it idles: breaths and glances run at this rate (1 as ever; a tired Blobbi slower). Walking is untouched. */
+  tempo: number;
 }
 
 export const WALK_CYCLE_HZ = 1 / 0.62; // the kit's walk: one cycle per 0.62 s
@@ -65,6 +67,7 @@ export class BlobbiAnimator {
       reaction: null,
       sleeping: false,
       mood: null,
+      tempo: 1,
     };
   }
 
@@ -84,7 +87,7 @@ export class BlobbiAnimator {
       s.walkPhase = (s.walkPhase + dt * WALK_CYCLE_HZ * WALK_FRAMES) % WALK_FRAMES;
       s.sleeping = false;
     } else s.walkPhase = 0;
-    s.breathPhase = (s.breathPhase + dt / BREATH_PERIOD) % 1;
+    s.breathPhase = (s.breathPhase + (dt * s.tempo) / BREATH_PERIOD) % 1;
     // Blinks: scheduled from the seed's own stream.
     if (s.blinkStart < 0 && time >= s.nextBlink) {
       s.blinkStart = time;
@@ -95,8 +98,8 @@ export class BlobbiAnimator {
     if (s.blinkStart >= 0 && time >= s.blinkStart + BLINK_DURATION) s.blinkStart = -1;
     // Idle glances.
     if (!input.moving && time >= s.nextGlance) {
-      s.glance = { x: this.rng.pick([-1, 1] as const), until: time + this.rng.range(0.6, 1.4) };
-      s.nextGlance = time + this.rng.range(3, 7);
+      s.glance = { x: this.rng.pick([-1, 1] as const), until: time + this.rng.range(0.6, 1.4) / s.tempo };
+      s.nextGlance = time + this.rng.range(3, 7) / s.tempo;
     }
     if (input.moving) s.glance.until = 0;
     if (s.reaction && time >= s.reaction.until) s.reaction = null;

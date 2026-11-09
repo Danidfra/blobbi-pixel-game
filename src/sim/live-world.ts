@@ -57,7 +57,7 @@ import type { HouseLook } from '../game/house-art';
 import { doorOffsetX, doorSpot, doorwayRect, footOf, footprintRect, houseChimney, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
-import { DIRT, JOY, STAMINA, addHappiness, eat, getDirty, isExhausted, isGrubby, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, wash as washCare, type CareState } from '../game/care';
+import { DIRT, GLAD, JOY, JOY_SOURCE_COOLDOWN, STAMINA, TIRED_TEMPO, addHappiness, eat, getDirty, isExhausted, isGrubby, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, wash as washCare, type CareState } from '../game/care';
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
@@ -313,6 +313,8 @@ interface LandMood {
   trust: boolean;
   /** Seconds the Blobbi has been closing in fast (a single step is forgiven; a stride is not). */
   haste: number;
+  /** This appearance has already cheered the Blobbi (a bunny settling beside it, a bird's song): once each. */
+  cheered: boolean;
 }
 
 /** Dust motes alive in a room at most (interior atmosphere). */
@@ -2064,6 +2066,44 @@ export class LiveWorld {
     }
   }
 
+  /**
+   * Joy from the living world: each source has its own gate (`JOY_SOURCE_COOLDOWN` apart, or once per creature
+   * appearance when the caller says so), separate from the decorations' shared one, so admiring a fence and hearing
+   * the music box both count, and neither can be farmed. A visitor's host is not cheered.
+   */
+  private joyAt = new Map<string, number>();
+  private cheerFrom(source: string, amount: number, cooldown = JOY_SOURCE_COOLDOWN): boolean {
+    if (this.visitor) return false;
+    const last = this.joyAt.get(source);
+    if (last !== undefined && this.worldTime - last < cooldown) return false;
+    this.joyAt.set(source, this.worldTime);
+    addHappiness(this.care, amount);
+    return true;
+  }
+
+  /**
+   * How the Blobbi is doing, visibly (animation only): tired, it idles slower and yawns now and then; glad, it smiles
+   * on its own now and then. Both from a hash of the world time slot, never a stream, and never over a reaction, a
+   * sleep, a walk or a word.
+   */
+  private stepCondition(time: number): void {
+    const b = this.blobbi;
+    const a = b.animator.state;
+    a.tempo = isTired(this.care) ? TIRED_TEMPO : 1;
+    if (a.reaction || a.sleeping || a.moving || this.teleport.state !== 'present' || (this.bubble && this.bubble.until > time)) return;
+    const slot = Math.floor(this.worldTime / 20);
+    if (slot === this.lastCueSlot) return;
+    const h = hash32(`${this.world.seed}:cue:${slot}`);
+    if (isTired(this.care) && h % 3 === 0) {
+      this.lastCueSlot = slot;
+      b.animator.react('sleepy', time, 1.6, 0);
+    } else if (this.care.happiness >= GLAD && !isHungry(this.care) && (h >>> 8) % 3 === 0) {
+      this.lastCueSlot = slot;
+      b.animator.react('happy', time, 1.2, 1);
+    }
+  }
+  private lastCueSlot = -1;
+
   /** A grubby Blobbi sheds a speck of dust now and then (a hash, never a stream): the look of needing a wash. */
   private stepGrubby(time: number): void {
     if (!isGrubby(this.care) || this.inside || this.teleport.state !== 'present') return;
@@ -2946,7 +2986,7 @@ export class LiveWorld {
       for (const s of this.landSightings()) {
         seen.add(s.id);
         let m = this.landMoods.get(s.id);
-        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0 }));
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false }));
         const view = this.poseLand(s, m, bp, dt, time);
         if (!view) continue;
         views.push(view);
@@ -3007,6 +3047,10 @@ export class LiveWorld {
     m.still = this.movedLastStep ? 0 : m.still + dt;
     if (d < LAND_REACH.birdSing && m.still > 1.2 && tr.bold > 0.35) {
       // A tame bird sings to a Blobbi that keeps still: a note now and then (from a hash, never from a stream).
+      if (!m.cheered) {
+        m.cheered = true;
+        this.cheerFrom(`songbird:${s.id}`, JOY.song, 0);
+      }
       if (time - m.lastNote > 1.1) {
         m.lastNote = time;
         const hh = hash32(`${s.id}:note:${Math.round(time * 60)}`);
@@ -3170,6 +3214,10 @@ export class LiveWorld {
           enter('beside');
           m.trust = true;
           m.stay = BUNNY_STAY.min + (s.seed % (BUNNY_STAY.max - BUNNY_STAY.min + 1));
+          if (!m.cheered) {
+            m.cheered = true;
+            this.cheerFrom(`bunny:${s.id}`, JOY.bunny, 0);
+          }
           b.animator.state.direction = Math.abs(at.x - b.x) > Math.abs(at.y - b.y) ? (at.x > b.x ? 'right' : 'left') : at.y > b.y ? 'down' : 'up';
           b.animator.react('happy', time, 1.5, 2);
           const hh = hash32(`${s.id}:heart`);
@@ -5713,6 +5761,7 @@ export class LiveWorld {
     this.stepAtmosphere(dt);
     this.stepLandLife(dt, time);
     this.stepGrubby(time);
+    this.stepCondition(time);
     this.stepCarrierBreath(dt);
     this.stepReveal();
     if (!this.visitor) this.stepGrowthNotice(time);
@@ -6018,7 +6067,7 @@ export class LiveWorld {
         say(lang(building.kind === 'wind-chime' ? 'say.ting' : 'say.littleTune'));
         b.animator.react('happy', time, 1.4, 1);
         this.sound('music');
-        joy();
+        this.cheerFrom('music', JOY.music);
         return;
       case 'sprinkle':
         say(lang('say.sprinkler'));
@@ -6056,7 +6105,7 @@ export class LiveWorld {
           return;
         }
         say(lang('say.allClean'));
-        b.animator.react('happy', time, 1.2, 3);
+        b.animator.react('excited', time, 1.4, 4); // a shake-dry wiggle
         this.sound('water');
         for (let i = 0; i < 8; i++) {
           const h = hash32(`${building.id}:splash:${Math.round(time * 60)}:${i}`);
