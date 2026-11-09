@@ -531,6 +531,8 @@ export const es: Catalog = {
   'notice.friendship': 'Amistad',
   'notice.level': 'nivel {n}',
   'prompt.wakeUp': 'despertar',
+  'prompt.standUp': 'levantarse',
+  'prompt.hopOut': 'salir de la tina',
   'prompt.glinting': 'recoger algo que brilla',
   'prompt.reel': '¡recoge el sedal!',
   'prompt.waitBite': 'espera a que piquen...',

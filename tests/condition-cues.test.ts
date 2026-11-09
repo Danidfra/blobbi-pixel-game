@@ -109,6 +109,10 @@ describe('condition cues', () => {
     stand(live, placed.x, placed.y + tub.footRy + live.blobbi.footRy + 2, 'up');
     live.care.hygiene = 20;
     live.update(1 / 60, { ...IDLE_INPUT, interact: true });
+    // Living Home: the shake comes as the soak ends, on the hop out.
+    expect(live.occupation?.kind).toBe('bath');
+    for (let i = 0; i < 60 * 5 && live.occupation?.phase !== 'leave'; i++) live.update(1 / 60, IDLE_INPUT);
+    expect(live.occupation?.phase).toBe('leave');
     expect(live.blobbi.animator.state.reaction?.expression).toBe('excited');
     expect(live.blobbi.animator.state.reaction?.hop).toBeGreaterThan(0);
   });

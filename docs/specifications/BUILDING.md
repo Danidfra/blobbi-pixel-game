@@ -58,6 +58,8 @@ saved buildings (unknown kinds, bad numbers) are dropped one by one.
 
 ## 10. Source files
 `src/game/buildings.ts`, `src/game/decorations.ts`, `src/game/furniture-art.ts`, `src/content/placeables.ts`,
+`src/game/furniture-use.ts` (where the Blobbi sits in a seat or stands in the tub, and which part of the piece is drawn
+over it), `src/render/occupant-render.ts`,
 `src/render/placement-overlay.ts`, `LiveWorld.setBuildMode`, `placeBuilding`, `startPlacing`, `placeFromBag`,
 `toggleManage`, `pickUpToMove`, `placeMoved`, `restyleSelected`, `removeSelected`, `visitBuilding`.
 

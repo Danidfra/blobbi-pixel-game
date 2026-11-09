@@ -538,6 +538,8 @@ export const en = {
   'notice.friendship': 'Friendship',
   'notice.level': 'level {n}',
   'prompt.wakeUp': 'wake up',
+  'prompt.standUp': 'stand up',
+  'prompt.hopOut': 'hop out of the tub',
   'prompt.glinting': 'pick up something glinting',
   'prompt.reel': 'reel it in!',
   'prompt.waitBite': 'wait for a bite...',

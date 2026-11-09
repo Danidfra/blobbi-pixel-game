@@ -23,6 +23,7 @@ import { drawFloat, drawLine, flight, floatAt } from './fishing-line';
 import { OpenSea } from './open-sea';
 import { drawMarine, drawOceanFeatures } from './marine-render';
 import { landDrawables } from './land-render';
+import { occupiedLayers } from './occupant-render';
 import { canoeSprites, paddleSprite } from './canoe-render';
 import { CANOE, SeaNav } from '../game/canoe';
 import type { WorldPalette as WorldPaletteLike } from '../core/palette';
@@ -511,6 +512,7 @@ export class LiveRenderer {
       drawables.push({ y: r.y0 + PLOT_GRID - 2, x: r.x0 + PLOT_GRID / 2, sprite, sway: 0, dy: 0 });
     }
     // Buildings, placed and under construction, with their shadows.
+    const occupied = live.occupied();
     for (const building of live.buildings) {
       if (building.x < ox - 48 || building.x > ox + viewW + 48 || building.y < oy - 48 || building.y > oy + viewH + 48) continue;
       const sprite = buildingSprite(building, palette, live.buildingAt(building), world.options.scale, building.kind === 'shelter' && lightAt(live.worldTime).night);
@@ -520,7 +522,9 @@ export class LiveRenderer {
         continue;
       }
       if (o.shadows) this.paintShadow(frame, building.x, building.y, sprite.footRx, sprite.footRy, ox, oy);
-      drawables.push({ y: building.y, x: building.x, sprite, sway: 0, dy: 0 });
+      // A seat or the tub the Blobbi is in (Living Home): behind it, and its front over it again.
+      if (occupied && building === occupied.furniture) for (const l of occupiedLayers(sprite, building.kind, building.x, building.y, Math.round(live.drawnBlobbi().y))) drawables.push({ ...l, sway: 0 });
+      else drawables.push({ y: building.y, x: building.x, sprite, sway: 0, dy: 0 });
     }
     // ── Land life (Living World): the crab, the bunny and the songbird, in the painter's order (a flying bird last) ──
     for (const d of landDrawables(live, time, ox, oy, viewW, viewH)) drawables.push(d);
@@ -551,7 +555,7 @@ export class LiveRenderer {
     const shadow = shadowed && split ? shadowCells(bx, by - 1, b.shadowRx, 2, world) : [];
     const ground = shadow.map((s) => frame.get(s.x - ox, s.y - oy));
     if (shadowed && !split) this.paintShadow(frame, bx, by - 1, b.shadowRx, 2, ox, oy);
-    const hop = b.animator.hop(time);
+    const hop = live.drawnLift(time);
     // Split: the view draws the Blobbi at its own size, so the gameplay-size sprite is not rasterized here.
     if (!split) {
       drawables.push({ y: by, x: bx, sprite: live.blobbiSprite(pose), sway: 0, dy: hop });

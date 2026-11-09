@@ -40,6 +40,8 @@ export interface AnimatorState {
   mood: Expression | null;
   /** How briskly it idles: breaths and glances run at this rate (1 as ever; a tired Blobbi slower). Walking is untouched. */
   tempo: number;
+  /** Settled in a seat or the bath (Living Home): lids half down and a content face, unless a reaction or a sad mood. */
+  relaxed: boolean;
 }
 
 export const WALK_CYCLE_HZ = 1 / 0.62; // the kit's walk: one cycle per 0.62 s
@@ -68,6 +70,7 @@ export class BlobbiAnimator {
       sleeping: false,
       mood: null,
       tempo: 1,
+      relaxed: false,
     };
   }
 
@@ -130,9 +133,10 @@ export class BlobbiAnimator {
     else if (s.blinkStart >= 0) {
       const t = (time - s.blinkStart) / BLINK_DURATION;
       pose.lid = t < 0.2 || t > 0.8 ? 1 : 2;
-    }
+    } else if (s.relaxed && !s.reaction) pose.lid = 1;
     if (s.reaction) pose.expression = s.reaction.expression;
     else if (s.sleeping) pose.expression = 'sleepy';
+    else if (s.relaxed && s.mood !== 'sad') pose.expression = 'happy';
     else if (s.mood) pose.expression = s.mood;
     if (!s.moving && time < s.glance.until && !s.reaction) pose.gazeX = s.glance.x;
     return pose;

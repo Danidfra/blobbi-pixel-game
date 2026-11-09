@@ -531,6 +531,8 @@ export const ptBR: Catalog = {
   'notice.friendship': 'Amizade',
   'notice.level': 'nível {n}',
   'prompt.wakeUp': 'acordar',
+  'prompt.standUp': 'levantar',
+  'prompt.hopOut': 'sair da tina',
   'prompt.glinting': 'pegar algo que brilha',
   'prompt.reel': 'puxe!',
   'prompt.waitBite': 'espere morder...',

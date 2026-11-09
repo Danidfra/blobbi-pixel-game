@@ -59,6 +59,13 @@ describe('issue 1: facing the tub', () => {
     }
     live.care.hygiene = 20;
     live.update(1 / 60, { ...IDLE_INPUT, interact: true });
+    // Living Home: the wash lands at the end of the soak; the prompt keeps answering throughout.
+    expect(live.occupation?.kind).toBe('bath');
+    for (let i = 0; i < 60 * 5 && live.occupation; i++) {
+      live.update(1 / 60, IDLE_INPUT);
+      expect(() => live.prompt()).not.toThrow();
+    }
+    expect(live.occupation).toBeNull();
     expect(live.care.hygiene).toBeGreaterThan(95);
     for (let i = 0; i < 60; i++) {
       live.update(1 / 60, { ...IDLE_INPUT, down: true });
@@ -138,6 +145,9 @@ describe('issue 3: the tub indoors', () => {
     expect(live.prompt()).toBe(`E  ${lang('use.wash')}`);
     live.care.hygiene = 20;
     live.update(1 / 60, { ...IDLE_INPUT, interact: true });
+    expect(live.occupation?.kind).toBe('bath');
+    for (let i = 0; i < 60 * 5 && live.occupation; i++) live.update(1 / 60, IDLE_INPUT);
     expect(live.care.hygiene).toBeGreaterThan(95);
+    expect(live.collision.canStand(live.blobbi.x, live.blobbi.y, live.blobbi.footRx, live.blobbi.footRy)).toBe(true);
   });
 });

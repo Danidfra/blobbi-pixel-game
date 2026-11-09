@@ -57,13 +57,14 @@ import type { HouseLook } from '../game/house-art';
 import { doorOffsetX, doorSpot, doorwayRect, footOf, footprintRect, houseChimney, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
-import { DIRT, GLAD, JOY, JOY_SOURCE_COOLDOWN, STAMINA, TIRED_TEMPO, addHappiness, eat, getDirty, isExhausted, isGrubby, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, wash as washCare, type CareState } from '../game/care';
+import { CLEAN, DIRT, GLAD, JOY, JOY_SOURCE_COOLDOWN, STAMINA, TIRED_TEMPO, addHappiness, eat, getDirty, isExhausted, isGrubby, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, wash as washCare, type CareState } from '../game/care';
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
 import type { Use } from '../content/placeables';
+import { BATH_SECONDS, SPLASH_EVERY, occupancyOf, occupantSpot, type OccupancyKind } from '../game/furniture-use';
 import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_STAY, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
 import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
 import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
@@ -382,6 +383,37 @@ export interface RestPlan {
 
 /** Seconds a climb into or out of bed takes (a little hop, never a jump cut). */
 export const CLIMB_SECONDS = 0.45;
+
+/**
+ * Using a piece of furniture with the body (Living Home): a seat or the washing tub. A hop in from where the Blobbi
+ * stands, a stay (the player's, until a key or E; a bath or the Blobbi's own sit, for a while), a hop back out to
+ * where it came from or the nearest free ground. Never saved: a reload starts standing, as a rest does.
+ */
+export interface Occupation {
+  kind: OccupancyKind;
+  id: string;
+  /** Where the piece stood when chosen (picked up or moved from under it, the stay ends at once). */
+  at: { x: number; y: number };
+  inside: boolean;
+  phase: 'enter' | 'stay' | 'leave';
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  t0: number;
+  /** Where the Blobbi stood before: it goes back there (or as near as the ground allows). */
+  entry: { x: number; y: number };
+  /** When the stay began. */
+  since: number;
+  /** When the stay ends on its own (a bath, an idle sit), or null until the player acts. */
+  until: number | null;
+  /** The Blobbi's own idea (autonomy pauses for it) rather than the player's (autonomy waits). */
+  own: boolean;
+  /** What follows the hop out (R while seated: the rest, once it stands). */
+  then: 'rest' | null;
+  /** Keys held since before the hop in do not count as a call away until released once. */
+  ignoreKeys: boolean;
+  /** The last splash tick of a bath. */
+  tick: number;
+}
 
 /** M11D.3: the teleport's pace for a Blobbi coming back to an island it already knows (about half the time). */
 export const QUICK_PACE = 0.5;
@@ -2121,6 +2153,12 @@ export class LiveWorld {
       this.bubble = { text: lang('canoe.landFirst'), until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
       return;
     }
+    // Seated or in the bath: up first; the rest follows once it stands (no second R needed).
+    if (this.occupation) {
+      this.occupation.then = 'rest';
+      this.leaveFurniture();
+      return;
+    }
     const time = this.clock.time;
     const b = this.blobbi;
     // In bed (climbing in, tucked in or climbing out) counts as asleep even when a key press already put the brain in
@@ -2307,6 +2345,197 @@ export class LiveWorld {
     const at = this.bedApproach(bed);
     p.to = this.collision.nearestFree(at.x, at.y, this.blobbi.footRx, this.blobbi.footRy) ?? at;
     p.t0 = time;
+  }
+
+  // ─── Using furniture with the body (Living Home): seats and the washing tub ─────────────────────
+
+  /** A seat or the tub the Blobbi is using: on its way in, there, or on its way out. Not saved. */
+  occupation: Occupation | null = null;
+
+  /** The piece the Blobbi occupies, for drawing (the piece behind it, its front over it); null otherwise. */
+  occupied(): { furniture: Building; kind: OccupancyKind; settled: boolean } | null {
+    const o = this.occupation;
+    if (!o || o.inside !== this.inside) return null;
+    const f = this.placedHere.find((r) => r.id === o.id);
+    return f ? { furniture: f, kind: o.kind, settled: o.phase === 'stay' } : null;
+  }
+
+  /**
+   * Into a seat or the tub: a short hop from where it stands (never a cut), facing the viewer. False when it cannot
+   * (no such use, already using something, in bed, afloat, away).
+   */
+  private occupy(f: Building, fromPlayer: boolean, until: number | null): boolean {
+    const spot = occupancyOf(f.kind);
+    if (!spot || this.occupation || this.restPlan || this.boat?.aboard || this.boarding || this.teleport.locked) return false;
+    const b = this.blobbi;
+    const time = this.clock.time;
+    this.occupation = { kind: spot.kind, id: f.id, at: { x: f.x, y: f.y }, inside: this.inside, phase: 'enter', from: { x: b.x, y: b.y }, to: occupantSpot(f), t0: time, entry: { x: b.x, y: b.y }, since: time, until, own: !fromPlayer, then: null, ignoreKeys: true, tick: -1 };
+    b.animator.state.direction = 'down';
+    this.sound('step-wood');
+    return true;
+  }
+
+  /** Up and out (E, a key, R, the end of a bath or of an idle sit): a short hop back to where it came from. */
+  leaveFurniture(): void {
+    const o = this.occupation;
+    if (!o || o.phase === 'leave') return;
+    this.beginLeave(this.clock.time);
+  }
+
+  private beginLeave(time: number): void {
+    const o = this.occupation!;
+    const b = this.blobbi;
+    o.phase = 'leave';
+    o.from = { x: b.x, y: b.y };
+    o.to = this.groundNear(o.entry);
+    o.t0 = time;
+    b.animator.state.relaxed = false;
+  }
+
+  /** Free ground at a spot (itself, when the Blobbi can stand there) or the nearest to it. */
+  private groundNear(at: { x: number; y: number }): { x: number; y: number } {
+    const b = this.blobbi;
+    if (this.collision.canStand(at.x, at.y, b.footRx, b.footRy)) return { x: at.x, y: at.y };
+    return this.collision.nearestFree(at.x, at.y, b.footRx, b.footRy) ?? { x: at.x, y: at.y };
+  }
+
+  private dropOccupation(): void {
+    if (!this.occupation) return;
+    this.occupation = null;
+    this.blobbi.animator.state.relaxed = false;
+  }
+
+  /**
+   * Each step, after movement: carry the occupation along (hop in, stay, hop out), and end it when anything calls the
+   * Blobbi away: a key, a tap, R, E, a menu that arranges things, the piece picked up or moved, the end of a bath.
+   */
+  private stepOccupation(time: number, keysHeld: boolean): void {
+    const o = this.occupation;
+    if (!o) return;
+    const b = this.blobbi;
+    // The scene changed under it (a door, a reload): nothing to hop out of.
+    if (o.inside !== this.inside) return this.dropOccupation();
+    if (!keysHeld) o.ignoreKeys = false;
+    const f = this.placedHere.find((r) => r.id === o.id) ?? null;
+    if (!f || f.x !== o.at.x || f.y !== o.at.y) {
+      // Picked up or moved from under it: it stands on the nearest free ground at once (there is nothing to hop out of).
+      const at = this.groundNear(o.entry);
+      b.x = at.x;
+      b.y = at.y;
+      return this.dropOccupation();
+    }
+    if (o.phase !== 'leave') {
+      const over = o.until !== null && o.phase === 'stay' && time >= o.until;
+      const called = (keysHeld && !o.ignoreKeys) || this.brain.target !== null || !!this.buildMode || !!this.placing || this.manage || !!this.moving;
+      if (over && o.kind === 'bath') this.finishBath(f, time);
+      if (over || called) this.beginLeave(time);
+    }
+    // The player's doing: autonomy waits for it to be over. The Blobbi's own: the brain's pause lasts the stay.
+    if (o.own) this.brain.until = Math.max(this.brain.until, (o.until ?? time) + CLIMB_SECONDS + 0.3);
+    else this.brain.hold(time);
+    const lerp = (k: number) => {
+      const e = k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k);
+      b.x = o.from.x + (o.to.x - o.from.x) * e;
+      b.y = o.from.y + (o.to.y - o.from.y) * e;
+    };
+    switch (o.phase) {
+      case 'enter': {
+        const k = (time - o.t0) / CLIMB_SECONDS;
+        lerp(k);
+        if (k >= 1) {
+          o.phase = 'stay';
+          o.since = time;
+          b.animator.state.direction = 'down';
+          b.animator.state.relaxed = true;
+          this.settled(f, time);
+        }
+        return;
+      }
+      case 'stay':
+        b.x = o.to.x;
+        b.y = o.to.y;
+        if (o.kind === 'bath') this.stepBath(f, time);
+        return;
+      case 'leave': {
+        const k = (time - o.t0) / CLIMB_SECONDS;
+        lerp(k);
+        if (k >= 1) {
+          const then = o.then;
+          this.dropOccupation();
+          // Up, facing the piece: E uses it again without a turn.
+          b.animator.state.direction = Math.abs(f.x - b.x) > Math.abs(f.y - b.y) ? (f.x > b.x ? 'right' : 'left') : f.y > b.y ? 'down' : 'up';
+          if (then === 'rest') this.rest();
+        }
+        return;
+      }
+    }
+  }
+
+  /** Settled in: a seat is sat on (a word, a note, its joy); the bath begins with a splash. */
+  private settled(f: Building, time: number): void {
+    const b = this.blobbi;
+    if (this.occupation!.kind === 'bath') {
+      this.sound('water');
+      this.splash(f, time, 6);
+      return;
+    }
+    const def = BUILDINGS[f.kind];
+    this.tally.sat++;
+    const top = f.y - buildingSprite(f, paletteFor(this.world.options.palette), 1, this.world.options.scale).anchorY;
+    this.particles.note(f.x + 3, top - 2);
+    this.bubble = { text: lang(f.kind === 'bench' || f.kind === 'log-seat' ? 'say.niceView' : f.kind === 'armchair' ? 'say.comfy' : 'say.goodSeat'), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+    b.animator.react('happy', time, 1.2, 0);
+    if (def.joy && this.worldTime - this.lastDecorationJoy >= 20) {
+      this.lastDecorationJoy = this.worldTime;
+      addHappiness(this.care, def.joy);
+    }
+  }
+
+  /** In the water: a couple of drops every few tenths of a second, a sparkle now and then (hashed, never a stream). */
+  private stepBath(f: Building, time: number): void {
+    const o = this.occupation!;
+    const tick = Math.floor((time - o.since) / SPLASH_EVERY);
+    if (tick === o.tick) return;
+    o.tick = tick;
+    this.splash(f, time, 3, tick);
+    if (tick % 3 === 2) {
+      const h = hash32(`${f.id}:bath-sparkle:${tick}`);
+      this.particles.spawn({ kind: 'sparkle', x: f.x + ((h % 9) - 4), y: f.y - 6 + ((h >>> 4) % 2), vx: 0, vy: 0, life: 0.4, color: hex('#ffffff'), phase: 0, front: true });
+    }
+  }
+
+  /** The bath is over: clean again, glad of it, a shake-dry wiggle on the way out. */
+  private finishBath(f: Building, time: number): void {
+    const b = this.blobbi;
+    washCare(this.care);
+    this.bubble = { text: lang('say.allClean'), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+    b.animator.react('excited', time, 1.4, 4);
+    this.sound('water');
+    this.splash(f, time, 8);
+    this.save();
+  }
+
+  /** Drops from the tub's water line, placed and thrown by a hash of the tub, the moment and the drop. */
+  private splash(f: Building, time: number, n: number, tick = Math.round(time * 60)): void {
+    const b = this.blobbi;
+    for (let i = 0; i < n; i++) {
+      const h = hash32(`${f.id}:splash:${tick}:${i}`);
+      this.particles.spawn({ kind: 'drop', x: b.x + ((h % 15) - 7), y: f.y - 6, vx: ((h >>> 4) % 19) - 9, vy: -14 - ((h >>> 8) % 10), life: 0.5, color: i % 2 ? hex('#8fd0ff') : hex('#ffffff'), phase: 0, front: true });
+    }
+  }
+
+  /** The Blobbi's lift while using furniture: a little arc on the hop in and out, a slow bob in the water. */
+  occupantLift(time: number): number {
+    const o = this.occupation;
+    if (!o) return 0;
+    if (o.phase === 'stay') return o.kind === 'bath' ? -Math.round((Math.sin(((time - o.since) * Math.PI * 2) / 1.6) + 1) * 0.5) : 0;
+    const k = Math.max(0, Math.min(1, (time - o.t0) / CLIMB_SECONDS));
+    return -Math.round(Math.sin(k * Math.PI) * 3);
+  }
+
+  /** Vertical offset of the drawn Blobbi (negative is up): a reaction's hop and the furniture's lift together. */
+  drawnLift(time: number): number {
+    return this.blobbi.animator.hop(time) + this.occupantLift(time);
   }
 
   /** Where the Blobbi sleeps at the nearest finished shelter: in its doorway, or null without one. */
@@ -3814,6 +4043,9 @@ export class LiveWorld {
     if (this.buildMode || this.placing || this.moving || this.manage) return null;
     // In bed (M9): how to get up, not how to go to bed.
     if (this.restPlan && (this.restPlan.phase === 'in-bed' || this.restPlan.phase === 'climb-in')) return `R  ${lang('prompt.wakeUp')}`;
+    // In a seat or the tub (Living Home): how to get up, not what else is in reach.
+    const o = this.occupation;
+    if (o && o.inside === this.inside) return o.phase === 'leave' ? null : `E  ${lang(o.kind === 'bath' ? 'prompt.hopOut' : 'prompt.standUp')}`;
     if (this.nearestDiscovery()) return `E  ${lang('prompt.glinting')}`;
     const node = this.nearestResource();
     if (node) return `E  ${lang('prompt.pickUp', itemNoun(RESOURCE_ITEM[node.kind]))}`;
@@ -3922,6 +4154,7 @@ export class LiveWorld {
     if (!scene) return;
     if (this.moving) this.cancelMove();
     this.restPlan = null;
+    this.dropOccupation();
     this.interior = null;
     this.placing = null;
     this.manage = false;
@@ -5481,6 +5714,11 @@ export class LiveWorld {
     this.blobbi = this.makeBlobbi(blobbi, size, stage);
     this.blobbi.x = x;
     this.blobbi.y = y;
+    // Swapped in while the other sat or bathed: the seat is kept, with the same content face.
+    if (this.occupation?.phase === 'stay') {
+      this.blobbi.animator.state.relaxed = true;
+      this.blobbi.animator.state.direction = 'down';
+    }
     this.blobbiCache.clear();
     this.rig = new EquipmentRig(this.blobbi.identity, this.blobbi.size);
     this.fitTeleport();
@@ -5660,6 +5898,7 @@ export class LiveWorld {
     // ── Movement: the keyboard takes control; otherwise the brain's intent drives the same code ─────
     let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    const keysHeld = dx !== 0 || dy !== 0;
     // Teleporting (or away): no walking, no actions, no autonomy until the Blobbi is fully back.
     const away = this.teleport.locked;
     if (away) {
@@ -5724,6 +5963,7 @@ export class LiveWorld {
     if (!afloat) b.animator.step(dt, time, { moving, direction });
     b.animator.state.sleeping = !away && !afloat && this.brain.state === 'rest';
     this.stepRestPlan(time);
+    this.stepOccupation(time, keysHeld && !away);
     this.stepTeleport(time);
     // The brain's interactions never touch resources, crops or the bag; looking around makes it happy.
     if (brainInteract) {
@@ -5736,6 +5976,7 @@ export class LiveWorld {
       else if (this.manage) this.pickUpToMove();
       else if (this.placing) this.placeFromBag();
       else if (this.buildMode) this.placeBuilding();
+      else if (this.occupation) this.leaveFurniture();
       else if (this.inside) this.interact();
       else if (this.boarding) {
         // (mid-hop: nothing)
@@ -6098,12 +6339,15 @@ export class LiveWorld {
         return;
       }
       case 'wash': {
-        // A splash in the tub: clean again, glad of it; clean enough already: no wasted water.
-        if (!washCare(this.care)) {
+        // Clean enough already: no wasted water. Otherwise into the tub (Living Home): a hop in, a soak with splashes,
+        // clean again and glad of it, a shake-dry hop out. The old splash-on-the-spot when it cannot get in.
+        if (this.care.hygiene >= CLEAN) {
           say(lang('say.alreadyClean'));
           b.animator.react('neutral', time, 0.6, 0);
           return;
         }
+        if (this.occupy(building, true, time + CLIMB_SECONDS + BATH_SECONDS)) return;
+        washCare(this.care);
         say(lang('say.allClean'));
         b.animator.react('excited', time, 1.4, 4); // a shake-dry wiggle
         this.sound('water');

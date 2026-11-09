@@ -140,14 +140,23 @@ describe('the washing tub', () => {
     const joy0 = live.care.happiness;
     live.particles.particles.length = 0;
     live.bubble = null;
+    // Living Home: E hops it into the tub; the soak takes a moment, and the wash lands at its end.
     pressE(live);
-    expect(live.care.hygiene).toBeCloseTo(100, 1); // (the drift of the swing's own moment aside)
-    expect(live.care.happiness).toBeCloseTo(Math.min(100, joy0 + JOY.wash), 1);
-    expect(bubble(live)).toBe(lang('say.allClean'));
+    expect(live.occupation?.kind).toBe('bath');
+    expect(live.care.hygiene).toBeCloseTo(20, 0);
+    for (let i = 0; i < 60 * 5 && live.occupation?.phase !== 'leave'; i++) live.update(1 / 60, IDLE_INPUT);
+    expect(live.occupation?.phase).toBe('leave');
     expect(live.particles.particles.some((p) => p.kind === 'drop')).toBe(true);
+    for (let i = 0; i < 60 * 2 && live.occupation; i++) live.update(1 / 60, IDLE_INPUT);
+    expect(live.occupation).toBeNull();
+    expect(live.care.hygiene).toBeCloseTo(100, 0); // (the drift of the bath's own moments aside)
+    expect(live.care.happiness).toBeCloseTo(Math.min(100, joy0 + JOY.wash), 0);
+    expect(bubble(live)).toBe(lang('say.allClean'));
     run(live, 60 * 3);
     live.bubble = null;
+    stand(live, tub.x, tub.y + BUILDINGS['washing-tub'].footRy + live.blobbi.footRy + 2, 'up');
     pressE(live);
+    expect(live.occupation).toBeNull();
     expect(bubble(live)).toBe(lang('say.alreadyClean'));
     expect(live.care.hygiene).toBeGreaterThan(CLEAN);
     void tub;

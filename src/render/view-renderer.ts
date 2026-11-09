@@ -280,7 +280,6 @@ export class ViewRenderer {
 
     // ── 3. The Blobbi and its tool at native resolution ───────────────────
     const live = this.live;
-    const b = live.blobbi;
     const palette = paletteFor(live.world.options.palette);
     const size = this.nativeSize(restScale, view.mode);
     const ratio = s / restScale;
@@ -312,7 +311,7 @@ export class ViewRenderer {
     // The anchor pixel sits in the world ground pixel's block: centre column, bottom row.
     const anchor = blobbiScreenAnchor(drawn.x, drawn.y, view, live.onWorldGrid ? 'world' : 'screen');
     const ax = anchor.x;
-    const ay = anchor.y + Math.round(b.animator.hop(time) * s);
+    const ay = anchor.y + Math.round(live.drawnLift(time) * s);
     // Its shadow was laid out under the Blobbi rounded to whole world pixels: it moves on with it, pixel for pixel.
     const whole = blobbiScreenAnchor(Math.round(drawn.x), Math.round(drawn.y), view, 'world');
     drawShadow(screen, this.layers.shadow ?? [], anchor.x - whole.x, anchor.y - whole.y, wx0, wy0, xs, ys, lit ? { light, rain, lights } : null);
@@ -348,7 +347,7 @@ export class ViewRenderer {
     };
     if (away) {
       // No tool in hand while teleporting; the shadow first (on the ground), then whatever of the body shows.
-      const groundY = ay - Math.round(b.animator.hop(time) * s);
+      const groundY = ay - Math.round(live.drawnLift(time) * s);
       drawTeleportShadow(screen, Math.max(tp.shadow(time), tp.state === 'departing' ? tp.visible(time) * 0.5 : 0), ax, groundY - Math.floor(s / 2), tp.halfWidth * s);
       const shown = teleportSprite(sprite, tp, time);
       if (shown) blitAt(screen, shown, ax, ay, ratio);
