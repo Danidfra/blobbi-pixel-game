@@ -51,7 +51,7 @@
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
-| seed | `blobbi-pixel:resource:seed` | 20 |  |
+| turnip seed (the wild seed) | `blobbi-pixel:resource:seed` | 20 |  |
 | radish seed | `blobbi-pixel:seed:radish` | 20 |  |
 | carrot seed | `blobbi-pixel:seed:carrot` | 20 |  |
 | seed potato | `blobbi-pixel:seed:potato` | 20 |  |

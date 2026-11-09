@@ -95,7 +95,9 @@ describe('collecting', () => {
     expect(live.resources.length).toBe(before - 1);
     expect(live.resources.includes(node)).toBe(false);
     expect(live.collected.has(node.id)).toBe(true);
-    expect(live.inventory.count(RESOURCE_ITEM[node.kind])).toBe(1);
+    // (A seed from the ground is one crop's seed by weight, so count whatever the bag gained.)
+    expect(live.inventory.total()).toBe(1);
+    if (node.kind !== 'seed') expect(live.inventory.count(RESOURCE_ITEM[node.kind])).toBe(1);
     expect(live.stats.collected).toBe(1);
     expect(live.pickups.length).toBe(1);
     expect(live.bubble?.text.startsWith('+1')).toBe(true);

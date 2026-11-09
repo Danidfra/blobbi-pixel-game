@@ -42,7 +42,7 @@ export const CROP_CONTENT: readonly CropContent[] = [
     label: 'turnip',
     plural: 'turnips',
     seed: 'blobbi-pixel:resource:seed',
-    produce: { id: 'blobbi-pixel:food:turnip', label: 'turnip', plural: 'turnips', description: 'A crisp white root with a purple top. Grows from wild seeds.', food: { restores: 25 }, stack: 20, category: 'food' },
+    produce: { id: 'blobbi-pixel:food:turnip', label: 'turnip', plural: 'turnips', description: 'A crisp white root with a purple top. Grows from turnip seeds.', food: { restores: 25 }, stack: 20, category: 'food' },
     yield: 2,
     seedBack: 0,
     growSeconds: 90,

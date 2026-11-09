@@ -59,7 +59,7 @@ const tool = (id: string, label: string, type: ToolType, interactions: readonly 
 const CORE = {
   stick: { id: 'blobbi-pixel:resource:stick', label: 'stick', plural: 'sticks', category: 'resource', stack: 50, description: 'A dry stick from under a tree. Handles, fences, kindling.' },
   stone: { id: 'blobbi-pixel:resource:stone', label: 'stone', plural: 'stones', category: 'resource', stack: 30, description: 'A fist-sized stone. Tool heads, walls and paths.' },
-  seed: { id: 'blobbi-pixel:resource:seed', label: 'seed', plural: 'seeds', category: 'resource', stack: 20, description: 'Wild seeds from bushes and flowers. They grow into turnips.' },
+  seed: { id: 'blobbi-pixel:resource:seed', label: 'turnip seed', plural: 'turnip seeds', category: 'resource', stack: 20, description: 'Round little seeds from bushes and flowers. They grow into turnips.' },
   wood: { id: 'blobbi-pixel:material:wood', label: 'wood', plural: 'wood', category: 'material', stack: 40, description: 'Sturdy logs from a felled tree. The island\'s main building material.', icon: { rows: ['..ll...', '.lLLl..', 'lLccLl.', 'lcrcLll', 'lLccLLl', '.lLLlLl', '..lllL.', '....ll.'], colours: { l: '#8a5a33', L: '#b4733f', c: '#e3c48a', r: '#c49a5a' } } },
   axe: tool('blobbi-pixel:tool:simple-axe', 'simple axe', 'axe', ['chop'], 'Fells a grown tree in three hits. It grows back.'),
   pickaxe: tool('blobbi-pixel:tool:simple-pickaxe', 'simple pickaxe', 'pickaxe', ['mine'], 'Breaks a large rock into stones in four hits.'),

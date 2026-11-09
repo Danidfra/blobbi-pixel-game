@@ -47,6 +47,7 @@ import { movingPartsMask } from '../cinematic/sea';
 import { worldBounds } from '../render/view-camera';
 import { clearableKind, keptClear, CLEAR_YIELD, RETURN_SECONDS, RETRY_SECONDS, MIN_STANDING_TREES, KEEP_CLEAR_KIND, KEEP_CLEAR_RADIUS, type ClearState } from '../game/clearing';
 import { RESPAWN_SECONDS } from '../game/resources';
+import { wildSeedItem } from '../game/wild-seeds';
 import type { RockSaveState } from '../game/persistence';
 import { houseLevelInfo, MAX_HOUSE_LEVEL, type HouseLevel } from '../content/houses';
 import { currentTip, TIP_PAUSE, updateTutorial, type TutorialContext, type TutorialStep } from '../game/tutorial';
@@ -512,6 +513,8 @@ export class LiveWorld {
   readonly rocks = new Map<number, RockState>();
   /** World time each collected node was taken; it grows back RESPAWN_SECONDS later. */
   readonly collectedAt = new Map<string, number>();
+  /** How many times each seed node has been picked up: its next wild seed rolls by it (saved; never rerolled). */
+  readonly pickupCounts = new Map<string, number>();
   private respawnTimer = 0;
   private readonly rubbleCache = new Map<string, Sprite>();
   private readonly stumpCache = new Map<string, Sprite>();
@@ -660,6 +663,7 @@ export class LiveWorld {
         this.collected.add(id);
         this.collectedAt.set(id, save.collectedAt[id] ?? save.worldTime);
       }
+      for (const [id, n] of Object.entries(save.pickups)) this.pickupCounts.set(id, n);
       for (const [k, v] of Object.entries(save.rocks)) {
         const index = Number(k);
         const o = world.objects[index];
@@ -1003,7 +1007,9 @@ export class LiveWorld {
     if (!node) return null;
     const time = this.clock.time;
     const b = this.blobbi;
-    const item = RESOURCE_ITEM[node.kind];
+    // A seed from the ground is one crop's seed by weight, revealed now; which one was fixed before the pickup.
+    const generation = this.pickupCounts.get(node.id) ?? 0;
+    const item = node.kind === 'seed' ? wildSeedItem(this.world.seed, node.id, generation) : RESOURCE_ITEM[node.kind];
     if (this.inventory.add(item, 1) === 0) {
       this.bubble = { text: lang('bubble.stackFull', itemNoun(item)), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
       b.animator.react('sad', time, 0.8, 0);
@@ -1011,6 +1017,7 @@ export class LiveWorld {
     }
     this.collected.add(node.id);
     this.collectedAt.set(node.id, this.worldTime);
+    if (node.kind === 'seed') this.pickupCounts.set(node.id, generation + 1);
     this.resources = this.resources.filter((n) => n !== node);
     this.pickups.push({ node, start: time });
     this.particles.sparkle(node.x, node.y - 2, hex('#ffffff'));
@@ -5238,6 +5245,7 @@ export class LiveWorld {
       intro: { ...this.intro },
       tutorial: { done: [...this.tutorial.done], skipped: this.tutorial.skipped },
       cleared: Object.fromEntries([...this.cleared.entries()].sort((a, b) => a[0] - b[0]).map(([i, c]) => [String(i), { at: c.at, returnedAt: c.returnedAt }])),
+      pickups: Object.fromEntries([...this.pickupCounts.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))),
       // The canoe in the island frame (like buildings), whole pixels, at rest.
       boat: this.boat ? { x: Math.round(this.boat.x) - origin.x, y: Math.round(this.boat.y) - origin.y, heading: this.boat.heading, aboard: this.boat.aboard } : null,
       caught: [...this.caught].sort(),

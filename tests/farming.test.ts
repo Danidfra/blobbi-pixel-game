@@ -289,7 +289,7 @@ describe('planting, watering, growth and harvest', () => {
     const { live } = farmer();
     const { plot } = plantedPlot(live, 'turnip');
     live.resources = [{ id: 'seed:near', kind: 'seed', x: Math.round(live.blobbi.x) + 2, y: Math.round(live.blobbi.y) + 1, variant: 0, source: -1 }];
-    expect(live.prompt()).toBe('E  pick up the seed');
+    expect(live.prompt()).toBe('E  pick up the turnip seed');
     expect(pressUntil(live, () => isWet(plot.crop!, live.worldTime))).toBe(true);
     expect(live.tally.collected).toBe(1);
   });

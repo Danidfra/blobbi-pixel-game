@@ -31,7 +31,7 @@ panel holds upgrades and styles ([housing](../specifications/HOUSING.md)).
 
 ### Gathering and forage
 
-Sticks under trees, stones by rocks and on the forest floor, seeds by bushes and flowers; forage: fibre by grass
+Sticks under trees, stones by rocks and on the forest floor, seeds by bushes and flowers (a seed picked up is one crop's seed by weight, revealed at once: turnip 45 %, radish 15, carrot 12, potato 8, wheat 6, tomato 4, pumpkin 3, strawberry, sunflower and tulip 2 each, lavender 1; fixed per node and pickup generation from the world seed, so a reload never rerolls, `src/game/wild-seeds.ts`); forage: fibre by grass
 tufts, mushrooms in tree shade, berries by bushes, herbs in meadows, shells on the shore. E picks up what lies in
 reach first (reach 11 px). Collected nodes grow back after a time of world time (120–180 s for the basics, per kind
 for forage). Node ids are stable, so the save lists what is gone. Sources: `src/game/resources.ts`,

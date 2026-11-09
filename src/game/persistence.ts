@@ -135,6 +135,8 @@ export interface WorldSave {
   buildings: BuildingSave[];
   /** World time each collected node was taken (it grows back from then). */
   collectedAt: Record<string, number>;
+  /** How many times each seed node has been picked up (its next wild seed rolls by it); absent before this field. */
+  pickups: Record<string, number>;
   /** Mining state per large-rock placement index (only rocks that were ever hit). */
   rocks: Record<string, RockSaveState>;
   /** Farm plots in the order they were tilled. */
@@ -372,6 +374,10 @@ export function loadSave(store: KeyValueStore, identity: string): LoadedSave | n
       const t = parsed.version >= 4 ? parsed.collectedAt?.[id] : undefined;
       collectedAt[id] = typeof t === 'number' && Number.isFinite(t) ? t : worldTime;
     }
+    // Pickup counts (wild seeds): any record may lack them; only whole positive counts are kept.
+    const pickups: Record<string, number> = {};
+    const rawPickups = (parsed as { pickups?: unknown }).pickups;
+    if (rawPickups && typeof rawPickups === 'object') for (const [k, v] of Object.entries(rawPickups as Record<string, unknown>)) if (typeof v === 'number' && Number.isInteger(v) && v > 0) pickups[k] = v;
     const rocks: Record<string, RockSaveState> = {};
     if (parsed.version >= 4 && parsed.rocks && typeof parsed.rocks === 'object')
       for (const [k, v] of Object.entries(parsed.rocks)) {
@@ -402,6 +408,7 @@ export function loadSave(store: KeyValueStore, identity: string): LoadedSave | n
       worldTime,
       buildings,
       collectedAt,
+      pickups,
       rocks,
       plots: parsed.version >= 6 ? plotsFromSave(parsed.plots) : [],
       care: careFromSave(parsed.version >= 6 ? parsed.care : null),
