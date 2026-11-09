@@ -101,12 +101,17 @@ by a word: one small occupation mechanism (`LiveWorld.occupation`, `src/game/fur
   2.4 s facing the viewer, bobbing a pixel, with drops and the odd sparkle from the water line, its lower body behind
   the tub's water and front; the wash lands at the end (+4 joy, "all clean!") with a shake-dry hop back out to where
   it stood (or the nearest free ground). Clean enough already (95+): a word, no bath.
-- *Safety:* the player's stay holds autonomy (no wander, no sleep) until it is out; a bath ends on its own. The
+- *Seats* (the chair, the armchair, the stool, the bench, the log seat, the hay bale): E hops it into the seat, where
+  it sits facing the viewer, feet behind the seat's front and legs, lids half down with a content face, a word and
+  its joy on settling; it stays until E ("stand up"), a movement key, R or arranging things (M, the bag, build mode)
+  gets it up again, facing the seat so E sits again. On its own, the Blobbi's visit to a seat is a six-second sit.
+- *Safety:* the player's stay holds autonomy (no wander, no sleep) until it stands; a bath ends on its own. The
   piece picked up or moved from under it leaves it standing on the nearest free ground at once; a door or a reload
-  ends it; R hops out and then rests. Nothing is saved. The prompt reads "E stand up" or "E hop out of
+  ends it; R while seated stands up and then rests. Nothing is saved. The prompt reads "E stand up" or "E hop out of
   the tub" meanwhile (both in Portuguese and Spanish). Indoors and out, in the room renderer, the island renderer and
   the multi-scale view alike (the front part goes to the overlay as anything in front does).
-- Source: `LiveWorld.occupy`, `stepOccupation`, `occupied`, `drawnLift`; tests `tests/bathing.test.ts`; captures `npx tsx scripts/furniture-shots.ts <label>` (out/furniture/<label>/).
+- Source: `LiveWorld.occupy`, `stepOccupation`, `occupied`, `drawnLift`; tests `tests/bathing.test.ts`,
+  `tests/seating.test.ts`; captures `npx tsx scripts/furniture-shots.ts <label>` (out/furniture/<label>/).
 
 ### The World Carrier
 

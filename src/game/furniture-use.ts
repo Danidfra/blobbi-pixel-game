@@ -22,10 +22,22 @@ export interface OccupancySpot {
   front: (x: number, y: number, w: number, h: number) => boolean;
 }
 
-/** Every piece the Blobbi can bathe in (seats follow). Keyed by kind. */
+/** Every piece the Blobbi can sit in or bathe in. Keyed by kind; `use: 'sit'` kinds and the tub are all here. */
 export const OCCUPANCY: Readonly<Record<string, OccupancySpot>> = {
   // The tub (15×11): the water's lower row and the tub's front, from row 3 down.
   'washing-tub': { kind: 'bath', dx: 0, dy: 0, front: (_x, y) => y >= 3 },
+  // A chair (9×13): the seat's front edge and the legs.
+  chair: { kind: 'seat', dx: 0, dy: -1, front: (_x, y) => y >= 7 },
+  // The armchair (13×13): the cushion's front and the base, and the arms either side.
+  armchair: { kind: 'seat', dx: 0, dy: 1, front: (x, y, w) => y >= 8 || (y >= 4 && (x <= 2 || x >= w - 3)) },
+  // A stool (9×8): the legs.
+  stool: { kind: 'seat', dx: 0, dy: -1, front: (_x, y) => y >= 3 },
+  // The M4 bench (13×10, outlined in place): the seat's front edge and the legs.
+  bench: { kind: 'seat', dx: 0, dy: -1, front: (_x, y) => y >= 6 },
+  // A log seat (15×9): the log below its top.
+  'log-seat': { kind: 'seat', dx: 0, dy: 0, front: (_x, y) => y >= 4 },
+  // A hay bale (13×9): the bale below its top face.
+  'hay-bale': { kind: 'seat', dx: 0, dy: 0, front: (_x, y) => y >= 3 },
 };
 
 /** Whether a piece can be occupied, and how. */
@@ -39,5 +51,7 @@ export function occupantSpot(f: Building): { x: number; y: number } {
 
 /** Seconds a bath lasts once the Blobbi is in the water. */
 export const BATH_SECONDS = 2.4;
+/** Seconds the Blobbi sits when it chose a seat on its own. */
+export const IDLE_SIT_SECONDS = 6;
 /** Seconds between the splashes of a bath. */
 export const SPLASH_EVERY = 0.25;

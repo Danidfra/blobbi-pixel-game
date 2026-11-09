@@ -64,7 +64,7 @@ import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
 import type { Use } from '../content/placeables';
-import { BATH_SECONDS, SPLASH_EVERY, occupancyOf, occupantSpot, type OccupancyKind } from '../game/furniture-use';
+import { BATH_SECONDS, IDLE_SIT_SECONDS, SPLASH_EVERY, occupancyOf, occupantSpot, type OccupancyKind } from '../game/furniture-use';
 import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_STAY, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
 import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
 import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
@@ -6239,7 +6239,8 @@ export class LiveWorld {
       return;
     }
     if (!fromPlayer && def.use === 'sit') {
-      // A long, contented sit.
+      // A long, contented sit, in the seat (Living Home); a word about it when it cannot get in.
+      if (this.occupy(building, false, time + CLIMB_SECONDS + IDLE_SIT_SECONDS)) return;
       this.brain.until = time + 6;
       say(lang(building.kind === 'bench' || building.kind === 'log-seat' ? 'say.niceView' : 'say.comfy'));
       b.animator.react('happy', time, 5, 0);
@@ -6277,6 +6278,8 @@ export class LiveWorld {
         this.uiRequest = { screen: 'crafting', target: building };
         return;
       case 'sit':
+        // Living Home: into the seat (a hop, a stay, a hop out with E or a key); the old word when it cannot get in.
+        if (this.occupy(building, true, null)) return;
         this.tally.sat++;
         this.particles.note(building.x + 3, top - 2);
         say(lang(building.kind === 'bench' || building.kind === 'log-seat' ? 'say.niceView' : 'say.goodSeat'));
