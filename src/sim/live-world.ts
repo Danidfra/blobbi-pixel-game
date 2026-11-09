@@ -56,7 +56,7 @@ import type { HouseLook } from '../game/house-art';
 import { doorOffsetX, doorSpot, doorwayRect, footOf, footprintRect, houseChimney, houseLevel, BUILDINGS, BUILDING_KINDS, CRATE_BONUS, MAX_CRATES, buildingProgress, buildingSprite, checkPlacement, checkPlot, isBuildingKind, isDecoration, kindForItem, PROBLEM_TEXT, type Building, type BuildingKind, type PlacementCheck, type PlacementContext } from '../game/buildings';
 import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
-import { JOY, addHappiness, eat, isHungry, isRested, isTired, mood, newCare, pet as petCare, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
+import { JOY, STAMINA, addHappiness, eat, isExhausted, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, type CareState } from '../game/care';
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
@@ -1483,6 +1483,7 @@ export class LiveWorld {
     if (!this.equipped || !toolSupports(this.equipped, 'chop')) return false;
     const target = this.facingObject();
     if (!target) return false;
+    if (!this.fitForWork()) return true;
     // M10 phase C: a tree the player planted is dug up with the axe (it gives no wood: planting is free).
     if (target.index >= this.world.objects.length) return target.placement.kind === 'tree' ? this.startClear(target.index) : false;
     // M10 phase B: the axe also clears a bush, or a natural stump or mushroom, freeing its ground.
@@ -1511,6 +1512,7 @@ export class LiveWorld {
     if (!this.equipped || !toolSupports(this.equipped, 'mine')) return false;
     const target = this.facingObject();
     if (!target || target.placement.kind !== 'rock' || target.index >= this.world.objects.length) return false;
+    if (!this.fitForWork()) return true;
     const time = this.clock.time;
     const b = this.blobbi;
     const { index, placement: o, sprite } = target;
@@ -1774,6 +1776,7 @@ export class LiveWorld {
       }
       case 'till':
         if (this.swing) return true;
+        if (!this.fitForWork()) return true;
         this.swing = { action: 'till', start: time, index: -1, landed: false, cell: action.cell };
         b.animator.react('excited', time, SWING.end, 0);
         this.brain.manual(time);
@@ -1870,6 +1873,7 @@ export class LiveWorld {
     for (let i = 0; i < 8; i++) this.particles.drop(c.x + this.particles.rng.range(-3, 3), c.y - this.particles.rng.range(2, 6), i % 3 ? hex('#5fb3f0') : hex('#d8f1ff'));
     this.bubble = { text: lang('farm.watered', { s: CROPS[plot.crop.kind].waterSeconds }), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
     b.animator.react('happy', time, 0.7, 1);
+    this.work(STAMINA.water);
     this.brain.manual(time);
     this.save();
     return true;
@@ -2020,6 +2024,28 @@ export class LiveWorld {
   }
 
   /** Rest (R): go to sleep, in the shelter when there is one, until rested; R again wakes. */
+  // ─── Exploration stamina (Living World, phase 2) ──────────────────────────────────────────────────────────
+
+  /** Heavy work (the axe, the pickaxe, the hoe) waits while the Blobbi is exhausted: a word, a yawn, and E is spent. */
+  private fitForWork(): boolean {
+    if (!isExhausted(this.care)) return true;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    if (!this.bubble || this.bubble.until < time) this.bubble = { text: lang('care.tooTired'), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+    b.animator.react('sleepy', time, 1, 0);
+    this.brain.manual(time);
+    return false;
+  }
+
+  /** Work costs a little energy; the moment it makes the Blobbi tired, it says so, once (over any other word). */
+  private work(amount: number): void {
+    if (this.visitor) return;
+    if (spendEnergy(this.care, amount)) {
+      const b = this.blobbi;
+      this.bubble = { text: lang('care.gettingTired'), until: this.clock.time + 1.8, x: b.x, y: b.y - b.size - 2, head: b.size };
+    }
+  }
+
   rest(): void {
     if (this.boat?.aboard) {
       this.bubble = { text: lang('canoe.landFirst'), until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
@@ -3516,6 +3542,7 @@ export class LiveWorld {
       this.brain.manual(time);
       say(lang('fish.cast'));
       this.sound('cast');
+      this.work(STAMINA.cast);
       return true;
     }
     this.fishing = null;
@@ -5671,6 +5698,8 @@ export class LiveWorld {
         else if (this.swing.action === 'till') this.landTill(this.swing.cell!);
         else if (this.swing.action === 'clear') this.landClear(this.swing.index);
         else this.landChop(this.swing.index);
+        // A landed swing is work (after the landing's own words, so the word about tiredness is the one that shows).
+        this.work(this.swing.action === 'mine' ? STAMINA.mine : this.swing.action === 'till' ? STAMINA.till : STAMINA.chop);
       }
       if (time >= this.swing.start + SWING.end) this.swing = null;
     }

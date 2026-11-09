@@ -727,6 +727,8 @@ export const es: Catalog = {
   'care.joy': 'Alegría',
   'care.hungry': 'con hambre',
   'care.tired': 'cansado',
+  'care.tooTired': 'demasiado cansado para eso... un descanso, o algo de comer',
+  'care.gettingTired': 'me estoy cansando...',
   'care.feeling': 'Ánimo  {mood}',
   'care.asleep': '(dormido)',
   'mood.calm': 'tranquilo',

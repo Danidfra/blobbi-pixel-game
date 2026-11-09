@@ -734,6 +734,8 @@ export const en = {
   'care.joy': 'Joy',
   'care.hungry': 'hungry',
   'care.tired': 'tired',
+  'care.tooTired': 'too tired for that... a rest, or a bite to eat',
+  'care.gettingTired': 'getting tired...',
   'care.feeling': 'Feeling  {mood}',
   'care.asleep': '(asleep)',
   'mood.calm': 'calm',

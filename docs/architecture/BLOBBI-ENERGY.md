@@ -1,6 +1,13 @@
 # Blobbi energy: a gentle work stamina (M11C.5, DESIGN)
 
-**Status: INVESTIGATION + PROPOSAL.** Gameplay is unchanged. Facts are **VERIFIED** (path given) or **PROPOSED**.
+**Status: INVESTIGATION + PROPOSAL; a first slice IMPLEMENTED (Living World, phase 2, 2026-11-06).** The slice adapts
+the existing `energy` need instead of adding the separate pool proposed below: a landed axe or pickaxe hit costs 0.5, a
+tilled cell 0.5, a watering 0.25, a cast 0.25 (`STAMINA`, `src/game/care.ts`); below `EXHAUSTED` (8) the axe, the
+pickaxe and the hoe politely wait ("too tired for that... a rest, or a bite to eat") while the lighter chores and
+everything else go on; rest restores as before. The passive drift of an awake Blobbi now stops at `DRIFT_FLOOR` (20):
+standing about or exploring never exhausts it, only work can, so the costs are the player's own choice. The passive
+rates, the save and its schema are unchanged, so an older save needs nothing. The rest of this page is the proposal
+as it was. Facts are **VERIFIED** (path given) or **PROPOSED**.
 Inspiration: Stardew Valley's stamina (actions cost, walking is free, sleep restores), made cozier.
 
 ## 1. What exists today

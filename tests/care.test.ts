@@ -4,7 +4,7 @@ import { LiveWorld, IDLE_INPUT } from '../src/sim/live-world';
 import { memoryStore } from '../src/game/persistence';
 import { ITEMS, FOODS, foodValue } from '../src/game/items';
 import { BUILDINGS } from '../src/game/buildings';
-import { FULL, HUNGRY, JOY, NEW_CARE, PET_COOLDOWN, RATES, TIRED, careFromSave, eat, mood, newCare, speedFactor, stepCare } from '../src/game/care';
+import { FULL, HUNGRY, JOY, NEW_CARE, PET_COOLDOWN, RATES, TIRED, careFromSave, eat, mood, newCare, speedFactor, stepCare, DRIFT_FLOOR } from '../src/game/care';
 import { BlobbiAnimator } from '../src/blobbi/animation';
 import { MIN_NAP } from '../src/sim/brain';
 import { findBuildSpot, pressE, run } from '../src/dev/scripted-play';
@@ -35,7 +35,7 @@ describe('needs (pure)', () => {
     const long = newCare();
     for (let i = 0; i < 10000; i++) stepCare(long, 1, { resting: false, sheltered: false, moving: true });
     expect(long.hunger).toBe(0);
-    expect(long.energy).toBe(0);
+    expect(long.energy).toBe(DRIFT_FLOOR); // the passive drift stops at the floor: only work goes lower (stamina)
     // Happiness drifts only down to a floor (lower when hungry or tired): sad, never punished further.
     expect(long.happiness).toBe(20);
     const fine = { ...newCare(), happiness: 90 };

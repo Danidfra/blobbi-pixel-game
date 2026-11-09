@@ -68,7 +68,11 @@ bed. See [Building](../specifications/BUILDING.md) and [Housing](../specificatio
 Needs, each 0–100 where 100 is good (`src/game/care.ts`): fed (falls about 0.06/s), energy (falls 0.08/s awake,
 0.11/s walking; rest restores 1.5/s, 3/s in a shelter), joy (drifts to a floor of 40, or 20 when hungry or tired).
 A hungry or exhausted Blobbi only walks a little slower; nothing worse happens. Food above 95 fed is refused (no
-waste). Friendship (`src/game/friendship.ts`) only grows: pet +1 (8 s cooldown), feed +2, a favourite +5, a meal +3,
+waste). **Exploration stamina (Living World, phase 2):** work costs a little energy on top of the drift (a landed
+axe or pickaxe hit 0.5, a tilled cell 0.5, a watering 0.25, a cast 0.25); the drift itself stops at 20, so idling or
+exploring never exhausts the Blobbi. Below 8 the axe, the pickaxe and the hoe wait ("too tired for that... a rest, or
+a bite to eat") while planting, harvesting, walking, feeding, petting and rest go on; a nap or a bed brings the work
+back ([Blobbi energy](../architecture/BLOBBI-ENERGY.md)). Friendship (`src/game/friendship.ts`) only grows: pet +1 (8 s cooldown), feed +2, a favourite +5, a meal +3,
 rest +2, a quest +3; levels at 0, 15, 45, 100, 180 and 300 points. Each Blobbi has two favourite foods and a
 favourite kind of thing from its own seed.
 

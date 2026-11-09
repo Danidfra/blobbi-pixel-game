@@ -7,6 +7,7 @@ import { LiveWorld, IDLE_INPUT, SWING, type LiveInput } from '../sim/live-world'
 import type { Direction } from '../blobbi/animation';
 import { PLOT_GRID, type Cell, type CropKind } from '../game/farming';
 import { ITEMS } from '../game/items';
+import { isExhausted } from '../game/care';
 import { recipeById } from '../game/crafting';
 import { BUILDINGS, footOf, type BuildingKind } from '../game/buildings';
 import type { ResourceKind } from '../game/resources';
@@ -36,8 +37,20 @@ export function pressE(live: LiveWorld): void {
 
 /** Press E until `done` (E picks up a resource in reach before anything else), at most `max` times. */
 export function pressUntil(live: LiveWorld, done: () => boolean, max = 4): boolean {
-  for (let i = 0; i < max && !done(); i++) pressE(live);
+  for (let i = 0; i < max && !done(); i++) {
+    napIfTired(live);
+    pressE(live);
+  }
   return done();
+}
+
+/** A player told "too tired for that" naps (R) until the Blobbi can work again, wakes, and carries on. */
+export function napIfTired(live: LiveWorld): void {
+  if (!isExhausted(live.care)) return;
+  if (live.brain.state !== 'rest') live.rest();
+  for (let i = 0; i < 60 * 90 && live.care.energy < 40; i++) live.update(1 / 60, IDLE_INPUT);
+  if (live.brain.state === 'rest' || live.restPlan) live.rest(); // wake
+  run(live, 30);
 }
 
 /** Where to stand to face a cell from above (facing down: the target cell is just below the feet). */
@@ -188,6 +201,7 @@ export function fellTrees(live: LiveWorld, want: () => boolean): void {
   for (const { o, index } of trees) {
     if (want()) return;
     if (live.treeAt(index).phase !== 'grown') continue;
+    napIfTired(live);
     const s = live.spriteOf(o);
     const x = o.x;
     const y = o.y + s.footRy + live.blobbi.footRy + 2;
@@ -310,7 +324,10 @@ function stonesUntil(live: LiveWorld, n: number): void {
     if (!live.collision.canStand(o.x, y, live.blobbi.footRx, live.blobbi.footRy)) continue;
     stand(live, o.x, y, 'up');
     if (live.facingObject()?.index !== index) continue;
-    for (let i = 0; i < 4; i++) pressE(live);
+    for (let i = 0; i < 4; i++) {
+      napIfTired(live);
+      pressE(live);
+    }
   }
   if (before) live.equip(before);
 }

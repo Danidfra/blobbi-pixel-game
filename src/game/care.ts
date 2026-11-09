@@ -52,6 +52,26 @@ export const FULL = 95;
 
 export const PET_COOLDOWN = 8;
 
+/**
+ * EXPLORATION STAMINA (Living World, phase 2): what the Blobbi DOES costs a little of its energy, on top of the gentle
+ * drift it always had: a landed axe or pickaxe hit, a tilled cell, a watering, a cast. Walking, talking, picking up,
+ * feeding and petting stay free. Below `EXHAUSTED` the heavy work (the axe, the pickaxe, the hoe) politely waits for a
+ * rest or a bite to eat; the lighter chores and everything else go on. Nothing is lost and nothing punished, and a
+ * save from before knows nothing new: the costs come out of the energy it already had, and rest restores it as ever.
+ */
+export const STAMINA = { chop: 0.5, mine: 0.5, till: 0.5, water: 0.25, cast: 0.25 } as const;
+export const EXHAUSTED = 8;
+/** The passive drift of an awake Blobbi stops here: standing about or exploring never exhausts it, only work can. */
+export const DRIFT_FLOOR = 20;
+export const isExhausted = (c: Needs): boolean => c.energy < EXHAUSTED;
+
+/** Spend energy on work. Returns whether this is the moment it became tired (for one word about it). */
+export function spendEnergy(c: CareState, amount: number): boolean {
+  const was = isTired(c);
+  c.energy = clamp(c.energy - amount);
+  return !was && isTired(c);
+}
+
 /** Happiness gained from positive moments. */
 export const JOY = { feed: 10, hungryFeed: 5, pet: 6, rested: 5, explore: 2, harvest: 3, decoration: 3, built: 5, objective: 4, favourite: 10 } as const;
 
@@ -72,7 +92,7 @@ export interface CareContext {
 export function stepCare(c: CareState, dt: number, ctx: CareContext): CareState {
   c.hunger = clamp(c.hunger - RATES.hunger * dt);
   if (ctx.resting) c.energy = clamp(c.energy + (ctx.sheltered ? RATES.energyInShelter : RATES.energyResting) * dt);
-  else c.energy = clamp(c.energy - (ctx.moving ? RATES.energyWalking : RATES.energyAwake) * dt);
+  else if (c.energy > DRIFT_FLOOR) c.energy = Math.max(DRIFT_FLOOR, c.energy - (ctx.moving ? RATES.energyWalking : RATES.energyAwake) * dt);
   const floor = c.hunger < HUNGRY || c.energy < TIRED ? LOW_FLOOR : HAPPY_FLOOR;
   if (c.happiness > floor) c.happiness = Math.max(floor, c.happiness - RATES.happinessDrift * dt);
   return c;

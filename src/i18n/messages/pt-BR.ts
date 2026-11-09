@@ -727,6 +727,8 @@ export const ptBR: Catalog = {
   'care.joy': 'Alegria',
   'care.hungry': 'com fome',
   'care.tired': 'cansado',
+  'care.tooTired': 'cansado demais para isso... um descanso, ou algo de comer',
+  'care.gettingTired': 'estou ficando cansado...',
   'care.feeling': 'Humor  {mood}',
   'care.asleep': '(dormindo)',
   'mood.calm': 'tranquilo',

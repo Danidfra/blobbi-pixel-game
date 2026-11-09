@@ -49,6 +49,7 @@ const faceFirst = (live: LiveWorld, pick: (p: Placement) => boolean): number => 
   throw new Error('nothing to face');
 };
 const swing = (live: LiveWorld) => {
+  live.care.energy = 100; // these long waits would exhaust it; stamina has its own tests
   pressE(live);
   run(live, Math.ceil(SWING.end * 60) + 4);
 };
