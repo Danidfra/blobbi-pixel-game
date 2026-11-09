@@ -26,6 +26,8 @@ const PALETTE: Record<string, Color> = {
   y: hex('#f0d060'),
   k: hex('#f0a030'),
   f: hex('#6b4a2a'),
+  // the ribbon a songbird sometimes carries (Keeper encounter C)
+  P: hex('#e06878'),
 };
 
 /** Rows per kind and pose, facing right; two frames where a pose animates. */
@@ -79,11 +81,25 @@ const ART: Record<LandKind, Partial<Record<LandPose, string[][]>>> = {
 
 const cache = new Map<string, Sprite>();
 
-/** The sprite for a kind, pose, frame and facing (made once). */
-export function landSprite(kind: LandKind, pose: LandPose, frame: number, dir: 1 | -1): Sprite {
+/** A songbird's rows with a ribbon hanging from its beak: two pixels down the beak's column where the art is empty. */
+function withRibbon(rows: readonly string[]): string[] {
+  const out = rows.map((r) => r.split(''));
+  const col = out[0].length - 1;
+  const start = rows.length <= 3 ? 1 : 2;
+  let placed = 0;
+  for (let y = start; y < out.length && placed < 2; y++) if (out[y][col] === '.') {
+    out[y][col] = 'P';
+    placed++;
+  }
+  return out.map((r) => r.join(''));
+}
+
+/** The sprite for a kind, pose, frame and facing (made once); a songbird may carry a ribbon. */
+export function landSprite(kind: LandKind, pose: LandPose, frame: number, dir: 1 | -1, ribbon = false): Sprite {
   const frames = ART[kind][pose] ?? ART[kind][kind === 'crab' ? 'idle' : kind === 'bunny' ? 'idle' : 'perch']!;
-  const rows = frames[frame % frames.length];
-  const key = `${kind}|${pose}|${frame % frames.length}|${dir}`;
+  const plain = frames[frame % frames.length];
+  const rows = ribbon && kind === 'songbird' ? withRibbon(plain) : plain;
+  const key = `${kind}|${pose}|${frame % frames.length}|${dir}${ribbon ? '|ribbon' : ''}`;
   let hit = cache.get(key);
   if (hit) return hit;
   const w = rows[0].length;
@@ -113,7 +129,7 @@ export function landDrawables(live: LiveWorld, time: number, ox: number, oy: num
   for (const v of live.landViews) {
     if (v.x < ox - 16 || v.x > ox + viewW + 16 || v.y < oy - 48 || v.y > oy + viewH + 16) continue;
     const frame = Math.floor(time * (v.pose === 'fly' ? 10 : v.pose === 'hop' ? 8 : v.pose === 'nibble' || v.pose === 'peck' ? 3 : v.pose === 'sing' ? 4 : v.pose === 'twitch' ? 5 : 6));
-    const sprite = landSprite(v.kind, v.pose, frame, v.dir);
+    const sprite = landSprite(v.kind, v.pose, frame, v.dir, v.ribbon === true);
     out.push({ y: v.pose === 'fly' ? oy + viewH + 1e6 : v.y, x: v.x, sprite, sway: 0, dy: v.pose === 'fly' ? v.y - (oy + viewH + 1e6) : v.dy });
   }
   return out;

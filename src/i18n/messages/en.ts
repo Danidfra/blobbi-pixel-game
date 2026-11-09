@@ -539,6 +539,8 @@ export const en = {
   'notice.level': 'level {n}',
   'prompt.wakeUp': 'wake up',
   'prompt.standUp': 'stand up',
+  'prompt.cairn': 'look at the cairn',
+  'say.keeperCairn': 'balanced, every one',
   'prompt.hopOut': 'hop out of the tub',
   'prompt.glinting': 'pick up something glinting',
   'prompt.reel': 'reel it in!',

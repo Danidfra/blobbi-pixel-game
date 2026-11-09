@@ -91,6 +91,14 @@ export const BUNNY_CURIOUS_AFTER = 2;
 export const BUNNY_APPROACH_AFTER = 4;
 /** How long it sits beside the Blobbi (seconds, seeded between these). */
 export const BUNNY_STAY = { min: 8, max: 14 } as const;
+/** Keeper encounter B: a bunny settled beside the Blobbi for this long may lead it to something buried. */
+export const BUNNY_LEAD_AFTER = 3;
+/** How far it leads (px), and how long it digs (s). */
+export const BUNNY_LEAD_DISTANCE = 22;
+export const BUNNY_DIG = 2.4;
+/** Which appearances lead (every other one, by the appearance's seed), and which songbirds carry a ribbon (one in four). */
+export const bunnyLeads = (seed: number): boolean => seed % 2 === 0;
+export const birdCarriesRibbon = (seed: number): boolean => seed % 4 === 0;
 /** A shy bunny takes longer to trust, never forever: 1 (bold) .. 2.5 (shy). */
 export const patience = (traits: LandTraits): number => 1 + (1 - traits.bold) * 1.5;
 
@@ -259,6 +267,22 @@ export class LandLife {
       const d = BUNNY_BOLT_DISTANCE - (i > 5 ? 8 : 0);
       const x = Math.round(at.x + Math.cos(a) * d);
       const y = Math.round(at.y + Math.sin(a) * d * 0.7);
+      if (this.canStand(x, y) && !this.wet(x, y)) return { x, y };
+    }
+    return null;
+  }
+
+  /**
+   * Where a bunny digs (Keeper encounter B): `BUNNY_LEAD_DISTANCE` from where it sits, away from the Blobbi first and
+   * fanning round, on standable dry ground, never closer than a stride to the Blobbi; null when nowhere fits.
+   */
+  digSpot(at: Pt, blobbi: Pt, seed: number): Pt | null {
+    const away = Math.atan2(at.y - blobbi.y, at.x - blobbi.x);
+    for (let i = 0; i < 12; i++) {
+      const a = away + ((i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI) / 6 + ((seed >>> (i * 2)) & 3) * 0.05;
+      const x = Math.round(at.x + Math.cos(a) * BUNNY_LEAD_DISTANCE);
+      const y = Math.round(at.y + Math.sin(a) * BUNNY_LEAD_DISTANCE * 0.7);
+      if (Math.hypot(x - blobbi.x, y - blobbi.y) < 14) continue;
       if (this.canStand(x, y) && !this.wet(x, y)) return { x, y };
     }
     return null;

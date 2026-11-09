@@ -143,6 +143,22 @@ export const LORE: readonly LoreNote[] = [
     title: 'The glowing ray',
     text: 'Some nights a ray glides past the Carrier, faintly lit from inside like a lantern under the water. The old pages call them night-lamps and say they follow Carriers to eat what drifts in their wake. Seeing one is good luck.',
   },
+  // Keeper encounters (Living Home): what the island's own life brings to light.
+  {
+    id: 'keeper-cairn',
+    title: 'The Keeper\'s cairn',
+    text: 'A cairn stands where the grass is oldest, older than the sign, older than the planted pond. Each time the island grows, one more stone appears on it, balanced just so. Nobody puts them there. Perhaps the island does, the way it puts out a new shore: a Keeper\'s habit, kept.',
+  },
+  {
+    id: 'keeper-button',
+    title: 'What the bunny knew',
+    text: 'The bunny hopped a little way, dug with both paws, and sat back proud: a brass button, worn smooth, an anchor you can just make out. A Keeper lost it here long ago, kneeling in this meadow. The bunny seems to think it was always yours.',
+  },
+  {
+    id: 'keeper-ribbon',
+    title: 'The ribbon',
+    text: 'A songbird came to the feeder with a length of red ribbon in its beak, sang, and left it there, as if returning something. Keepers tied ribbons to the things they meant to come back for. This one came back to you instead.',
+  },
 ];
 
 export const loreById = (id: string): LoreNote | undefined => LORE.find((l) => l.id === id);

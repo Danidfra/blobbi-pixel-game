@@ -61,11 +61,12 @@ import { CLEAN, DIRT, GLAD, JOY, JOY_SOURCE_COOLDOWN, STAMINA, TIRED_TEMPO, addH
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
-import { ALL_DISCOVERIES, SEA_DISCOVERIES } from '../content/discoveries';
+import { ALL_DISCOVERIES, KEEPER_DISCOVERIES, SEA_DISCOVERIES, type DiscoveryContent } from '../content/discoveries';
+import { CAIRN_FOOT, CAIRN_REACH, placeKeeperCairn, type Cairn } from '../game/keeper';
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
 import type { Use } from '../content/placeables';
 import { BATH_SECONDS, IDLE_SIT_SECONDS, SPLASH_EVERY, occupancyOf, occupantSpot, type OccupancyKind } from '../game/furniture-use';
-import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_STAY, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
+import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_STAY, BUNNY_LEAD_AFTER, BUNNY_DIG, bunnyLeads, birdCarriesRibbon, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
 import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
 import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
 import { GENERATOR_VERSION } from '../game/archipelago';
@@ -238,6 +239,9 @@ export const USE_VERB: Record<Use, (r: Building) => string> = {
   wash: () => lang('use.wash'),
 };
 
+/** A Keeper encounter's discovery content by id (`KEEPER_DISCOVERIES`). */
+const keeperContent = (id: string): DiscoveryContent => KEEPER_DISCOVERIES.find((d) => d.id === id)!;
+
 /** What the Blobbi says when looking at something the player made (keys of `admire.<kind>`). */
 const ADMIRE = new Set(['clearing-flag', 'flower-bed', 'table', 'dining-table', 'potted-plant', 'vase', 'painting', 'rug', 'wall-shelf', 'scarecrow', 'cairn', 'flower-arch', 'blobbi-statue', 'picket-fence', 'stone-wall', 'crate']);
 const BOOK_LINES: readonly MessageKey[] = ['book.0', 'book.1', 'book.2', 'book.3', 'book.4', 'book.5', 'book.6'];
@@ -280,10 +284,12 @@ export interface LandView {
   pose: LandPose;
   /** A hop's lift (world px, negative is up). */
   dy: number;
+  /** A songbird carrying a ribbon (Keeper encounter C). */
+  ribbon?: boolean;
 }
 
 /** The bunny encounter's phases (Living World, phase 2); `bolting` and `resting` are the fright and its aftermath. */
-export type BunnyPhase = 'routine' | 'wary' | 'curious' | 'approaching' | 'beside' | 'leaving' | 'bolting' | 'resting';
+export type BunnyPhase = 'routine' | 'wary' | 'curious' | 'approaching' | 'beside' | 'leading' | 'digging' | 'showing' | 'leaving' | 'bolting' | 'resting';
 
 /** One appearance's memory while it lasts (never saved). */
 interface LandMood {
@@ -316,6 +322,15 @@ interface LandMood {
   haste: number;
   /** This appearance has already cheered the Blobbi (a bunny settling beside it, a bird's song): once each. */
   cheered: boolean;
+  // ── Keeper encounters (Living Home) ──
+  /** A bunny: it has had its chance to lead this appearance; where it dug; whether what it dug up is there to find. */
+  led: boolean;
+  dig: LandPt | null;
+  shown: boolean;
+  digTick: number;
+  /** A songbird: it came with a ribbon; where it left it. */
+  ribbon: boolean;
+  drop: LandPt | null;
 }
 
 /** Dust motes alive in a room at most (interior atmosphere). */
@@ -750,7 +765,7 @@ export class LiveWorld {
       this.care = save.care;
       this.companion = { care: this.care, friendship: save.companion.friendship, tasted: new Set(save.companion.tasted) };
       this.useCompanion(this.blobbi.seed);
-      for (const id of save.found) if (this.discoveries.some((d) => d.id === id) || SEA_DISCOVERIES.some((d) => d.id === id)) this.found.add(id);
+      for (const id of save.found) if (this.discoveries.some((d) => d.id === id) || SEA_DISCOVERIES.some((d) => d.id === id) || KEEPER_DISCOVERIES.some((d) => d.id === id)) this.found.add(id);
       this.tally = save.tally;
       this.objectives = save.objectives;
       for (const [id, v] of Object.entries(save.interiors)) {
@@ -878,11 +893,17 @@ export class LiveWorld {
     };
   }
 
+  /** The Keeper's cairn (Living Home): a fixture of the base world, or null on a world with no ground for it. */
+  cairn: Cairn | null = null;
+
   private placeWorldSecrets(nav: NavGrid, baseCollision: CollisionMap, baseNodes: readonly ResourceNode[]): void {
     const base = this.baseWorld;
     const hub = base.hubs[0] ?? { x: base.islands[0].cx, y: base.islands[0].cy };
     const reachable = this.reachability(nav, hub);
     this.discoveries = placeDiscoveries(base, (x, y) => baseCollision.canStand(x, y, 3, 2), reachable, baseNodes);
+    // The Keeper's cairn: on the base world's ground too, so growth never moves it; solid from here on.
+    this.cairn = placeKeeperCairn(base, (x, y) => baseCollision.canStand(x, y, 3, 2), reachable, [...baseNodes, ...this.discoveries]);
+    if (this.cairn) this.rebuildIsland();
     // The listening spot: walk from the turtle's head toward the island until there is reachable ground.
     const head = base.turtle?.head ?? base.creature?.head;
     const island = base.islands[0];
@@ -1183,7 +1204,9 @@ export class LiveWorld {
 
   /** The island's collision with every absent object's ground free. */
   private islandCollisionNow(): CollisionMap {
-    return CollisionMap.fromWorld(this.world, (p) => this.collisionSprite(p), [], (i) => this.absentObject(i));
+    const map = CollisionMap.fromWorld(this.world, (p) => this.collisionSprite(p), [], (i) => this.absentObject(i));
+    if (this.cairn) map.blockEllipse(this.cairn.x, this.cairn.y, CAIRN_FOOT.rx, CAIRN_FOOT.ry, true);
+    return map;
   }
 
   /**
@@ -1716,7 +1739,7 @@ export class LiveWorld {
       buildings: this.buildings,
       // Sticks, stones and seeds must be picked up first; wild forage is simply trampled (see `trample`).
       // Hidden discoveries too: nothing is ever built (or tilled) on top of one.
-      resources: [...this.resources.filter((n) => (BASIC_KINDS as readonly string[]).includes(n.kind)), ...this.hiddenDiscoveries],
+      resources: [...this.resources.filter((n) => (BASIC_KINDS as readonly string[]).includes(n.kind)), ...this.hiddenDiscoveries, ...(this.cairn ? [this.cairn] : [])],
       blobbi: this.blobbi,
       plots: this.plots.map((p) => this.plotRect(p)),
     };
@@ -2761,9 +2784,49 @@ export class LiveWorld {
     return true;
   }
 
-  /** Discoveries still lying on the ground. */
+  /** Discoveries still lying on the ground, and what the island's life has just brought to light. */
   get hiddenDiscoveries(): DiscoverySpot[] {
-    return this.discoveries.filter((d) => !this.found.has(d.id));
+    return [...this.discoveries.filter((d) => !this.found.has(d.id)), ...this.shownSpots()];
+  }
+
+  /**
+   * Keeper traces a creature has just shown (Living Home): a button a bunny dug up, a ribbon a songbird left at the
+   * feeder. Findable like any discovery while that creature's appearance lasts; the creature's own memory holds
+   * them, so nothing is saved until they are found.
+   */
+  private shownSpots(): DiscoverySpot[] {
+    if (this.inside) return [];
+    const out: DiscoverySpot[] = [];
+    for (const m of this.landMoods.values()) {
+      if (m.shown && m.dig && !this.found.has('keeper:button')) out.push({ id: 'keeper:button', x: m.dig.x, y: m.dig.y, content: keeperContent('keeper:button') });
+      if (m.drop && !this.found.has('keeper:ribbon')) out.push({ id: 'keeper:ribbon', x: m.drop.x, y: m.drop.y, content: keeperContent('keeper:ribbon') });
+    }
+    return out;
+  }
+
+  /** Close enough to the Keeper's cairn for E (outdoors). */
+  nearCairn(): boolean {
+    const c = this.cairn;
+    if (!c || this.inside) return false;
+    return Math.hypot(c.x - this.blobbi.x, (c.y - this.blobbi.y) * 1.25) <= CAIRN_REACH;
+  }
+
+  /** E at the cairn: the first time, its discovery (a pebble, a note); after that, a look at the balanced stones. */
+  visitCairn(): boolean {
+    if (!this.nearCairn()) return false;
+    const c = this.cairn!;
+    const time = this.clock.time;
+    const b = this.blobbi;
+    if (!this.found.has('keeper:cairn') && !this.visitor) {
+      this.discover('keeper:cairn', c);
+      this.bubble = { text: lang('discovery.found', { name: keeperContent('keeper:cairn').item.label }), until: time + 2.2, x: b.x, y: b.y - b.size - 2, head: b.size };
+      b.animator.react('surprised', time, 0.5, 2);
+      this.save();
+      return true;
+    }
+    this.bubble = { text: lang('say.keeperCairn'), until: time + 2, x: b.x, y: b.y - b.size - 2, head: b.size };
+    b.animator.react('happy', time, 0.9, 1);
+    return true;
   }
 
   nearestDiscovery(reach = REACH): DiscoverySpot | null {
@@ -3199,6 +3262,12 @@ export class LiveWorld {
     return out;
   }
 
+  /** The ground beside the feeder a perch belongs to (where a songbird leaves its ribbon). */
+  private feederFoot(perch: LandPt): LandPt {
+    const r = this.buildings.find((b) => BUILDINGS[b.kind].use === 'birds' && Math.abs(b.x - perch.x) < 1 && b.y > perch.y);
+    return r ? { x: r.x + 4, y: r.y + 1 } : { x: perch.x + 4, y: perch.y + 12 };
+  }
+
   /** What is about on land now, near the Blobbi (nothing indoors). */
   landSightings(): LandSighting[] {
     if (this.inside) return [];
@@ -3215,7 +3284,7 @@ export class LiveWorld {
       for (const s of this.landSightings()) {
         seen.add(s.id);
         let m = this.landMoods.get(s.id);
-        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false }));
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false, led: false, dig: null, shown: false, digTick: -1, ribbon: s.kind === 'songbird' && s.traits.bold > 0.35 && birdCarriesRibbon(s.seed) && !this.visitor, drop: null }));
         const view = this.poseLand(s, m, bp, dt, time);
         if (!view) continue;
         views.push(view);
@@ -3259,19 +3328,21 @@ export class LiveWorld {
       return view(r.x, r.y, r.moving ? 'walk' : 'idle', r.dir);
     }
     if (s.kind === 'bunny') return this.poseBunny(s, m, bp, dt, time);
-    // The songbird.
+    // The songbird (with a ribbon in its beak, now and then: Keeper encounter C).
+    const carrying = m.ribbon && !m.drop && !this.found.has('keeper:ribbon');
+    const bird = (x: number, y: number, pose: LandPose, dir: 1 | -1): LandView => (carrying ? { ...view(x, y, pose, dir), ribbon: true } : view(x, y, pose, dir));
     if (m.gone) {
       const k = (time - m.gone) / BIRD_FLIGHT;
       if (k >= 1) return null;
       const e = ease(k);
-      return view(s.home.x - s.dir * 48 * e, s.home.y - 40 * e, 'fly', s.dir > 0 ? -1 : 1);
+      return bird(s.home.x - s.dir * 48 * e, s.home.y - 40 * e, 'fly', s.dir > 0 ? -1 : 1);
     }
     const r = this.land.routine(s, s.age);
-    if (r.flight) return view(r.x, r.y, 'fly', r.dir);
+    if (r.flight) return bird(r.x, r.y, 'fly', r.dir);
     const d = dist(r);
     if (d < reach(LAND_REACH.birdStartle, tr)) {
       m.gone = time;
-      return view(r.x, r.y, 'fly', s.dir > 0 ? -1 : 1);
+      return bird(r.x, r.y, 'fly', s.dir > 0 ? -1 : 1);
     }
     m.still = this.movedLastStep ? 0 : m.still + dt;
     if (d < LAND_REACH.birdSing && m.still > 1.2 && tr.bold > 0.35) {
@@ -3280,14 +3351,20 @@ export class LiveWorld {
         m.cheered = true;
         this.cheerFrom(`songbird:${s.id}`, JOY.song, 0);
       }
+      if (carrying) {
+        // It leaves the ribbon at the feeder's foot as it sings: there to find while it stays.
+        m.drop = this.feederFoot(s.home);
+        const hs = hash32(`${s.id}:ribbon`);
+        for (let i = 0; i < 4; i++) this.islandParticles.spawn({ kind: 'sparkle', x: m.drop.x + (((hs >>> (i * 4)) % 5) - 2), y: m.drop.y - 2 - ((hs >>> (i * 4 + 2)) % 4), vx: 0, vy: 0, life: 0.5, color: hex('#ffd0f0'), phase: 0, front: true });
+      }
       if (time - m.lastNote > 1.1) {
         m.lastNote = time;
         const hh = hash32(`${s.id}:note:${Math.round(time * 60)}`);
         this.islandParticles.spawn({ kind: 'note', x: r.x, y: r.y - 4, vx: (hh % 5) - 2, vy: -9, life: 1.2, color: hex('#3b2a5a'), phase: ((hh >>> 8) % 628) / 100, front: true });
       }
-      return view(r.x, r.y, 'sing', facing(r));
+      return bird(r.x, r.y, 'sing', facing(r));
     }
-    return view(r.x, r.y, r.pause % 5 < 1.2 ? 'peck' : 'perch', r.dir);
+    return bird(r.x, r.y, r.pause % 5 < 1.2 ? 'peck' : 'perch', r.dir);
   }
 
   /**
@@ -3351,10 +3428,11 @@ export class LiveWorld {
     m.haste = closing > BUNNY_FAST * b.speed && d < watchR ? m.haste + dt : 0;
     const fast = m.haste >= BUNNY_HASTE;
     const moved = this.movedLastStep;
-    const attentive = m.phase === 'wary' || m.phase === 'curious' || m.phase === 'approaching' || m.phase === 'beside';
+    const attentive = m.phase === 'wary' || m.phase === 'curious' || m.phase === 'approaching' || m.phase === 'beside' || m.phase === 'leading' || m.phase === 'digging' || m.phase === 'showing';
     // Frights: haste within its watch; closeness too, until it has come over of its own accord.
-    // (Coming over is its own choice: closeness does not count against it on the way, nor once it trusts.)
-    if (m.phase !== 'leaving' && (fast || (!m.trust && m.phase !== 'approaching' && d < reach(LAND_REACH.bunnyFlee, tr)))) {
+    // (Coming over is its own choice: closeness does not count against it on the way, nor once it trusts. Digging
+    // and showing what it dug up, it has asked the Blobbi over: nothing frightens it then.)
+    if (m.phase !== 'leaving' && m.phase !== 'digging' && m.phase !== 'showing' && (fast || (!m.trust && m.phase !== 'approaching' && d < reach(LAND_REACH.bunnyFlee, tr)))) {
       const to = this.land.boltSpot(at, bp, hash32(`${s.id}:${Math.round(time * 60)}`));
       m.hop = null;
       m.trust = false;
@@ -3466,12 +3544,64 @@ export class LiveWorld {
           enter('wary');
           return sitting();
         }
+        if (!m.led && time - m.since >= BUNNY_LEAD_AFTER && !this.visitor && bunnyLeads(s.seed) && !this.found.has('keeper:button')) {
+          // Keeper encounter B: now and then, a bunny that has settled in leads the Blobbi a few hops to something buried.
+          m.led = true;
+          const spot = this.land.digSpot(at, bp, hash32(`${s.id}:dig`));
+          if (spot) {
+            m.dig = spot;
+            enter('leading');
+            return sitting('twitch');
+          }
+        }
         if (time - m.since >= m.stay || s.age >= s.span - 4) {
           enter('leaving');
           return sitting();
         }
         const k = (time - m.since) % 6;
         return sitting(k < 2.5 ? 'nibble' : k < 3 ? 'twitch' : 'idle');
+      }
+      case 'leading': {
+        // Hop by hop to the spot; the Blobbi may follow (walking does not worry it now; haste still does).
+        if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
+        const goal = m.dig!;
+        const next = Math.hypot(goal.x - at.x, goal.y - at.y) < 1.5 || time - m.since > 5 ? null : this.land.hopAlong(at, goal, BUNNY_HOP_LENGTH);
+        if (!next) {
+          m.dig = { x: at.x, y: at.y };
+          enter('digging');
+          return sitting('nibble');
+        }
+        m.hop = { from: { x: at.x, y: at.y }, to: next, t0: time };
+        return view(at.x, at.y, 'hop', next.x >= at.x ? 1 : -1);
+      }
+      case 'digging': {
+        if (time - m.since >= BUNNY_DIG) {
+          // Found: it hops a short hop aside and sits by it, so the Blobbi can come and see.
+          m.shown = true;
+          const side = this.land.hopAlong(at, { x: at.x + (bp.x >= at.x ? -8 : 8), y: at.y }, 8) ?? this.land.hopAlong(at, { x: at.x, y: at.y + 6 }, 6);
+          if (side) m.hop = { from: { x: at.x, y: at.y }, to: side, t0: time };
+          const hs = hash32(`${s.id}:found`);
+          for (let i = 0; i < 4; i++) this.islandParticles.spawn({ kind: 'sparkle', x: at.x + (((hs >>> (i * 4)) % 7) - 3), y: at.y - 2 - ((hs >>> (i * 4 + 2)) % 4), vx: 0, vy: 0, life: 0.5, color: hex('#fff2b0'), phase: 0, front: true });
+          enter('showing');
+          return sitting('twitch');
+        }
+        // Both paws in the earth: a puff of soil every few tenths of a second (from a hash, never a stream).
+        const tick = Math.floor((time - m.since) / 0.3);
+        if (tick !== m.digTick) {
+          m.digTick = tick;
+          const h = hash32(`${s.id}:dig:${tick}`);
+          this.islandParticles.puff(at.x + ((h % 5) - 2), at.y, hex('#8a6a48'), ((h >>> 4) % 9) - 4, -4 - ((h >>> 8) % 4), 0.4);
+        }
+        return view(at.x, at.y, 'nibble', facing(at));
+      }
+      case 'showing': {
+        if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
+        if (s.age >= s.span - 4) {
+          enter('leaving');
+          return sitting();
+        }
+        const k = (time - m.since) % 4;
+        return sitting(k < 1 ? 'twitch' : 'idle');
       }
       case 'leaving': {
         if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
@@ -3553,8 +3683,13 @@ export class LiveWorld {
 
   /** A first meeting at sea: a discovery, as finding something on the island is. */
   private meetAtSea(id: string, s: { x: number; y: number }): void {
+    this.discover(id, s);
+  }
+
+  /** A discovery that is a meeting, not a thing lying about (the sea's, the Keepers'): once, with its keepsake and note. */
+  private discover(id: string, s: { x: number; y: number }): void {
     if (this.found.has(id)) return;
-    const d = SEA_DISCOVERIES.find((c) => c.id === id)!;
+    const d = ALL_DISCOVERIES.find((c) => c.id === id)!;
     const time = this.clock.time;
     this.found.add(id);
     this.inventory.add(d.item.id, 1);
@@ -4047,6 +4182,7 @@ export class LiveWorld {
     const o = this.occupation;
     if (o && o.inside === this.inside) return o.phase === 'leave' ? null : `E  ${lang(o.kind === 'bath' ? 'prompt.hopOut' : 'prompt.standUp')}`;
     if (this.nearestDiscovery()) return `E  ${lang('prompt.glinting')}`;
+    if (this.nearCairn()) return `E  ${lang('prompt.cairn')}`;
     const node = this.nearestResource();
     if (node) return `E  ${lang('prompt.pickUp', itemNoun(RESOURCE_ITEM[node.kind]))}`;
     const sea = this.fishing ? null : this.nearbyMarine();
@@ -5983,7 +6119,7 @@ export class LiveWorld {
       } else if (this.boat?.aboard) {
         // Afloat: fish, greet the sea's creatures, or land; otherwise a word on how to land.
         if (!(this.fishing && this.fish()) && !this.greetMarine() && !this.visitFeature() && !this.goAshore() && !this.fish()) this.bubble = { text: lang('canoe.paddleToLand'), until: time + 1.6, x: b.x, y: b.y - b.size - 2, head: b.size };
-      } else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.collect() && !this.greetMarine() && !this.boardCanoe() && !this.launchCanoe() && !this.canoeTooFar() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
+      } else if (!(this.fishing && this.fish()) && !this.collectDiscovery() && !this.visitCairn() && !this.collect() && !this.greetMarine() && !this.boardCanoe() && !this.launchCanoe() && !this.canoeTooFar() && !this.tend() && !this.chop() && !this.mine() && !this.fish()) this.interact();
     }
     // Walking into the door gap leaves the house.
     if (this.interior && atDoor(b.x, b.y, this.roomLayout)) this.exitInterior();

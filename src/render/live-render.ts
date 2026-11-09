@@ -24,6 +24,7 @@ import { OpenSea } from './open-sea';
 import { drawMarine, drawOceanFeatures } from './marine-render';
 import { landDrawables } from './land-render';
 import { occupiedLayers } from './occupant-render';
+import { cairnSprite } from './keeper-render';
 import { canoeSprites, paddleSprite } from './canoe-render';
 import { CANOE, SeaNav } from '../game/canoe';
 import type { WorldPalette as WorldPaletteLike } from '../core/palette';
@@ -491,6 +492,13 @@ export class LiveRenderer {
       const sway = o.animateWind && sprite.swayRow !== undefined ? live.swayOf(world.objects.length + k, p.x, 'tree', time) : 0;
       drawables.push({ y: p.y, x: p.x, sprite, sway, dy: 0 });
     });
+    // The Keeper's cairn (Living Home): balanced stones, one more per growth stage.
+    const cairn = live.cairn;
+    if (cairn && cairn.x >= ox - 16 && cairn.x <= ox + viewW + 16 && cairn.y >= oy - 24 && cairn.y <= oy + viewH + 8) {
+      const sprite = cairnSprite(palette, live.growth.stage);
+      if (o.shadows) this.paintShadow(frame, cairn.x, cairn.y, sprite.footRx, sprite.footRy, ox, oy);
+      drawables.push({ y: cairn.y, x: cairn.x, sprite, sway: 0, dy: 0 });
+    }
     // Discoveries: a small thing on the ground that glints now and then.
     for (const d of live.hiddenDiscoveries) {
       if (d.x < ox - 8 || d.x > ox + viewW + 8 || d.y < oy - 8 || d.y > oy + viewH + 8) continue;
@@ -601,8 +609,10 @@ export class LiveRenderer {
       const s = resourceSprite(p.node.kind, p.node.variant, palette);
       out.blit(s.buffer, p.node.x - s.anchorX - ox, p.node.y - s.anchorY - Math.round(t * 14) - oy);
     }
-    // A glint over each hidden discovery, a couple of times a few seconds.
-    for (const d of live.hiddenDiscoveries) {
+    // A glint over each hidden discovery (and the cairn until it has been looked at), a couple of times a few seconds.
+    const glints: { x: number; y: number }[] = live.hiddenDiscoveries;
+    if (cairn && !live.found.has('keeper:cairn')) glints.push({ x: cairn.x, y: cairn.y - cairnSprite(palette, live.growth.stage).buffer.height + 6 });
+    for (const d of glints) {
       const phase = (time * 0.7 + (d.x * 13 + d.y * 7) * 0.01) % 2.5;
       if (phase > 0.35) continue;
       const gx = d.x + 2 - ox;

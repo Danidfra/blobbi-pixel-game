@@ -532,6 +532,8 @@ export const es: Catalog = {
   'notice.level': 'nivel {n}',
   'prompt.wakeUp': 'despertar',
   'prompt.standUp': 'levantarse',
+  'prompt.cairn': 'mirar el montoncito de piedras',
+  'say.keeperCairn': 'en equilibrio, todas',
   'prompt.hopOut': 'salir de la tina',
   'prompt.glinting': 'recoger algo que brilla',
   'prompt.reel': '¡recoge el sedal!',

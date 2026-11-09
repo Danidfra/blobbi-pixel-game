@@ -361,6 +361,7 @@ describe('the bunny encounter (phase 2)', () => {
 
   it('stillness makes it curious (a hop or two, keeping two thirds of the gap), then it comes over, sits beside the Blobbi, and the Blobbi is glad', () => {
     const live = grown();
+    live.found.add('keeper:button'); // (the Keeper lead has its own tests: here, the plain sit)
     const s = watched(live, (x) => x.traits.bold > 0.6);
     const p = patience(s.traits);
     const gap0 = gap(live, s.id);
@@ -440,6 +441,8 @@ describe('the bunny encounter (phase 2)', () => {
     const store = memoryStore();
     const a = grown(2, 'land-test', store);
     const b = grown(2, 'land-test');
+    a.found.add('keeper:button');
+    b.found.add('keeper:button');
     const sa = watched(a, (x) => x.traits.bold > 0.6);
     const sb = watched(b, (x) => x.traits.bold > 0.6);
     expect(sb.id).toBe(sa.id);

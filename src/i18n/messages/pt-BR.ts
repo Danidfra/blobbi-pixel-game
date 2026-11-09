@@ -532,6 +532,8 @@ export const ptBR: Catalog = {
   'notice.level': 'nível {n}',
   'prompt.wakeUp': 'acordar',
   'prompt.standUp': 'levantar',
+  'prompt.cairn': 'olhar o montinho de pedras',
+  'say.keeperCairn': 'equilibradas, cada uma',
   'prompt.hopOut': 'sair da tina',
   'prompt.glinting': 'pegar algo que brilha',
   'prompt.reel': 'puxe!',

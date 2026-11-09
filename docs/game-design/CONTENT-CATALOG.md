@@ -9,15 +9,15 @@
 
 | Content | Count | Source |
 |---|---|---|
-| Items | 133 | `game/items.ts` `ALL_ITEMS` |
+| Items | 138 | `game/items.ts` `ALL_ITEMS` |
 | Crops | 11 | `content/crops.ts` |
 | Forage kinds | 6 | `content/forage.ts` |
-| Placeable kinds (incl. the shelter) | 44 | `game/buildings.ts` `BUILDINGS` |
-| Recipes | 69 | `game/crafting.ts` `RECIPES` |
+| Placeable kinds (incl. the shelter) | 46 | `game/buildings.ts` `BUILDINGS` |
+| Recipes | 71 | `game/crafting.ts` `RECIPES` |
 | Meals | 21 | `content/meals.ts` |
-| Quests | 39 | `content/quests.ts` |
+| Quests | 40 | `content/quests.ts` |
 | Island requests | 8 | `content/quests.ts` `REQUEST_POOL` |
-| Lore notes | 25 | `content/lore.ts` |
+| Lore notes | 29 | `content/lore.ts` |
 | Discoveries (island) | 8 | `content/discoveries.ts` |
 | Discoveries (grown land) | 6 | `content/discoveries.ts` `GROWTH_DISCOVERIES` |
 | Fish | 7 | `content/tools.ts` |
@@ -51,7 +51,7 @@
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
-| turnip seed (the wild seed) | `blobbi-pixel:resource:seed` | 20 |  |
+| turnip seed | `blobbi-pixel:resource:seed` | 20 |  |
 | radish seed | `blobbi-pixel:seed:radish` | 20 |  |
 | carrot seed | `blobbi-pixel:seed:carrot` | 20 |  |
 | seed potato | `blobbi-pixel:seed:potato` | 20 |  |
@@ -120,7 +120,7 @@
 | copper watering can | `blobbi-pixel:tool:copper-can` | 1 | tool: water (tier 2) |
 | fishing rod | `blobbi-pixel:tool:fishing-rod` | 1 | tool: fish |
 
-### Furniture (43)
+### Furniture (45)
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
@@ -159,9 +159,10 @@
 | bird feeder | `blobbi-pixel:furniture:bird-feeder` | 10 | places: bird-feeder |
 | flower arch | `blobbi-pixel:furniture:flower-arch` | 10 | places: flower-arch |
 | Blobbi statue | `blobbi-pixel:furniture:blobbi-statue` | 10 | places: blobbi-statue |
-| herb planter | `blobbi-pixel:furniture:herb-planter` | 10 | places: herb-planter |
 | washing tub | `blobbi-pixel:furniture:washing-tub` | 10 | places: washing-tub |
+| herb planter | `blobbi-pixel:furniture:herb-planter` | 10 | places: herb-planter |
 | wind chime | `blobbi-pixel:furniture:wind-chime` | 10 | places: wind-chime |
+| clearing flag | `blobbi-pixel:furniture:clearing-flag` | 10 | places: clearing-flag |
 | hay bale | `blobbi-pixel:furniture:hay-bale` | 10 | places: hay-bale |
 | wooden fence | `blobbi-pixel:furniture:fence` | 10 | places: fence |
 | flower bed | `blobbi-pixel:furniture:flower-bed` | 10 | places: flower-bed |
@@ -169,7 +170,7 @@
 | wooden bench | `blobbi-pixel:furniture:bench` | 10 | places: bench |
 | storage crate | `blobbi-pixel:furniture:crate` | 10 | places: crate |
 
-### Special (20)
+### Special (23)
 
 | Item | Id | Stack | Notes |
 |---|---|---|---|
@@ -193,6 +194,9 @@
 | letter from afar | `blobbi-pixel:special:letter-from-afar` | 1 |  |
 | pressed kelp | `blobbi-pixel:special:pressed-kelp` | 1 |  |
 | shoal scale | `blobbi-pixel:special:shoal-scale` | 1 |  |
+| Keeper's pebble | `blobbi-pixel:special:keeper-pebble` | 1 |  |
+| old brass button | `blobbi-pixel:special:keeper-button` | 1 |  |
+| faded ribbon | `blobbi-pixel:special:keeper-ribbon` | 1 |  |
 
 ## Crops
 
@@ -227,7 +231,7 @@
 |---|---|---|---|---|---|---|---|
 | shelter | wooden shelter | building | outdoor | solid | sleep | 6 wood, 3 stone | 24 |
 | fence | wooden fence | decoration | outdoor | solid | admire | 2 wood | 2 |
-| flower-bed | flower bed | decoration | outdoor | solid | admire | 1 wood, 2 seed | 4 |
+| flower-bed | flower bed | decoration | outdoor | solid | admire | 1 wood, 2 turnip seed | 4 |
 | lantern | small lantern | decoration | outdoor | solid | light | 1 wood, 2 stone, 1 stick | 3 |
 | bench | wooden bench | decoration | outdoor | solid | sit | 3 wood, 1 stick | 5 |
 | crate | storage crate | decoration | outdoor | solid | admire | 4 wood, 2 stick | 5 |
@@ -249,7 +253,7 @@
 | wall-lantern | wall lantern | furniture | indoor | wall | light | 1 wood, 2 stone, 1 stick | 0 |
 | floor-lamp | floor lamp | furniture | indoor | solid | light | 2 wood, 2 stone, 2 cloth | 0 |
 | rug | round rug | furniture | indoor | floor | admire | 4 cloth | 0 |
-| potted-plant | potted plant | decoration | both | solid | admire | 2 stone, 1 seed | 2 |
+| potted-plant | potted plant | decoration | both | solid | admire | 2 stone, 1 turnip seed | 2 |
 | vase | flower vase | furniture | indoor | solid | admire | 2 stone, 2 tulip | 0 |
 | music-box | music box | furniture | indoor | solid | music | 3 wood, 2 sea shell | 0 |
 | toy-ball | toy ball | decoration | both | floor | play | 2 cloth, 1 wild fibre | 2 |
@@ -263,12 +267,13 @@
 | cairn | stone cairn | decoration | outdoor | solid | admire | 4 stone | 2 |
 | log-seat | log seat | decoration | outdoor | solid | sit | 3 wood | 2 |
 | sprinkler | sprinkler | decoration | outdoor | solid | sprinkle | 4 stone, 2 wood, 1 sea shell | 2 |
-| bird-feeder | bird feeder | decoration | outdoor | solid | birds | 3 wood, 1 stick, 2 seed | 2 |
+| bird-feeder | bird feeder | decoration | outdoor | solid | birds | 3 wood, 1 stick, 2 turnip seed | 2 |
 | flower-arch | flower arch | decoration | outdoor | open | admire | 3 wood, 2 stick, 3 wild fibre | 2 |
 | blobbi-statue | Blobbi statue | decoration | outdoor | solid | admire | 8 stone | 2 |
+| washing-tub | washing tub | decoration | both | solid | wash | 4 wood, 1 stone, 2 wild fibre | 2 |
 | herb-planter | herb planter | decoration | outdoor | solid | herbs | 4 wood, 2 wild herb | 2 |
-| washing-tub | washing tub | furniture | both | solid | wash | 4 wood, 1 stone, 2 fibre | 5 |
 | wind-chime | wind chime | decoration | outdoor | solid | music | 2 stick, 3 sea shell | 2 |
+| clearing-flag | clearing flag | decoration | outdoor | open | admire | 2 stick, 1 wild fibre | 2 |
 | hay-bale | hay bale | decoration | outdoor | solid | sit | 4 wheat, 1 wild fibre | 2 |
 
 ## Recipes
@@ -297,7 +302,7 @@
 | Wall lantern | 1 wall lantern | 1 wood, 2 stone, 1 stick | workbench | furniture | shelter |
 | Floor lamp | 1 floor lamp | 2 wood, 2 stone, 2 cloth | workbench | furniture | home |
 | Round rug | 1 round rug | 4 cloth | workbench | furniture | shelter |
-| Potted plant | 1 potted plant | 2 stone, 1 seed | workbench | outdoor | shelter |
+| Potted plant | 1 potted plant | 2 stone, 1 turnip seed | workbench | outdoor | shelter |
 | Flower vase | 1 flower vase | 2 stone, 2 tulip | workbench | furniture | side-flowers |
 | Music box | 1 music box | 3 wood, 2 sea shell | workbench | furniture | discover-bottle |
 | Toy ball | 1 toy ball | 2 cloth, 1 wild fibre | workbench | outdoor | feed |
@@ -311,13 +316,15 @@
 | Stone cairn | 1 stone cairn | 4 stone | hand | outdoor | known from the start |
 | Log seat | 1 log seat | 3 wood | hand | outdoor | known from the start |
 | Sprinkler | 1 sprinkler | 4 stone, 2 wood, 1 sea shell | workbench | outdoor | side-farmer |
-| Bird feeder | 1 bird feeder | 3 wood, 1 stick, 2 seed | workbench | outdoor | improve |
+| Bird feeder | 1 bird feeder | 3 wood, 1 stick, 2 turnip seed | workbench | outdoor | improve |
 | Flower arch | 1 flower arch | 3 wood, 2 stick, 3 wild fibre | workbench | outdoor | improve |
 | Blobbi statue | 1 Blobbi statue | 8 stone | workbench | outdoor | side-friend |
+| Washing tub | 1 washing tub | 4 wood, 1 stone, 2 wild fibre | workbench | outdoor | home |
 | Herb planter | 1 herb planter | 4 wood, 2 wild herb | workbench | outdoor | cook |
 | Wind chime | 1 wind chime | 2 stick, 3 sea shell | workbench | outdoor | side-shells |
+| Clearing flag | 1 clearing flag | 2 stick, 1 wild fibre | hand | outdoor | known from the start |
 | Hay bale | 1 hay bale | 4 wheat, 1 wild fibre | workbench | outdoor | harvest |
-| Toasted seeds | 1 toasted seeds | 3 seed | cooking | meals | known from the start |
+| Toasted seeds | 1 toasted seeds | 3 turnip seed | cooking | meals | known from the start |
 | Berry snack | 1 berry snack | 3 wild berry | cooking | meals | known from the start |
 | Roasted turnip | 1 roasted turnip | 1 turnip | cooking | meals | known from the start |
 | Baked potato | 1 baked potato | 1 potato | cooking | meals | known from the start |
@@ -349,7 +356,7 @@
 
 | Meal | Restores | Ingredients | Unlocked by |
 |---|---|---|---|
-| toasted seeds | +12 fed, +2 joy | 3 seed | with a cooking station |
+| toasted seeds | +12 fed, +2 joy | 3 turnip seed | with a cooking station |
 | berry snack | +20 fed, +8 joy | 3 wild berry | with a cooking station |
 | roasted turnip | +40 fed, +3 joy | 1 turnip | with a cooking station |
 | baked potato | +45 fed, +5 energy | 1 potato | with a cooking station |
@@ -377,22 +384,23 @@
 |---|---|---|---|---|---|
 | `meet` | main | 1 | Meet your Blobbi |  | a new friend |
 | `arrive` | main | 1 | Explore the island |  | a journal note (J) |
-| `gather` | main | 1 | Gather supplies |  | +2 seeds |
+| `gather` | main | 1 | Gather supplies |  | +2 turnip seeds |
 | `axe` | main | 1 | Your first tool | gather | fence plans |
 | `wood` | main | 1 | Gather wood | axe | +2 stones |
 | `materials` | main | 1 | Building materials | wood | ready to build |
-| `shelter` | main | 1 | Build your first home | materials | +3 seeds, house furniture plans |
+| `shelter` | main | 1 | Build your first home | materials | +3 turnip seeds, house furniture plans |
 | `enter-home` | main | 1 | Step inside | shelter | a housewarming gift: a potted plant |
 | `first-furniture` | main | 1 | Make it yours | enter-home | a cozier home |
 | `plot` | main | 2 | Prepare a farm plot | wood | +3 carrot seeds (new crop) |
 | `plant` | main | 2 | Plant a seed | plot | flower bed plans, +3 radish seeds |
-| `water` | main | 2 | Water a crop | plant | +2 seeds, a watering can |
+| `water` | main | 2 | Water a crop | plant | +2 turnip seeds, a watering can |
 | `harvest` | main | 2 | Harvest food | water | +2 pumpkin seeds, +2 seed potatoes, stove plans |
 | `feed` | main | 2 | Feed Blobbi | harvest | lantern and bench plans, cozy furniture plans |
 | `home` | main | 2 | Make it home | first-furniture | +3 cloth, +2 tomato seeds, a journal note |
 | `cook` | main | 3 | A warm meal | harvest | +3 wheat seeds, new recipes, herb planter plans |
 | `mystery` | main | 3 | Something that hums | home | a painting plan |
-| `carrier` | main | 3 | Listen to the Carrier | mystery | +3 sunflower seeds, a journal note, bookshelf and fishing rod plans |
+| `grow` | main | 3 | Help your island grow | mystery | a journal note, and a path to the sea |
+| `carrier` | main | 3 | Listen to the Carrier | mystery, grow | +3 sunflower seeds, a journal note, bookshelf and fishing rod plans |
 | `restore` | main | 3 | Begin restoring the island | carrier | two journal notes, the harvest feast recipe |
 | `cottage` | main | 4 | A bigger home | home, harvest | new roof and wall colours, room styles |
 | `dream-home` | main | 4 | The dream home | cottage, carrier | the last house styles, a journal note |
@@ -419,9 +427,9 @@
 
 | Id | Title | Goal | Reward |
 |---|---|---|---|
-| `req-sticks` | Tidy up some sticks | collected × 6 | +2 seeds |
+| `req-sticks` | Tidy up some sticks | collected × 6 | +2 turnip seeds |
 | `req-water` | Water the garden | watered × 4 | +2 radish seeds |
-| `req-harvest` | Bring in the harvest | harvested × 3 | +1 cloth, +2 seeds |
+| `req-harvest` | Bring in the harvest | harvested × 3 | +1 cloth, +2 turnip seeds |
 | `req-cook` | Cook something nice | cooked × 1 | +2 wheat seeds |
 | `req-pet` | Spend time with Blobbi | petted × 3 | +1 tulip bulb |
 | `req-forage` | A walk in the wild | foraged × 5 | +1 seed potato, +1 carrot seed |
@@ -455,6 +463,7 @@
 | `blobbi` | Your Blobbi |
 | `carriers` | World Carriers |
 | `shell-soil` | Soil on a shell |
+| `growing` | A growing island |
 | `hum` | The hum |
 | `blobbis-and-carriers` | Blobbis and Carriers |
 | `keepers` | Keepers |
@@ -476,6 +485,9 @@
 | `kelp-garden` | The kelp garden |
 | `silver-shoal` | The silver shoal |
 | `glowing-ray` | The glowing ray |
+| `keeper-cairn` | The Keeper's cairn |
+| `keeper-button` | What the bunny knew |
+| `keeper-ribbon` | The ribbon |
 
 ## Fishing and tool upgrades
 

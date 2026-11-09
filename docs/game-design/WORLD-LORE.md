@@ -20,6 +20,12 @@ listed by id and title in the [content catalogue](CONTENT-CATALOG.md). **IMPLEME
 8. **Restoring.** A well-tended island makes its Carrier strong and calm.
 9. **Grown land (M7).** The shore widens, a meadow, a young wood, a rocky garden, the deep green: the land grows
    because it is welcome.
+10. **Keeper traces (Living Home, 2026-11-09).** The island's own life brings small signs of the Keepers to light:
+    a cairn that gains a stone each time the island grows (E at it, once, for a pebble and a note), a brass button a
+    bunny digs up for a Blobbi it has come to trust, a faded ribbon a songbird leaves at the feeder when it sings.
+    Three notes (`keeper-cairn`, `keeper-button`, `keeper-ribbon`), in the Keeper voice; nothing about the central
+    island. Source: `src/content/discoveries.ts` (`KEEPER_DISCOVERIES`), `src/game/keeper.ts`, the land life in
+    `src/sim/live-world.ts`.
 
 ## Carriers in the lore
 

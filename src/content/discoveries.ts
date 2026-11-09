@@ -169,5 +169,32 @@ export const SEA_DISCOVERIES: readonly DiscoveryContent[] = [
   },
 ];
 
-/** Every discovery, the island's, the grown land's and the sea's (journal, notes). */
-export const ALL_DISCOVERIES: readonly DiscoveryContent[] = [...DISCOVERY_CONTENT, ...GROWTH_DISCOVERIES, ...SEA_DISCOVERIES];
+/**
+ * Keeper encounters (Living Home): small traces of the island's Keepers that the island's own life brings to light,
+ * each found once. The cairn stands on the island from the start and grows a stone with each growth stage (E at it);
+ * a bunny that has settled beside the Blobbi sometimes leads it a few hops and digs up a button; a songbird sometimes
+ * visits the feeder with a ribbon and leaves it there when it sings. Nothing new in the save: `found`, as ever.
+ */
+export const KEEPER_DISCOVERIES: readonly DiscoveryContent[] = [
+  {
+    id: 'keeper:cairn',
+    terrain: 'grass',
+    lore: 'keeper-cairn',
+    item: special('keeper-pebble', 'Keeper\'s pebble', 'A flat grey pebble from the top of the old cairn. You balanced another one in its place.', ['.sss.', 'sSSSs', 'sssss'], { s: '#8a8f9a', S: '#c8d0dc' }),
+  },
+  {
+    id: 'keeper:button',
+    terrain: 'meadow',
+    lore: 'keeper-button',
+    item: special('keeper-button', 'old brass button', 'A worn brass button a bunny dug up in the meadow. An anchor, just about. Its twin is in the small treasure.', ['.yyy.', 'yYyYy', 'yyyyy', 'yYyYy', '.yyy.'], { y: '#c8a04a', Y: '#5a4a2a' }),
+  },
+  {
+    id: 'keeper:ribbon',
+    terrain: 'grass',
+    lore: 'keeper-ribbon',
+    item: special('keeper-ribbon', 'faded ribbon', 'A short length of red ribbon, faded to pink, that a songbird brought to the feeder.', ['r.....', 'rr..r.', '.rrrr.', '..rr..', '..r.r.', '.r...r'], { r: '#e8899a' }),
+  },
+];
+
+/** Every discovery, the island's, the grown land's, the sea's and the Keepers' (journal, notes). */
+export const ALL_DISCOVERIES: readonly DiscoveryContent[] = [...DISCOVERY_CONTENT, ...GROWTH_DISCOVERIES, ...SEA_DISCOVERIES, ...KEEPER_DISCOVERIES];

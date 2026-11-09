@@ -127,6 +127,25 @@ cliff, the tail end, and one per grown region) give a notice when first visited.
 finds, places and the Carrier's observations. Sources: `src/ui/screens/map.ts`, `src/game/places.ts`,
 `src/ui/screens/journal.ts`.
 
+**Keeper encounters (Living Home, 2026-11-09).** Three discoveries the island's life brings to light, each
+found once like any discovery (a keepsake in the bag, a note in the journal, `found` in the save; nothing else
+saved, no new economy):
+- *The Keeper's cairn:* a fixture of the base world, placed from the seed on reachable grass well apart from the
+  hub, the discoveries and the things on the ground; solid; nothing is built over it. Three balanced stones, one
+  more per growth stage (six at most), moss from stage 2, a tiny flower at the Sanctuary. It glints until looked
+  at: E ("look at the cairn") the first time is the discovery; after that a word.
+- *The bunny's button:* every other bunny (by its appearance's seed) that has settled beside the Blobbi for three
+  seconds leads it a few hops (22 px, away from the Blobbi, on dry standable ground), digs for 2.4 s with puffs of
+  soil, hops aside and sits by what it found; the button glints there, findable with E while the appearance lasts
+  (walking over does not worry it; haste still does). Not taken, it goes with the bunny; never once found.
+- *The ribbon:* one tame songbird in four comes to the feeder with a ribbon in its beak (two pixels of it); when it
+  sings to a still Blobbi it leaves the ribbon at the feeder's foot, findable while it stays. A shy bird never
+  carries one; none once it is found; a visitor sees none.
+- Source: `src/content/discoveries.ts` (`KEEPER_DISCOVERIES`), `src/content/lore.ts`, `src/game/keeper.ts`,
+  `src/render/keeper-render.ts`, `LiveWorld.visitCairn`, `shownSpots`, `poseBunny` (`leading`, `digging`,
+  `showing`), the songbird's `ribbon`; tests `tests/keeper-encounters.test.ts`; captures
+  `npx tsx scripts/keeper-shots.ts <label>`.
+
 ### Fishing
 
 With a rod, E facing the sea (up to 48 px over the shell's rim) or the pond casts; a bite comes after 1.5–5 s and
