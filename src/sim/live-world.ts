@@ -428,6 +428,8 @@ export interface Occupation {
   ignoreKeys: boolean;
   /** The last splash tick of a bath. */
   tick: number;
+  /** World pixels the Blobbi is drawn up while settled (`OccupancySpot.lift`). */
+  lift: number;
 }
 
 /** M11D.3: the teleport's pace for a Blobbi coming back to an island it already knows (about half the time). */
@@ -2392,7 +2394,7 @@ export class LiveWorld {
     if (!spot || this.occupation || this.restPlan || this.boat?.aboard || this.boarding || this.teleport.locked) return false;
     const b = this.blobbi;
     const time = this.clock.time;
-    this.occupation = { kind: spot.kind, id: f.id, at: { x: f.x, y: f.y }, inside: this.inside, phase: 'enter', from: { x: b.x, y: b.y }, to: occupantSpot(f), t0: time, entry: { x: b.x, y: b.y }, since: time, until, own: !fromPlayer, then: null, ignoreKeys: true, tick: -1 };
+    this.occupation = { kind: spot.kind, id: f.id, at: { x: f.x, y: f.y }, inside: this.inside, phase: 'enter', from: { x: b.x, y: b.y }, to: occupantSpot(f), t0: time, entry: { x: b.x, y: b.y }, since: time, until, own: !fromPlayer, then: null, ignoreKeys: true, tick: -1, lift: spot.lift };
     b.animator.state.direction = 'down';
     this.sound('step-wood');
     return true;
@@ -2547,13 +2549,14 @@ export class LiveWorld {
     }
   }
 
-  /** The Blobbi's lift while using furniture: a little arc on the hop in and out, a slow bob in the water. */
+  /** The Blobbi's lift while using furniture: up onto the seat (or tall in the tub) with a little arc on the hop in and out, a slow bob in the water. */
   occupantLift(time: number): number {
     const o = this.occupation;
     if (!o) return 0;
-    if (o.phase === 'stay') return o.kind === 'bath' ? -Math.round((Math.sin(((time - o.since) * Math.PI * 2) / 1.6) + 1) * 0.5) : 0;
+    const lift = o.lift;
+    if (o.phase === 'stay') return -lift - (o.kind === 'bath' ? Math.round((Math.sin(((time - o.since) * Math.PI * 2) / 1.6) + 1) * 0.5) : 0);
     const k = Math.max(0, Math.min(1, (time - o.t0) / CLIMB_SECONDS));
-    return -Math.round(Math.sin(k * Math.PI) * 3);
+    return -Math.round(Math.sin(k * Math.PI) * 3 + lift * (o.phase === 'enter' ? k : 1 - k));
   }
 
   /** Vertical offset of the drawn Blobbi (negative is up): a reaction's hop and the furniture's lift together. */

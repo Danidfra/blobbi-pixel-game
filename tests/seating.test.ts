@@ -14,6 +14,8 @@ import { CLEAN } from '../src/game/care';
 import { paletteFor } from '../src/world/generate';
 import { InteriorRenderer } from '../src/render/interior-render';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS } from '../src/render/live-render';
+import { ViewRenderer } from '../src/render/view-renderer';
+import type { ViewRect } from '../src/render/view-camera';
 import { findBuildSpot, pressE, run, stand } from '../src/dev/scripted-play';
 import { ITEMS } from '../src/game/items';
 import { t as lang } from '../src/i18n';
@@ -312,6 +314,84 @@ describe('every seat, indoors and out, and beside other things', () => {
   });
 });
 
+/**
+ * The Blobbi as the game draws it (the view's own-size sprite at the 2× exploration scale, smaller than the piece's
+ * rows suggest): how much of its body the occupied piece hides, and whether the rows of its face are all in sight.
+ */
+function inSight(live: LiveWorld, f: Building): { hidden: number; faceRows: number; faceHidden: number } {
+  live.bubble = null;
+  live.particles.particles.length = 0;
+  const view = new ViewRenderer(live, new LiveRenderer(live));
+  const rect: ViewRect = { mode: 'exploration', scale: 2, originX: f.x - 40, originY: f.y - 30, screenW: 160, screenH: 120, transitioning: false };
+  const screen = view.render(rect, 2, live.clock.time, DEFAULT_LIVE_OPTIONS, { hud: false, indicator: false, goals: false, prompt: false, lighting: false, uiScale: 2 });
+  const b = view.lastBlobbi!;
+  expect(b.ratio).toBe(1);
+  const { buffer, anchorX, anchorY } = b.sprite;
+  let top = buffer.height;
+  let bottom = -1;
+  for (let y = 0; y < buffer.height; y++) for (let x = 0; x < buffer.width; x++) if (buffer.get(x, y) >>> 24) (top = Math.min(top, y)), (bottom = Math.max(bottom, y));
+  const faceRows = Math.ceil((bottom - top + 1) * 0.6); // the head and the face: the upper three fifths
+  let all = 0;
+  let hidden = 0;
+  let faceHidden = 0;
+  for (let y = top; y <= bottom; y++)
+    for (let x = 0; x < buffer.width; x++) {
+      const c = buffer.get(x, y);
+      if (!(c >>> 24)) continue;
+      all++;
+      if (screen.get(b.x - anchorX + x, b.y - anchorY + y) === c) continue;
+      hidden++;
+      if (y < top + faceRows) faceHidden++;
+    }
+  return { hidden: hidden / all, faceRows, faceHidden };
+}
+
+describe('the body in sight (the seats hide the feet, never half the Blobbi)', () => {
+  it('on every seat, indoors and out, at most a quarter of the body is behind the seat and the face is whole', () => {
+    const live = room();
+    const indoor = [place(live, 'chair', [{ x: 24, y: 70 }]), place(live, 'armchair', [{ x: 40, y: 70 }]), place(live, 'stool', [{ x: 56, y: 70 }])];
+    for (const f of indoor) {
+      face(live, f);
+      step(live, 1, E);
+      untilPhase(live, 'stay');
+      step(live, 90);
+      const s = inSight(live, f);
+      expect(s.hidden, `${f.kind}: hidden ${(s.hidden * 100).toFixed(0)}%`).toBeLessThanOrEqual(0.25);
+      expect(s.hidden, `${f.kind}: something of it behind the seat's front`).toBeGreaterThan(0);
+      expect(s.faceHidden, `${f.kind}: the face`).toBe(0);
+      step(live, 1, E);
+      untilDone(live);
+    }
+    const out = island();
+    for (const kind of ['bench', 'log-seat', 'hay-bale']) {
+      const f = place(out, kind);
+      face(out, f);
+      step(out, 1, E);
+      untilPhase(out, 'stay');
+      step(out, 90);
+      const s = inSight(out, f);
+      expect(s.hidden, `${kind}: hidden ${(s.hidden * 100).toFixed(0)}%`).toBeLessThanOrEqual(0.25);
+      expect(s.hidden, `${kind}: something of it behind the seat's front`).toBeGreaterThan(0);
+      expect(s.faceHidden, `${kind}: the face`).toBe(0);
+      step(out, 1, E);
+      untilDone(out);
+    }
+  });
+
+  it('in the tub it stands in the water to below the face: between a quarter and a half of it under', () => {
+    const live = room();
+    const tub = place(live, 'washing-tub', [{ x: 80, y: 40 }, { x: 80, y: 42 }, { x: 84, y: 44 }, { x: 76, y: 44 }]);
+    face(live, tub);
+    live.care.hygiene = 20;
+    step(live, 1, E);
+    untilPhase(live, 'stay');
+    step(live, 20);
+    const s = inSight(live, tub);
+    expect(s.hidden).toBeGreaterThan(0.25);
+    expect(s.hidden).toBeLessThan(0.5);
+    expect(s.faceHidden).toBe(0);
+  });
+});
 
 describe('autonomy', () => {
   it('waits while the player has it seated (no walk, no sleep for a minute and more); resumes after it stands', () => {

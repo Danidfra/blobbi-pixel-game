@@ -18,26 +18,33 @@ export interface OccupancySpot {
   /** The Blobbi's ground point while there, relative to the piece's anchor. */
   dx: number;
   dy: number;
+  /**
+   * World pixels the Blobbi is drawn up from its ground point while settled, so its body rests on the seat (or
+   * stands tall enough in the water) and only its feet go behind the piece's `front`. The view draws the Blobbi at
+   * its own size, smaller than the piece's rows suggest, so this keeps the face and most of the body in sight.
+   */
+  lift: number;
   /** Which pixels of the piece's sprite are drawn in front of the Blobbi: (column, row, width, height). */
   front: (x: number, y: number, w: number, h: number) => boolean;
 }
 
 /** Every piece the Blobbi can sit in or bathe in. Keyed by kind; `use: 'sit'` kinds and the tub are all here. */
 export const OCCUPANCY: Readonly<Record<string, OccupancySpot>> = {
-  // The tub (15×11): the water's lower row and the tub's front, from row 3 down.
-  'washing-tub': { kind: 'bath', dx: 0, dy: 0, front: (_x, y) => y >= 3 },
-  // A chair (9×13): the seat's front edge and the legs.
-  chair: { kind: 'seat', dx: 0, dy: -1, front: (_x, y) => y >= 7 },
-  // The armchair (13×13): the cushion's front and the base, and the arms either side.
-  armchair: { kind: 'seat', dx: 0, dy: 1, front: (x, y, w) => y >= 8 || (y >= 4 && (x <= 2 || x >= w - 3)) },
-  // A stool (9×8): the legs.
-  stool: { kind: 'seat', dx: 0, dy: -1, front: (_x, y) => y >= 3 },
-  // The M4 bench (13×10, outlined in place): the seat's front edge and the legs.
-  bench: { kind: 'seat', dx: 0, dy: -1, front: (_x, y) => y >= 6 },
-  // A log seat (15×9): the log below its top.
-  'log-seat': { kind: 'seat', dx: 0, dy: 0, front: (_x, y) => y >= 4 },
-  // A hay bale (13×9): the bale below its top face.
-  'hay-bale': { kind: 'seat', dx: 0, dy: 0, front: (_x, y) => y >= 3 },
+  // The tub (15×11): the water (rows 3–5) and the tub's front; the Blobbi stands in it to a little below the face.
+  'washing-tub': { kind: 'bath', dx: 0, dy: 0, lift: 1, front: (_x, y) => y >= 3 },
+  // A chair (9×13): the seat (rows 6–7), its front edge and the legs. Its feet go behind the front edge (row 7).
+  chair: { kind: 'seat', dx: 0, dy: -1, lift: 1, front: (_x, y) => y >= 7 },
+  // The armchair (13×13): the cushion (rows 6–7), its front (row 8) and the base; the arms' lower part either side,
+  // at cushion level only, so they hold the body without hiding its sides.
+  armchair: { kind: 'seat', dx: 0, dy: 1, lift: 1, front: (x, y, w) => y >= 8 || (y >= 6 && (x <= 2 || x >= w - 3)) },
+  // A stool (9×8): the seat (rows 1–2) and the legs below.
+  stool: { kind: 'seat', dx: 0, dy: -1, lift: 1, front: (_x, y) => y >= 3 },
+  // The M4 bench (13×10, outlined in place): the seat (rows 5–7) and the legs.
+  bench: { kind: 'seat', dx: 0, dy: -1, lift: 1, front: (_x, y) => y >= 6 },
+  // A log seat (15×9): the log below its top face (row 3).
+  'log-seat': { kind: 'seat', dx: 0, dy: 0, lift: 1, front: (_x, y) => y >= 4 },
+  // A hay bale (13×9): the bale below its top face (rows 1–2).
+  'hay-bale': { kind: 'seat', dx: 0, dy: 0, lift: 2, front: (_x, y) => y >= 3 },
 };
 
 /** Whether a piece can be occupied, and how. */

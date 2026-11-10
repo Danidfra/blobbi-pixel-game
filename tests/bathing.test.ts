@@ -180,7 +180,9 @@ describe('the washing tub', () => {
       drops += live.particles.particles.filter((p) => p.kind === 'drop').length;
     }
     expect(drops).toBeGreaterThan(30);
-    expect([...lifts].every((l) => l <= 0 && l >= -1)).toBe(true);
+    // Standing tall in the water (the tub's lift) with a slow bob of a pixel.
+    const lift = OCCUPANCY['washing-tub'].lift;
+    expect([...lifts].every((l) => l <= -lift && l >= -lift - 1)).toBe(true);
     expect(lifts.size).toBe(2); // the bob
     expect(live.care.hygiene).toBeCloseTo(20, 0); // not yet
     untilPhase(live, 'leave');
