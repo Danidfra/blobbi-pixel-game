@@ -221,7 +221,7 @@ describe('B. the bunny\'s discovery', () => {
     const s1 = beside(plain, (x) => !bunnyLeads(x.seed));
     still(plain, BUNNY_LEAD_AFTER + 2);
     expect(['beside', 'leaving']).toContain(mood(plain, s1.id)?.phase);
-    expect(plain.hiddenDiscoveries.some((d) => d.id === 'keeper:button')).toBe(false);
+    expect(mood(plain, s1.id)?.dig ?? null).toBeNull(); // (another bunny about may lead; this one does not)
     const found = grown();
     found.found.add('keeper:button');
     const s2 = beside(found, (x) => bunnyLeads(x.seed));
@@ -231,10 +231,12 @@ describe('B. the bunny\'s discovery', () => {
     const live = grown();
     const s3 = beside(live, (x) => bunnyLeads(x.seed));
     expect(untilPhase(live, s3.id, 'showing', 12)).toBe(true);
-    expect(live.hiddenDiscoveries.some((d) => d.id === 'keeper:button')).toBe(true);
+    const dug = mood(live, s3.id)!.dig!;
+    const shownHere = () => live.hiddenDiscoveries.some((d) => d.id === 'keeper:button' && d.x === dug.x && d.y === dug.y);
+    expect(shownHere()).toBe(true);
     still(live, s3.span + 2);
     expect(mood(live, s3.id)).toBeUndefined();
-    expect(live.hiddenDiscoveries.some((d) => d.id === 'keeper:button')).toBe(false);
+    expect(shownHere()).toBe(false); // (another bunny about may be showing its own by now)
     expect(live.found.has('keeper:button')).toBe(false);
     // Determinism: the dig spot and the moments agree between two worlds.
     const a = grown();

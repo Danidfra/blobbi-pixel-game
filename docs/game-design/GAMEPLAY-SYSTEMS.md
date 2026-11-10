@@ -127,6 +127,21 @@ cliff, the tail end, and one per grown region) give a notice when first visited.
 finds, places and the Carrier's observations. Sources: `src/ui/screens/map.ts`, `src/game/places.ts`,
 `src/ui/screens/journal.ts`.
 
+**The bunny encounter, as played (playtest fix, 2026-11-09).** Reported from play: "bunnies never approach". A
+player who walks straight at a bunny, stops when it looks near and waits now has the encounter most of the time
+(two thirds and more over the first dozen bunnies of a world, bold or shy, stopping anywhere from 30 to 55 px off;
+it was a fifth to a half). The rules: a bunny watches from farther (`bunnyWatch` 60: 42–78 px by boldness); haste
+frightens it only within 1.6× its flee reach (a brisk walk-up that stops short just keeps it watching); it needs
+less stillness (1.5 s to grow curious, 3 s more to come over, times a patience of 1–2 by shyness; it was 2 + 4 and
+1–2.5); it stays 44 s (was 34); a curious hop never carries it inside its own flee reach; it picks a spot beside the
+Blobbi with a clear way to it and hops round what is in the way, settling where it is when near enough (22 px)
+after a dozen hops, and never bolting from the closeness it chose. The prompt line says what to do while it
+watches, grows curious and comes over ("keep still… the bunny is watching"), and while it leads, digs and shows
+("follow the bunny… it wants to show something"), below every E prompt. Source: `src/game/land-life.ts`
+(`BUNNY_HASTE_REACH`, `BUNNY_NEAR_ENOUGH`, `BUNNY_APPROACH_HOPS`, `hopToward`, `approachSpots`, `clearPath`),
+`LiveWorld.poseBunny`, `LiveWorld.bunnyHint`; tests `tests/bunny-encounter-play.test.ts` (a scripted naive
+player, bold and shy, over two worlds); captures `npx tsx scripts/bunny-shots.ts <label>`.
+
 **Keeper encounters (Living Home, 2026-11-09).** Three discoveries the island's life brings to light, each
 found once like any discovery (a keepsake in the bag, a note in the journal, `found` in the save; nothing else
 saved, no new economy):

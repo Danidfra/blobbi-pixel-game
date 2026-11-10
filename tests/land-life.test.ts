@@ -5,7 +5,7 @@
  * them. Nothing draws from the island's random streams.
  */
 import { describe, expect, it } from 'vitest';
-import { LandLife, LAND_REACH, LAND_SCHEDULE, MAX_LAND_CREATURES, BUNNY_BESIDE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_CURIOUS_KEEP, BUNNY_STAY, isEdge, patience, reach, type LandKind, type LandSighting } from '../src/game/land-life';
+import { LandLife, LAND_REACH, LAND_SCHEDULE, MAX_LAND_CREATURES, BUNNY_BESIDE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_CURIOUS_KEEP, BUNNY_HASTE_REACH, BUNNY_STAY, isEdge, patience, reach, type LandKind, type LandSighting } from '../src/game/land-life';
 import { IDLE_INPUT, LiveWorld } from '../src/sim/live-world';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS } from '../src/render/live-render';
 import { landSprite } from '../src/render/land-render';
@@ -273,7 +273,10 @@ describe('land life: meeting the Blobbi', () => {
     const { t, s } = moment(a, 'bunny');
     arrange(a, t, s.home, 30);
     arrange(b, t, s.home, 30);
-    const ambient = (live: LiveWorld) => live.particles.particles.filter((p) => p.kind !== 'note').map((p) => `${p.kind} ${p.x.toFixed(3)} ${p.y.toFixed(3)} ${p.age.toFixed(3)}`).sort();
+    // (The encounter's own heart, and the Keeper's dig, come from hashes too; they are the land's, not the streams'.)
+    a.found.add('keeper:button');
+    b.found.add('keeper:button');
+    const ambient = (live: LiveWorld) => live.particles.particles.filter((p) => p.kind !== 'note' && p.kind !== 'heart').map((p) => `${p.kind} ${p.x.toFixed(3)} ${p.y.toFixed(3)} ${p.age.toFixed(3)}`).sort();
     let creatures = 0;
     for (let i = 0; i < 60 * 20; i++) {
       a.update(1 / 60, IDLE_INPUT);
@@ -344,13 +347,22 @@ describe('the bunny encounter (phase 2)', () => {
     return mood(live, id)?.phase === 'beside';
   };
 
-  it('a wary bunny bolts from a Blobbi walking straight at it, but not from one walking across', () => {
+  it('a wary bunny lets a Blobbi walk up to it, bolts when the walk comes on fast within arm\'s reach, and never minds one walking across', () => {
     const a = grown();
     const s = watched(a);
     press(a, 'right', 4); // a single step toward it is forgiven
     expect(mood(a, s.id)?.phase).toBe('wary');
-    press(a, 'right', 20); // a stride is not
+    press(a, 'right', 20); // a stride from this far only keeps it watching (a player who walks up and stops is not punished)
+    expect(mood(a, s.id)?.phase).toBe('wary');
+    const near = reach(LAND_REACH.bunnyFlee, s.traits) * BUNNY_HASTE_REACH;
+    let dAtBolt = Infinity;
+    for (let i = 0; i < 240 && mood(a, s.id)?.phase !== 'bolting'; i++) {
+      const d = gap(a, s.id);
+      press(a, 'right', 1);
+      if (mood(a, s.id)?.phase === 'bolting') dAtBolt = d;
+    }
     expect(mood(a, s.id)?.phase).toBe('bolting');
+    expect(dAtBolt).toBeLessThanOrEqual(near + 1);
     expect(view(a, s.id)?.pose).toBe('hop');
     const b = grown();
     const s2 = watched(b);
@@ -393,7 +405,7 @@ describe('the bunny encounter (phase 2)', () => {
     const live = grown();
     const s = watched(live, (x) => x.traits.bold < 0.3);
     const p = patience(s.traits);
-    expect(p).toBeGreaterThan(2);
+    expect(p).toBeGreaterThan(1.7);
     still(live, BUNNY_APPROACH_AFTER * 1 + 1);
     expect(mood(live, s.id)?.phase).not.toBe('beside'); // a bold one would be there by now
     expect(untilBeside(live, s.id, BUNNY_APPROACH_AFTER * p + 8)).toBe(true);

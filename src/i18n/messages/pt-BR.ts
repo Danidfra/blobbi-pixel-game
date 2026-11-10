@@ -533,6 +533,8 @@ export const ptBR: Catalog = {
   'prompt.wakeUp': 'acordar',
   'prompt.standUp': 'levantar',
   'prompt.cairn': 'olhar o montinho de pedras',
+  'prompt.bunnyWatching': 'fique parado… o coelhinho está olhando',
+  'prompt.bunnyLeads': 'siga o coelhinho… ele quer mostrar algo',
   'say.keeperCairn': 'equilibradas, cada uma',
   'prompt.hopOut': 'sair da tina',
   'prompt.glinting': 'pegar algo que brilha',

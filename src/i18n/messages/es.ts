@@ -533,6 +533,8 @@ export const es: Catalog = {
   'prompt.wakeUp': 'despertar',
   'prompt.standUp': 'levantarse',
   'prompt.cairn': 'mirar el montoncito de piedras',
+  'prompt.bunnyWatching': 'quieto… el conejito está mirando',
+  'prompt.bunnyLeads': 'sigue al conejito… quiere mostrar algo',
   'say.keeperCairn': 'en equilibrio, todas',
   'prompt.hopOut': 'salir de la tina',
   'prompt.glinting': 'recoger algo que brilla',

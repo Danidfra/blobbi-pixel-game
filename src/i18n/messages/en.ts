@@ -540,6 +540,8 @@ export const en = {
   'prompt.wakeUp': 'wake up',
   'prompt.standUp': 'stand up',
   'prompt.cairn': 'look at the cairn',
+  'prompt.bunnyWatching': 'keep still… the bunny is watching',
+  'prompt.bunnyLeads': 'follow the bunny… it wants to show something',
   'say.keeperCairn': 'balanced, every one',
   'prompt.hopOut': 'hop out of the tub',
   'prompt.glinting': 'pick up something glinting',

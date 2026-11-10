@@ -54,7 +54,7 @@ export interface LandSighting {
 /** How often each kind may appear: slot length (s), lanes at once, the chance a slot has one, how long it stays. */
 export const LAND_SCHEDULE: Record<LandKind, { slot: number; lanes: number; chance: number; stay: number }> = {
   crab: { slot: 44, lanes: 2, chance: 0.7, stay: 30 },
-  bunny: { slot: 56, lanes: 2, chance: 0.6, stay: 34 },
+  bunny: { slot: 56, lanes: 2, chance: 0.6, stay: 44 },
   songbird: { slot: 38, lanes: 1, chance: 0.75, stay: 20 },
 };
 
@@ -62,7 +62,7 @@ export const LAND_SCHEDULE: Record<LandKind, { slot: number; lanes: number; chan
 export const MAX_LAND_CREATURES = Object.values(LAND_SCHEDULE).reduce((n, s) => n + s.lanes, 0);
 
 /** How near the Blobbi must be (world px) for each reaction; a bold creature lets it come closer (`reach`). */
-export const LAND_REACH = { crabWatch: 36, crabHide: 16, bunnyWatch: 48, bunnyFlee: 22, birdStartle: 20, birdSing: 44, notice: 40 } as const;
+export const LAND_REACH = { crabWatch: 36, crabHide: 16, bunnyWatch: 60, bunnyFlee: 22, birdStartle: 20, birdSing: 44, notice: 40 } as const;
 export const reach = (base: number, traits: LandTraits): number => base * (1.3 - traits.bold * 0.6);
 
 /** The foot a creature needs to stand (world px, half-sizes). */
@@ -80,15 +80,24 @@ export const BUNNY_BOLT_DISTANCE = 30;
 /** One hop of an encounter: seconds, and the longest hop (world px). */
 export const BUNNY_HOP = 0.32;
 export const BUNNY_HOP_LENGTH = 12;
-/** How close it comes to the Blobbi (world px from the Blobbi's centre), and how close a curious hop may bring it: no nearer than two thirds of the gap it started from. */
+/** How close it comes to the Blobbi (world px from the Blobbi's centre); near enough to settle when there is no way closer. */
 export const BUNNY_BESIDE = 10;
+export const BUNNY_NEAR_ENOUGH = 22;
+/** How close a curious hop may bring it: no nearer than two thirds of the gap it started from (and never inside its own flee reach). */
 export const BUNNY_CURIOUS_KEEP = 2 / 3;
-/** The Blobbi closing in faster than this share of its walking speed, for longer than `BUNNY_HASTE` seconds, frightens a bunny that is watching. */
+/**
+ * The Blobbi closing in faster than this share of its walking speed, for longer than `BUNNY_HASTE` seconds, within
+ * `BUNNY_HASTE_REACH` times its flee reach, frightens a bunny that is watching. (Farther off, a brisk walk-up only
+ * keeps it watching: a player who walks straight at a bunny and stops is not punished for it.)
+ */
 export const BUNNY_FAST = 0.6;
 export const BUNNY_HASTE = 0.2;
+export const BUNNY_HASTE_REACH = 1.6;
 /** Seconds of the Blobbi's stillness, times `patience`, before a watching bunny grows curious, and before a curious one comes over. */
-export const BUNNY_CURIOUS_AFTER = 2;
-export const BUNNY_APPROACH_AFTER = 4;
+export const BUNNY_CURIOUS_AFTER = 1.5;
+export const BUNNY_APPROACH_AFTER = 3;
+/** Hops an approach may take before it settles where it is (near enough) or goes back to watching: no endless detour. */
+export const BUNNY_APPROACH_HOPS = 10;
 /** How long it sits beside the Blobbi (seconds, seeded between these). */
 export const BUNNY_STAY = { min: 8, max: 14 } as const;
 /** Keeper encounter B: a bunny settled beside the Blobbi for this long may lead it to something buried. */
@@ -99,8 +108,8 @@ export const BUNNY_DIG = 2.4;
 /** Which appearances lead (every other one, by the appearance's seed), and which songbirds carry a ribbon (one in four). */
 export const bunnyLeads = (seed: number): boolean => seed % 2 === 0;
 export const birdCarriesRibbon = (seed: number): boolean => seed % 4 === 0;
-/** A shy bunny takes longer to trust, never forever: 1 (bold) .. 2.5 (shy). */
-export const patience = (traits: LandTraits): number => 1 + (1 - traits.bold) * 1.5;
+/** A shy bunny takes longer to trust, never forever: 1 (bold) .. 2 (shy). */
+export const patience = (traits: LandTraits): number => 1 + (1 - traits.bold);
 
 const CRAB_SEGMENT = 3;
 const CRAB_MOVE = 1.2;
@@ -306,12 +315,39 @@ export class LandLife {
   }
 
   /**
+   * The next hop from `at` toward `to`, round whatever is in the way: the straight hop first, then shorter hops
+   * fanning out to either side (so a flower bed or a stone between a bunny and the Blobbi does not end an approach);
+   * null when nothing fits.
+   */
+  hopToward(at: Pt, to: Pt, maxLen = BUNNY_HOP_LENGTH): Pt | null {
+    const straight = this.hopAlong(at, to, maxLen);
+    if (straight) return straight;
+    const d = Math.hypot(to.x - at.x, to.y - at.y);
+    if (d < 0.5) return null;
+    const base = Math.atan2(to.y - at.y, to.x - at.x);
+    const len = Math.min(maxLen, Math.max(6, d * 0.6));
+    for (const turn of [Math.PI / 5, -Math.PI / 5, Math.PI / 2.5, -Math.PI / 2.5, Math.PI / 1.7, -Math.PI / 1.7]) {
+      const a = base + turn;
+      const goal = { x: at.x + Math.cos(a) * len, y: at.y + Math.sin(a) * len * 0.8 };
+      const hop = this.hopAlong(at, goal, len);
+      if (hop) return hop;
+    }
+    return null;
+  }
+
+  /**
    * Where a bunny sits beside the Blobbi: `BUNNY_BESIDE` from the Blobbi's centre, on the bunny's own side first and
    * then fanning round, on standable dry ground and never inside the Blobbi's foot (plus a pixel or two); null when
    * nowhere fits.
    */
   approachSpot(at: Pt, blobbi: Pt, foot: { rx: number; ry: number }, seed: number): Pt | null {
+    return this.approachSpots(at, blobbi, foot, seed)[0] ?? null;
+  }
+
+  /** Every spot a bunny could sit beside the Blobbi (see `approachSpot`), its own side first, then fanning round. */
+  approachSpots(at: Pt, blobbi: Pt, foot: { rx: number; ry: number }, seed: number): Pt[] {
     const base = Math.atan2(at.y - blobbi.y, at.x - blobbi.x);
+    const out: Pt[] = [];
     for (let i = 0; i < 9; i++) {
       const a = base + ((i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI) / 5 + ((seed >>> (i * 2)) & 3) * 0.04;
       const x = Math.round(blobbi.x + Math.cos(a) * BUNNY_BESIDE);
@@ -319,9 +355,21 @@ export class LandLife {
       const dx = (x - blobbi.x) / (foot.rx + 2);
       const dy = (y - blobbi.y) / (foot.ry + 2);
       if (dx * dx + dy * dy < 1) continue;
-      if (this.canStand(x, y) && !this.wet(x, y)) return { x, y };
+      if (this.canStand(x, y) && !this.wet(x, y)) out.push({ x, y });
     }
-    return null;
+    return out;
+  }
+
+  /** Whether a bunny can hop straight from `a` to `b`: standable dry ground every three pixels of the way. */
+  clearPath(a: Pt, b: Pt): boolean {
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    const n = Math.max(1, Math.ceil(d / 3));
+    for (let i = 1; i <= n; i++) {
+      const x = Math.round(a.x + ((b.x - a.x) * i) / n);
+      const y = Math.round(a.y + ((b.y - a.y) * i) / n);
+      if (!this.canStand(x, y) || this.wet(x, y)) return false;
+    }
+    return true;
   }
 
   /** Water at a world pixel (beyond the world's edge counts as water). */

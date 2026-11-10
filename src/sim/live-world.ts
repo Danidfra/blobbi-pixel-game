@@ -32,7 +32,7 @@ import { buildEggSprite, type EggPose } from '../blobbi/egg';
 import { sourceFromSeed, type BlobbiSource } from '../blobbi/source';
 import { BlobbiAnimator, type Direction } from '../blobbi/animation';
 import { buildBlobbiSprite, poseKey, type BlobbiPose } from '../blobbi/sprite';
-import { Brain, NavGrid } from './brain';
+import { Brain, NavGrid, findPath } from './brain';
 import { BASIC_KINDS, generateResources, isShore, REACH, RESOURCE_ITEM, type ResourceKind, type ResourceNode } from '../game/resources';
 import { Inventory } from '../game/inventory';
 import { loadSave, storeSave, clearSave, worldIdentity, newGrowthSave, newTutorialSave, saveStatus, backupRecord, INTRO_SEEN, SAVE_VERSION, WORLD_OWNER, type GrowthSave, type SaveStatus, type WorldSave, type IntroSave, type IntroState, type KeyValueStore, type TreeSaveState, type TutorialSave } from '../game/persistence';
@@ -66,7 +66,7 @@ import { CAIRN_FOOT, CAIRN_REACH, placeKeeperCairn, type Cairn } from '../game/k
 import { MarineLife, SEAL_REACH, RAY_REACH, type Sighting } from '../game/marine-life';
 import type { Use } from '../content/placeables';
 import { BATH_SECONDS, IDLE_SIT_SECONDS, SPLASH_EVERY, occupancyOf, occupantSpot, type OccupancyKind } from '../game/furniture-use';
-import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_STAY, BUNNY_LEAD_AFTER, BUNNY_DIG, bunnyLeads, birdCarriesRibbon, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
+import { LandLife, LAND_FOOT, LAND_REACH, BIRD_FLIGHT, BUNNY_BOLT, BUNNY_HOP, BUNNY_HOP_LENGTH, BUNNY_BESIDE, BUNNY_NEAR_ENOUGH, BUNNY_CURIOUS_KEEP, BUNNY_FAST, BUNNY_HASTE, BUNNY_HASTE_REACH, BUNNY_CURIOUS_AFTER, BUNNY_APPROACH_AFTER, BUNNY_APPROACH_HOPS, BUNNY_STAY, BUNNY_LEAD_AFTER, BUNNY_DIG, bunnyLeads, birdCarriesRibbon, patience, reach, type LandKind, type LandPose, type LandSighting, type Pt as LandPt } from '../game/land-life';
 import { CANOE_ITEM, SEAWEED_ITEM } from '../content/tools';
 import { OceanFeatures, FEATURE_REACH, KELP_REGROW_SECONDS, type OceanFeature } from '../game/ocean-features';
 import { GENERATOR_VERSION } from '../game/archipelago';
@@ -313,6 +313,8 @@ interface LandMood {
   /** The gap when it grew curious, and how many curious hops it has made. */
   curiousGap: number;
   curiousHops: number;
+  /** Hops taken on the way over (an approach gives up after `BUNNY_APPROACH_HOPS`). */
+  approachHops: number;
   lastHop: number;
   /** How long it will sit beside the Blobbi (seconds). */
   stay: number;
@@ -3287,7 +3289,7 @@ export class LiveWorld {
       for (const s of this.landSightings()) {
         seen.add(s.id);
         let m = this.landMoods.get(s.id);
-        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false, led: false, dig: null, shown: false, digTick: -1, ribbon: s.kind === 'songbird' && s.traits.bold > 0.35 && birdCarriesRibbon(s.seed) && !this.visitor, drop: null }));
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, approachHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false, led: false, dig: null, shown: false, digTick: -1, ribbon: s.kind === 'songbird' && s.traits.bold > 0.35 && birdCarriesRibbon(s.seed) && !this.visitor, drop: null }));
         const view = this.poseLand(s, m, bp, dt, time);
         if (!view) continue;
         views.push(view);
@@ -3429,7 +3431,8 @@ export class LiveWorld {
     const closing = from ? (Math.hypot(from.x - at.x, from.y - at.y) - d) / dt : 0;
     // Haste: closing in fast for more than a moment (one step is forgiven, a stride is not).
     m.haste = closing > BUNNY_FAST * b.speed && d < watchR ? m.haste + dt : 0;
-    const fast = m.haste >= BUNNY_HASTE;
+    // (Haste frightens it only once the Blobbi is fairly close: a brisk walk-up that stops short just keeps it watching.)
+    const fast = m.haste >= BUNNY_HASTE && d < reach(LAND_REACH.bunnyFlee, tr) * BUNNY_HASTE_REACH;
     const moved = this.movedLastStep;
     const attentive = m.phase === 'wary' || m.phase === 'curious' || m.phase === 'approaching' || m.phase === 'beside' || m.phase === 'leading' || m.phase === 'digging' || m.phase === 'showing';
     // Frights: haste within its watch; closeness too, until it has come over of its own accord.
@@ -3489,11 +3492,13 @@ export class LiveWorld {
         if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
         if (m.still >= BUNNY_APPROACH_AFTER * patience(tr)) {
           enter('approaching');
+          m.approachHops = 0;
           return sitting('curious');
         }
-        // A hop or two closer, never nearer than two thirds of the gap it started from.
+        // A hop or two closer, never nearer than two thirds of the gap it started from, nor inside its own flee
+        // reach (it would frighten itself).
         if (m.curiousHops < 2 && time - m.lastHop > 1.2) {
-          const keep = Math.max(m.curiousGap * BUNNY_CURIOUS_KEEP, BUNNY_BESIDE + 2);
+          const keep = Math.max(m.curiousGap * BUNNY_CURIOUS_KEEP, BUNNY_BESIDE + 2, reach(LAND_REACH.bunnyFlee, tr) + 3);
           if (d > keep + 2) {
             const a = Math.atan2(at.y - bp.y, at.x - bp.x);
             const goal = { x: bp.x + Math.cos(a) * keep, y: bp.y + Math.sin(a) * keep };
@@ -3514,13 +3519,12 @@ export class LiveWorld {
           return sitting();
         }
         if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
-        const spot = this.land.approachSpot(at, bp, { rx: b.footRx, ry: b.footRy }, hash32(`${s.id}:beside:${Math.round(m.since * 60)}`));
-        if (!spot) {
-          enter(d <= BUNNY_BESIDE + 6 ? 'beside' : 'curious');
-          return sitting('curious');
-        }
-        if (Math.hypot(spot.x - at.x, spot.y - at.y) < 1.5) {
-          // Here: it settles in, and the Blobbi turns to it, glad; a heart (from a hash, never from a stream).
+        // Where to sit: the first spot beside the Blobbi with a clear way to it; failing that, the first at all.
+        const spots = this.land.approachSpots(at, bp, { rx: b.footRx, ry: b.footRy }, hash32(`${s.id}:beside:${Math.round(m.since * 60)}`));
+        const spot = spots.find((p) => this.land.clearPath(at, p)) ?? spots[0] ?? null;
+        // Here (or near enough, when there is no way closer): it settles in, and the Blobbi turns to it, glad; a
+        // heart (from a hash, never from a stream).
+        const settle = () => {
           enter('beside');
           m.trust = true;
           m.stay = BUNNY_STAY.min + (s.seed % (BUNNY_STAY.max - BUNNY_STAY.min + 1));
@@ -3533,12 +3537,20 @@ export class LiveWorld {
           const hh = hash32(`${s.id}:heart`);
           this.islandParticles.spawn({ kind: 'heart', x: at.x, y: at.y - 6, vx: (hh % 5) - 2, vy: -10, life: 1.1, color: hex('#ff6b9a'), phase: ((hh >>> 8) % 628) / 100, front: true });
           return sitting('nibble');
-        }
-        const next = this.land.hopAlong(at, spot, BUNNY_HOP_LENGTH);
-        if (!next) {
-          enter(d <= BUNNY_BESIDE + 6 ? 'beside' : 'curious');
+        };
+        // Nowhere to sit, no way round, or too many hops already: near enough counts as beside; else it keeps
+        // watching from where it got to (its own choice: closeness does not frighten it from here on).
+        const giveUp = () => {
+          if (d <= BUNNY_NEAR_ENOUGH) return settle();
+          m.trust = true;
+          enter('curious');
           return sitting('curious');
-        }
+        };
+        if (!spot || m.approachHops >= BUNNY_APPROACH_HOPS) return giveUp();
+        if (Math.hypot(spot.x - at.x, spot.y - at.y) < 1.5) return settle();
+        const next = this.bunnyHop(at, spot);
+        if (!next) return giveUp();
+        m.approachHops++;
         m.hop = { from: { x: at.x, y: at.y }, to: next, t0: time };
         return view(at.x, at.y, 'hop', next.x >= at.x ? 1 : -1);
       }
@@ -3568,7 +3580,7 @@ export class LiveWorld {
         // Hop by hop to the spot; the Blobbi may follow (walking does not worry it now; haste still does).
         if (hopping) return view(at.x, at.y, 'hop', hopping.dir, hopping.dy);
         const goal = m.dig!;
-        const next = Math.hypot(goal.x - at.x, goal.y - at.y) < 1.5 || time - m.since > 5 ? null : this.land.hopAlong(at, goal, BUNNY_HOP_LENGTH);
+        const next = Math.hypot(goal.x - at.x, goal.y - at.y) < 1.5 || time - m.since > 5 ? null : this.bunnyHop(at, goal);
         if (!next) {
           m.dig = { x: at.x, y: at.y };
           enter('digging');
@@ -3619,6 +3631,24 @@ export class LiveWorld {
       case 'bolting':
         return sitting(); // (handled above; unreachable)
     }
+  }
+
+  /**
+   * A bunny's next hop toward a goal: straight when the way is clear; else the first leg of a path round what is in
+   * the way (the island's own navigation grid: what the Blobbi can walk, a bunny can hop); else a hop to the side.
+   */
+  private bunnyHop(at: LandPt, goal: LandPt): LandPt | null {
+    const straight = this.land.hopAlong(at, goal, BUNNY_HOP_LENGTH);
+    if (straight) return straight;
+    const path = findPath(this.islandNav, at, goal, 1500);
+    if (path)
+      for (const wp of path) {
+        if (Math.hypot(wp.x - at.x, wp.y - at.y) < 1.5) continue;
+        const hop = this.land.hopAlong(at, wp, BUNNY_HOP_LENGTH);
+        if (hop) return hop;
+        break;
+      }
+    return this.land.hopToward(at, goal, BUNNY_HOP_LENGTH);
   }
 
   /** The seal rolling over after a wave: which appearance, until when (clock time). */
@@ -4244,6 +4274,22 @@ export class LiveWorld {
     if (this.equipped && toolSupports(this.equipped, 'fish') && this.fishTarget()) return `E  ${lang('prompt.cast')}`;
     if (!this.facingObject() && this.nearCarrier()) return 'carrier' in this.objectives.completed ? `E  ${lang('prompt.carrier')}` : `E  ${lang('prompt.listen')}`;
     if (isHungry(this.care) && this.foodToGive()) return `F  ${lang('prompt.feed')}`;
+    return this.bunnyHint();
+  }
+
+  /**
+   * A bunny that has the Blobbi's attention (Living World): what to do, on the prompt line, so the encounter can be
+   * found by playing: keep still while it watches and comes over; follow it when it leads (Keeper encounter B).
+   */
+  bunnyHint(): string | null {
+    if (this.inside) return null;
+    for (const v of this.landViews) {
+      if (v.kind !== 'bunny') continue;
+      const m = this.landMoods.get(v.id);
+      if (!m) continue;
+      if (m.phase === 'wary' || m.phase === 'curious' || m.phase === 'approaching') return lang('prompt.bunnyWatching');
+      if (m.phase === 'leading' || m.phase === 'digging' || m.phase === 'showing') return lang('prompt.bunnyLeads');
+    }
     return null;
   }
 
