@@ -35,7 +35,14 @@ live.care.energy = 55;
 live.care.happiness = 64;
 live.care.hygiene = 38;
 const ui = new GameUI(() => live, () => paletteFor('cozy'));
+/** A shared care snapshot as read for a Blobbi, so the panel's shared block draws its bars and words. */
+const sharedCare = (() => {
+  const stats = { hunger: 66, happiness: 81, health: 93, hygiene: 47, energy: 58 };
+  const care = { pubkey: 'a'.repeat(64), d: 'blobbi-aaaaaaaaaaaa-0123456789', name: 'Pudding', stage: 'adult' as const, state: 'active' as const, stats, lastDecayAt: 1_760_000_000, lastInteraction: 1_760_000_000, createdAt: 1_760_000_000, eventId: 'x', project: () => stats };
+  return { snapshot: () => ({ status: 'ready' as const, address: `31124:${care.pubkey}:${care.d}`, care, partial: true, fetchedAt: 1_760_000_000_000 }), nowSec: () => 1_760_000_190, refresh: () => {} };
+})();
 const care = new CareScreen();
+care.shared = sharedCare;
 for (const s of [new InventoryScreen(), new JournalScreen(), care]) ui.register(s);
 
 async function main(): Promise<void> {

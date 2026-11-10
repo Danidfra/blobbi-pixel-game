@@ -13,9 +13,24 @@ import { hex } from '../../core/color';
 import type { GameUI, Screen } from '../game-ui';
 import { buildingNoun } from '../../content/text';
 import { t, upper } from '../../i18n';
+import type { SharedCareSnapshot } from '../../game/shared-care';
+import type { BlobbiSource } from '../../blobbi/source';
+
+/** The shared (canonical) care of the Blobbi walking here, read only; the host wires the reader (phase 6). */
+export interface SharedCareHooks {
+  snapshot(): SharedCareSnapshot;
+  nowSec(): number;
+  refresh(source: BlobbiSource): void;
+}
 
 export class CareScreen implements Screen {
   readonly id = 'care' as const;
+  /** The shared care reader, when the host offers one; without it the panel says the stats are not shared. */
+  shared: SharedCareHooks | null = null;
+
+  opened(ui: GameUI): void {
+    if (ui.live) this.shared?.refresh(ui.live.blobbi.source);
+  }
 
   title(ui: GameUI): string {
     return t('care.title', { source: describeSource(ui.live!.blobbi.source) }).slice(0, 60);
@@ -79,7 +94,51 @@ export class CareScreen implements Screen {
       g.button(label, bx, by, () => this.key(key, false, ui), { w: 90, primary: key === 'KeyF' });
       by += 14;
     }
-    g.para(t('care.note'), bx, by + 6, 90, UI.muted, 9);
-    void h;
+    by += 6 + g.para(t('care.note'), bx, by + 6, 90, UI.muted, 9);
+    this.drawShared(g, bx, by + 6, Math.max(0, y + h - (by + 6)));
+  }
+
+  /**
+   * The Blobbi's shared care (the five stats the Blobbi apps keep together: hunger, happiness, health, hygiene,
+   * energy), read from the relays and shown as they stand by the apps' own decay; never changed here. A demo or
+   * seed-only Blobbi has none; without an answer the panel says so rather than showing a number.
+   */
+  private drawShared(g: Gfx, x: number, y: number, h: number): void {
+    const s = this.shared?.snapshot() ?? null;
+    let cy = y;
+    g.text(upper(t('care.shared')), x, cy, UI.accent);
+    cy += 8;
+    const status = s?.status ?? 'none';
+    const care = s?.care ?? null;
+    if (care && h >= 56) {
+      const now = this.shared!.nowSec();
+      const v = care.project(now);
+      const rows: [string, keyof typeof v, number][] = [
+        [t('care.hunger'), 'hunger', hex('#ffb13b')],
+        [t('care.happiness'), 'happiness', hex('#ff7cc4')],
+        [t('care.health'), 'health', hex('#8fe26f')],
+        [t('care.hygiene'), 'hygiene', hex('#7fd0c4')],
+        [t('care.energy'), 'energy', hex('#7ab8ff')],
+      ];
+      for (const [label, key, colour] of rows) {
+        const known = care.stats[key] !== undefined;
+        g.text(upper(label), x, cy + 1, UI.muted);
+        g.bar(x + 42, cy, 30, known ? v[key] / 100 : 0, colour);
+        g.text(known ? String(Math.round(v[key])) : '?', x + 75, cy + 1, status === 'ready' ? UI.ink : UI.muted);
+        cy += 8;
+      }
+    }
+    let line: string;
+    if (status === 'none') line = t('care.sharedNone');
+    else if (status === 'loading') line = t('care.sharedLoading');
+    else if (status === 'unavailable') line = t('care.sharedOffline');
+    else if (status === 'missing') line = t('care.sharedMissing');
+    else {
+      const minutes = s?.fetchedAt ? Math.floor((this.shared!.nowSec() - s.fetchedAt / 1000) / 60) : 0;
+      line = minutes < 1 ? t('care.readNow') : t('care.readAgo', { n: minutes });
+      if (care?.state === 'sleeping') line += `  ${t('care.asleep')}`;
+    }
+    if (s?.partial && (status === 'ready' || status === 'missing')) line += `  ${t('care.sharedPartial')}`;
+    g.para(upper(line), x, cy + 1, 90, UI.muted, 2);
   }
 }

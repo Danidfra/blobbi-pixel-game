@@ -65,6 +65,13 @@ afterAll(() => {
 });
 afterEach(() => setLocale('en'));
 
+/** A shared care snapshot as read for a Blobbi, so the panel's shared block draws its bars and words. */
+const sharedCare = (() => {
+  const stats = { hunger: 66, happiness: 81, health: 93, hygiene: 47, energy: 58 };
+  const care = { pubkey: 'a'.repeat(64), d: 'blobbi-aaaaaaaaaaaa-0123456789', name: 'Pudding', stage: 'adult' as const, state: 'active' as const, stats, lastDecayAt: 1_760_000_000, lastInteraction: 1_760_000_000, createdAt: 1_760_000_000, eventId: 'x', project: () => stats };
+  return { snapshot: () => ({ status: 'ready' as const, address: `31124:${care.pubkey}:${care.d}`, care, partial: true, fetchedAt: 1_760_000_000_000 }), nowSec: () => 1_760_000_190, refresh: () => {} };
+})();
+
 function setup(size: TextSize = 'normal') {
   const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16);
   live.brain.enabled = false;
@@ -77,7 +84,9 @@ function setup(size: TextSize = 'normal') {
   const worlds = new WorldsScreen();
   const travel = new TravelScreen();
   travel.hooks = { worlds: () => blobbiWorlds(), name: () => 'Dotado', companion: () => 'with', go: () => 'started', departing: () => false, icon: () => null };
-  for (const s of [new InventoryScreen(), new CraftingScreen(), new CraftingScreen('cooking'), new JournalScreen(), new CareScreen(), new CarrierScreen(), new MapScreen(), new GrowthScreen(), new GuideScreen(), home, new SettingsScreen(), new StorageScreen(), worlds, travel]) ui.register(s);
+  const care = new CareScreen();
+  care.shared = sharedCare; // (the shared block with its bars and words, in every language)
+  for (const s of [new InventoryScreen(), new CraftingScreen(), new CraftingScreen('cooking'), new JournalScreen(), care, new CarrierScreen(), new MapScreen(), new GrowthScreen(), new GuideScreen(), home, new SettingsScreen(), new StorageScreen(), worlds, travel]) ui.register(s);
   return { live, ui };
 }
 

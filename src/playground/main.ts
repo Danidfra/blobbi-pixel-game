@@ -76,6 +76,7 @@ import { StorageScreen } from '../ui/screens/storage';
 import { CraftingScreen } from '../ui/screens/crafting';
 import { JournalScreen } from '../ui/screens/journal';
 import { CareScreen } from '../ui/screens/care';
+import { SharedCareService } from '../game/shared-care';
 import { SettingsScreen } from '../ui/screens/settings';
 import { BlobbisScreen } from '../ui/screens/blobbis';
 import { CarrierScreen } from '../ui/screens/carrier';
@@ -570,7 +571,20 @@ gameUI.register(new StorageScreen());
 gameUI.register(new CraftingScreen());
 gameUI.register(new CraftingScreen('cooking'));
 gameUI.register(new JournalScreen());
-gameUI.register(new CareScreen());
+const careScreen = new CareScreen();
+gameUI.register(careScreen);
+// Canonical care, read only (phase 6): the Blobbi panel shows the shared stats of the Blobbi walking here, read
+// from the relays when the panel opens (the network module is loaded then, never on the first screen). Nothing
+// is published or changed; the island's own needs stay what they were.
+careScreen.shared = (() => {
+  const service = new SharedCareService({
+    read: async (pubkey, d) => {
+      const [cc, rc] = await Promise.all([import('../nostr/canonical-care'), import('../nostr/relay-config')]);
+      return cc.readCanonicalCare(pubkey, d, { reader: cc.relayCanonicalCareReader({ graceMs: 1500 }), relays: rc.READ_RELAYS, timeoutMs: 6000 });
+    },
+  });
+  return { snapshot: () => service.snapshot(), nowSec: () => service.nowSec(), refresh: (source) => void service.refresh(source) };
+})();
 gameUI.register(new CarrierScreen());
 gameUI.register(new MapScreen());
 const growthScreen = new GrowthScreen();
