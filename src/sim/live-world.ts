@@ -59,7 +59,7 @@ import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
 import { CLEAN, DIRT, GLAD, JOY, JOY_SOURCE_COOLDOWN, STAMINA, TIRED_TEMPO, addHappiness, eat, getDirty, isExhausted, isGrubby, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, wash as washCare, type CareState } from '../game/care';
 import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
-import { nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
+import { DAY_SECONDS, nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, KEEPER_DISCOVERIES, SEA_DISCOVERIES, type DiscoveryContent } from '../content/discoveries';
 import { CAIRN_FOOT, CAIRN_REACH, placeKeeperCairn, type Cairn } from '../game/keeper';
@@ -3255,6 +3255,27 @@ export class LiveWorld {
   private landRemarked = new Map<LandKind, number>();
   /** The creatures as posed this step, for the renderer (empty indoors or while the Blobbi is away). */
   landViews: LandView[] = [];
+  /**
+   * DEV ONLY (the dev tools set these; never saved, never set by the game): every bunny that settles beside the
+   * Blobbi leads it to the button, every tame songbird carries the ribbon. The production odds are untouched.
+   */
+  keeperDev = { lead: false, ribbon: false };
+
+  /**
+   * DEV: the next appearance of a land creature of `kind` that `pick` accepts, within two days of now: seconds until
+   * it and the sighting; null when none (no feeder for a songbird, say). Weather as the world has it (an override
+   * holds).
+   */
+  devNextLand(kind: LandKind, pick: (s: LandSighting) => boolean = () => true): { in: number; s: LandSighting } | null {
+    const perches = this.perches();
+    const t0 = this.worldTime;
+    for (let t = t0; t < t0 + DAY_SECONDS * 2; t += 2) {
+      const rain = this.weather === 'rain' ? 1 : this.weather === 'dry' ? 0 : rainAt(this.world.seed, t);
+      const s = this.land.at(t, rain, perches).find((x) => x.kind === kind && x.age < 4 && pick(x));
+      if (s) return { in: t - t0, s };
+    }
+    return null;
+  }
 
   /** The perches the player's finished bird feeders offer (the top of each). */
   private perches(): LandPt[] {
@@ -3289,7 +3310,7 @@ export class LiveWorld {
       for (const s of this.landSightings()) {
         seen.add(s.id);
         let m = this.landMoods.get(s.id);
-        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, approachHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false, led: false, dig: null, shown: false, digTick: -1, ribbon: s.kind === 'songbird' && s.traits.bold > 0.35 && birdCarriesRibbon(s.seed) && !this.visitor, drop: null }));
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, approachHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false, led: false, dig: null, shown: false, digTick: -1, ribbon: s.kind === 'songbird' && s.traits.bold > 0.35 && (birdCarriesRibbon(s.seed) || this.keeperDev.ribbon) && !this.visitor, drop: null }));
         const view = this.poseLand(s, m, bp, dt, time);
         if (!view) continue;
         views.push(view);
@@ -3559,7 +3580,7 @@ export class LiveWorld {
           enter('wary');
           return sitting();
         }
-        if (!m.led && time - m.since >= BUNNY_LEAD_AFTER && !this.visitor && bunnyLeads(s.seed) && !this.found.has('keeper:button')) {
+        if (!m.led && time - m.since >= BUNNY_LEAD_AFTER && !this.visitor && (bunnyLeads(s.seed) || this.keeperDev.lead) && !this.found.has('keeper:button')) {
           // Keeper encounter B: now and then, a bunny that has settled in leads the Blobbi a few hops to something buried.
           m.led = true;
           const spot = this.land.digSpot(at, bp, hash32(`${s.id}:dig`));

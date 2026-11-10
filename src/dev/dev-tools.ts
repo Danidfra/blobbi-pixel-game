@@ -22,6 +22,8 @@ import { LiveWorld, type WeatherOverride } from '../sim/live-world';
 import { localStore, saveKey, worldIdentity } from '../game/persistence';
 import { findBuildSpot } from './scripted-play';
 import { paletteFor } from '../world/generate';
+import { KEEPER_DISCOVERIES } from '../content/discoveries';
+import { bunnyLeads, birdCarriesRibbon } from '../game/land-life';
 
 const KITS: Record<string, [string, number][]> = {
   basics: [
@@ -78,6 +80,10 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     <div class="row"><button data-dev="gr-0">Stage 0</button><button data-dev="gr-1">1</button><button data-dev="gr-2">2</button><button data-dev="gr-3">3</button><button data-dev="gr-next">Grow + reveal</button></div>
     <div class="row"><button data-dev="gr-ready">Meet requirements</button><button data-dev="gr-reset">Reset growth</button><button data-dev="gr-info">Inspect world</button></div>
     <pre id="dev-world-info" class="stats" style="display:none"></pre>
+    <h3>Keeper encounters <small>(find them; the production odds are untouched)</small></h3>
+    <div class="row"><button data-dev="kp-cairn">Where is the cairn</button><button data-dev="kp-bunny">Next bunny</button><button data-dev="kp-bird">Next songbird</button><button data-dev="kp-forget">Forget Keeper finds</button></div>
+    <div class="row"><label class="check"><input id="dev-kp-lead" type="checkbox" /> every bunny leads</label><label class="check"><input id="dev-kp-ribbon" type="checkbox" /> every tame songbird carries the ribbon</label></div>
+    <pre id="dev-keeper-info" class="stats" style="display:none"></pre>
     <h3>Visiting <small>(local prototype)</small></h3>
     <div class="row"><button data-dev="vi-make">Make visit test worlds</button><button data-dev="vi-go">Visit next</button><button data-dev="vi-home">Return home</button></div>
     <h3>Intro cinematic <small>(preview world, nothing saved)</small></h3>
@@ -115,6 +121,11 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     }
     if (action.startsWith('sp-')) {
       speciesTool(action.slice(3));
+      return;
+    }
+    if (action.startsWith('kp-')) {
+      const live = getLive();
+      if (live && button) keeperTool(live, action.slice(3), button);
       return;
     }
     const live = getLive();
@@ -190,6 +201,77 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
     if (what === 'home' && ui) {
       ui.open('worlds');
       ui.handleKey('Enter');
+    }
+  };
+  // Keeper encounter tools: where the cairn stands, when the next bunny or songbird comes (skipping to it and walking
+  // the Blobbi near), and two switches that make every bunny lead and every tame songbird carry the ribbon. The
+  // switches live on the running world only (never saved); the production odds are untouched.
+  const keeperInfo = host.querySelector<HTMLElement>('#dev-keeper-info')!;
+  const leadBox = host.querySelector<HTMLInputElement>('#dev-kp-lead')!;
+  const ribbonBox = host.querySelector<HTMLInputElement>('#dev-kp-ribbon')!;
+  host.addEventListener('change', () => {
+    const live = getLive();
+    if (!live) return;
+    live.keeperDev.lead = leadBox.checked;
+    live.keeperDev.ribbon = ribbonBox.checked;
+  });
+  const say = (text: string) => {
+    keeperInfo.style.display = 'block';
+    keeperInfo.textContent = text;
+  };
+  const bearing = (live: LiveWorld, p: { x: number; y: number }) => {
+    const dx = p.x - live.blobbi.x;
+    const dy = p.y - live.blobbi.y;
+    const ns = Math.abs(dy) > 8 ? (dy < 0 ? 'north' : 'south') : '';
+    const ew = Math.abs(dx) > 8 ? (dx < 0 ? 'west' : 'east') : '';
+    return `${Math.round(Math.hypot(dx, dy))} px ${ns}${ns && ew ? '-' : ''}${ew}`.trim();
+  };
+  /** Skip to just before an appearance and walk the Blobbi to about `d` px from its home. */
+  const meet = (live: LiveWorld, next: { in: number; s: { home: { x: number; y: number } } }, d: number) => {
+    live.timeOffset += Math.max(0, next.in - 0.5);
+    const h = next.s.home;
+    const a = Math.atan2(live.blobbi.y - h.y, live.blobbi.x - h.x);
+    const spot = live.collision.nearestFree(Math.round(h.x + Math.cos(a) * d), Math.round(h.y + Math.sin(a) * d), live.blobbi.footRx, live.blobbi.footRy);
+    return spot ? live.walkTo(spot.x, spot.y) : false;
+  };
+  let keeperArmed = 0;
+  const keeperTool = (live: LiveWorld, what: string, button: HTMLButtonElement) => {
+    if (live.inside) return say('step outside first (the Keeper encounters are on the island)');
+    if (what === 'cairn') {
+      const c = live.cairn;
+      if (!c) return say('this world has no cairn (no reachable grass far enough from everything)');
+      const found = live.found.has('keeper:cairn');
+      const walking = live.walkTo(c.x, c.y + 8);
+      return say(`the cairn stands at ${c.x},${c.y}: ${bearing(live, c)} from the Blobbi${found ? ' (looked at already)' : ' (glinting: E at it is the discovery)'}; ${walking ? 'walking there now' : 'no path from here'}`);
+    }
+    if (what === 'bunny') {
+      const forced = live.keeperDev.lead;
+      const next = live.devNextLand('bunny', (s) => forced || bunnyLeads(s.seed));
+      if (!next) return say('no leading bunny within two days (rain or night: force dry weather, or skip time)');
+      const walking = meet(live, next, 45);
+      return say(`a bunny that leads appears now at ${next.s.home.x},${next.s.home.y} (bold ${next.s.traits.bold.toFixed(2)}${next.s.traits.bold < 0.5 ? ': shy, more patience' : ''}); ${walking ? 'walking to 45 px from it: keep still when the Blobbi arrives' : 'no path there'}; it sits beside the Blobbi, then leads it to the button${live.found.has('keeper:button') ? ' (found already: forget the Keeper finds to see it again)' : ''}`);
+    }
+    if (what === 'bird') {
+      if (!live.buildings.some((b) => BUILDINGS[b.kind].use === 'birds' && live.buildingAt(b) >= 1)) return say('build a bird feeder first (workbench: wood 3, stick 1, seed 2; "Materials" and "Seeds" above give the parts)');
+      const forced = live.keeperDev.ribbon;
+      const next = live.devNextLand('songbird', (s) => s.traits.bold > 0.35 && (forced || birdCarriesRibbon(s.seed)));
+      if (!next) return say('no ribbon songbird within two days (rain or night: force dry weather, or skip time)');
+      const walking = meet(live, next, 30);
+      return say(`a tame songbird with the ribbon flies in now at ${next.s.home.x},${next.s.home.y}; ${walking ? 'walking to 30 px from the feeder: keep still, it sings and leaves the ribbon at the feeder\'s foot' : 'no path there'}${live.found.has('keeper:ribbon') ? ' (found already: forget the Keeper finds to see it again)' : ''}`);
+    }
+    if (what === 'forget') {
+      if (performance.now() - keeperArmed > 3000) {
+        keeperArmed = performance.now();
+        button.textContent = 'Click again to forget the Keeper finds';
+        setTimeout(() => (button.textContent = 'Forget Keeper finds'), 3000);
+        return;
+      }
+      keeperArmed = 0;
+      button.textContent = 'Forget Keeper finds';
+      for (const d of KEEPER_DISCOVERIES) live.found.delete(d.id);
+      live.save();
+      refresh();
+      return say('the Keeper finds are forgotten: the cairn glints again, bunnies lead again, songbirds carry the ribbon again (the keepsakes stay in the bag)');
     }
   };
   // Growth tools: only on a test world (its seed says so), so a player's island never grows by a dev button.
@@ -334,6 +416,7 @@ export function installDevTools(host: HTMLElement, hooks: DevHooks): void {
       `quests    active ${activeQuests(live.objectives).map((q) => q.id).join(' ')}`,
       `request   ${req ? `${req.request.id} ${req.have}/${req.need}` : `none (next at ${(live.objectives.nextRequestAt ?? 0).toFixed(0)} s)`}`,
       `finds     ${live.found.size}/${live.discoveries.length}: ${live.hiddenDiscoveries.map((d) => `${d.id}@${d.x},${d.y}`).join(' ')}`,
+      `keeper    cairn ${live.cairn ? `${live.cairn.x},${live.cairn.y} (${Math.round(Math.hypot(live.cairn.x - live.blobbi.x, live.cairn.y - live.blobbi.y))} px)` : 'none'}${live.found.has('keeper:cairn') ? ' seen' : ''}; button ${live.found.has('keeper:button') ? 'found' : 'hidden'}; ribbon ${live.found.has('keeper:ribbon') ? 'found' : 'hidden'}${live.keeperDev.lead ? '; every bunny leads' : ''}${live.keeperDev.ribbon ? '; every songbird carries' : ''}`,
       `tally     ${Object.entries(live.tally).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(' ')}`,
       ...[...live.containers.entries()].map(([k, cont]) => `chest     ${k}: ${cont.inventory.entries().map((e) => `${e.quantity} ${itemPlural(e.item)}`).join(', ') || 'empty'}`),
       ...live.placedHere.filter((b) => BUILDINGS[b.kind].use === 'herbs').map((b) => `planter   ${b.id}: ${live.herbsReady(b)} ready`),

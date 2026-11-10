@@ -321,6 +321,38 @@ describe('C. the ribbon-bearing bird', () => {
   });
 });
 
+describe('D. the dev tools\' switches (never saved; the production odds untouched)', () => {
+  it('with the lead switch on, a bunny that would not lead leads; with the ribbon switch on, a tame bird that would not carry carries', () => {
+    expect(new LiveWorld(make(), 'blobbi-9', 16, { store: memoryStore() }).keeperDev).toEqual({ lead: false, ribbon: false });
+    const store = memoryStore();
+    const live = grown(2, 'keeper-test', store);
+    live.keeperDev.lead = true;
+    const s = beside(live, (x) => !bunnyLeads(x.seed));
+    still(live, BUNNY_LEAD_AFTER + 2);
+    expect(['leading', 'digging', 'showing']).toContain(mood(live, s.id)?.phase);
+    live.save();
+    expect(JSON.stringify(loadSave(store, live.identity))).not.toContain('keeperDev');
+    const bird = grown();
+    bird.keeperDev.ribbon = true;
+    bird.inventory.add(BUILDINGS['bird-feeder'].item!, 1);
+    expect(findBuildSpot(bird, 'bird-feeder')).toBe(true);
+    expect(bird.startPlacing(BUILDINGS['bird-feeder'].item!)).toBe(true);
+    pressE(bird);
+    run(bird, 150);
+    const { t, s: b } = moment(bird, 'songbird', (x) => x.traits.bold > 0.35 && !birdCarriesRibbon(x.seed));
+    arrange(bird, t, b.home, 30);
+    bird.update(1 / 60, IDLE_INPUT);
+    expect(bird.landViews.find((x) => x.id === b.id)?.ribbon).toBe(true);
+    // The dev tools' lookahead: the next bunny and the next tame songbird, within two days, with a time to them.
+    const nextBunny = bird.devNextLand('bunny');
+    expect(nextBunny).not.toBeNull();
+    expect(nextBunny!.in).toBeGreaterThanOrEqual(0);
+    expect(nextBunny!.s.kind).toBe('bunny');
+    expect(bird.devNextLand('songbird', (x) => x.traits.bold > 0.35)?.s.kind).toBe('songbird');
+    expect(grown().devNextLand('songbird')).toBeNull(); // no feeder, no songbird
+  });
+});
+
 describe('other worlds', () => {
   it('a whale island has its cairn too, on its own ground', () => {
     const live = new LiveWorld(generateWhaleWorld('keeper-whale', { carrierSeed: 'w', generatedHouse: false }), 'blobbi-9', 16, { store: memoryStore() });
