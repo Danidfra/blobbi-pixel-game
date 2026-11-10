@@ -61,7 +61,7 @@ export function card(w: number, h: number, accent?: Color): PixelBuffer {
 const GLYPHS: Record<string, string[]> = {
   fed: ['..#..', '.###.', '#####', '#####', '.###.'], // a fruit
   energy: ['..##.', '.##..', '####.', '..##.', '.##..'], // a bolt
-  joy: ['.#.#.', '#####', '#####', '.###.', '..#..'], // a heart
+  joy: ['.#.#.', '.....', '#...#', '.###.', '.....'], // a smile (a heart is friendship's)
   clean: ['..#..', '.#.#.', '#...#', '#...#', '.###.'], // a drop
   sun: ['#.#.#', '.###.', '##.##', '.###.', '#.#.#'],
   moon: ['.###.', '##...', '#....', '##...', '.###.'],

@@ -35,6 +35,9 @@ export class CareScreen implements Screen {
     const c = live.care;
     const comp = live.companion;
     let cy = y + 2;
+    // These are the island's own needs (what the Blobbi does here), not the Blobbi's shared care stats: say so.
+    g.text(upper(t('care.localNeeds')), x, cy + 1, UI.muted);
+    cy += 9;
     const bar = (label: string, v: number, colour: number, note = '') => {
       g.text(upper(label), x, cy + 1, UI.muted);
       g.bar(x + 44, cy, 90, v / 100, colour);
