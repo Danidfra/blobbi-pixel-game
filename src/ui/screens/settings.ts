@@ -51,6 +51,14 @@ export class SettingsScreen implements Screen {
   onName: (() => void) | null = null;
   onIdentity: ((page: 'activate' | 'restore') => void) | null = null;
   /**
+   * Copies of the account's EXISTING Blobbis and profile to the relays that lack them: off until the account turns it
+   * on here, after being shown the relays that would receive them (asked for, then confirmed). Without it, or while
+   * `state()` is null (no account connected, or a practice build: nothing leaves it), the row is not shown.
+   */
+  sync: { state(): { on: boolean; relays: readonly string[] } | null; set(on: boolean): void } | null = null;
+  /** The relays are being shown and the next press turns the copies on. */
+  private syncAsk = false;
+  /**
    * M16, world travel (only while it runs for the connected account's own Blobbi): call the Blobbi here from another
    * Blobbi world (the player's explicit request), and the opt-in Active Presence ("show when I play"). Without it the
    * rows are not shown.
@@ -133,6 +141,23 @@ export class SettingsScreen implements Screen {
     ];
   }
 
+  /** The one control for copies of existing events: OFF shows the relays first, a second press turns it on; ON turns off. */
+  private syncRows(): Row[] {
+    const st = this.sync?.state() ?? null;
+    if (!st) return [];
+    if (st.on) return [{ label: t('account.sync', { state: onOff(true) }), run: () => ((this.syncAsk = false), this.sync?.set(false)) }];
+    return [
+      {
+        label: this.syncAsk ? t('account.syncConfirm') : t('account.sync', { state: onOff(false) }),
+        run: () => {
+          if (!this.syncAsk) return void (this.syncAsk = true);
+          this.syncAsk = false;
+          this.sync?.set(true);
+        },
+      },
+    ];
+  }
+
   /** The ACCOUNT page's buttons: CONNECT as a guest; DISCONNECT, CHECK AGAIN and ADVANCED when connected. */
   private accountRows(ui: GameUI): Row[] {
     const acc = this.account;
@@ -165,6 +190,7 @@ export class SettingsScreen implements Screen {
       ...(this.onMyBlobbis ? [{ label: t('account.myBlobbis'), run: () => this.onMyBlobbis?.() }] : []),
       ...this.travelRows(ui),
       ...identityRows,
+      ...this.syncRows(),
       { label: t('account.disconnect'), run: () => (acc.disconnect(), (this.index = 0), ui.say(t('account.disconnected'))) },
       { label: t('account.checkAgain'), run: () => void acc.connect() },
       { label: t(this.advanced ? 'account.hideAdvanced' : 'account.advanced'), run: () => (this.advanced = !this.advanced) },
@@ -263,7 +289,10 @@ export class SettingsScreen implements Screen {
     }
     // M11D.6: where the walking Blobbi stands with other worlds, in plain words (backed up is not shared).
     const mine = this.onIdentity ? (this.reservedWalking?.() ?? null) : null;
-    if (mine?.share) cy += g.para(t(`account.share.${mine.share}`, { name: mine.name }), x, cy, w, mine.share === 'shared' || mine.share === 'spreading' ? UI.good : mine.share === 'failed' || mine.share === 'partial' ? UI.bad : UI.muted, 2) + 3;
+    if (mine?.share) cy += g.para(t(`account.share.${mine.share}`, { name: mine.name }), x, cy, w, mine.share === 'shared' || mine.share === 'spreading' || mine.share === 'sharedElsewhere' ? UI.good : mine.share === 'failed' || mine.share === 'partial' ? UI.bad : UI.muted, 2) + 3;
+    // Copies of existing events: the relays that would receive them (before turning it on), or that do (while on).
+    const sync = s.status === 'connected' ? (this.sync?.state() ?? null) : null;
+    if (sync && (sync.on || this.syncAsk)) cy += g.para(t(sync.on ? 'account.syncOn' : 'account.syncAsk', { relays: sync.relays.map((r) => r.replace(/^wss:\/\//, '')).join(', ') }), x, cy, w, UI.muted, 4) + 3;
     const rows = this.rows(ui);
     this.index = Math.min(this.index, Math.max(0, rows.length - 1));
     rows.forEach((it, i) => {
@@ -316,7 +345,7 @@ export function accountName(s: AccountSnapshot): string {
 
 /** M11D.6: the walking Blobbi's ACCOUNT row, by where it stands with other worlds. */
 function shareLabel(mine: { registered: boolean; share?: ShareStatus }): MessageKey {
-  if (mine.registered || mine.share === 'shared' || mine.share === 'spreading') return 'account.blobbiReady';
+  if (mine.registered || mine.share === 'shared' || mine.share === 'spreading' || mine.share === 'sharedElsewhere') return 'account.blobbiReady';
   if (mine.share === 'practiced') return 'account.blobbiPracticed';
   if (mine.share === 'pending' || mine.share === 'partial' || mine.share === 'failed') return 'account.blobbiPending';
   return 'account.saveBlobbi';

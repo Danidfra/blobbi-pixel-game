@@ -915,13 +915,13 @@ describe('Pixel’s travel relays (src/nostr/world-travel.ts)', () => {
   it('reads one relay per request and closes it; writes go through the publisher’s one-relay send', async () => {
     const c = conns();
     const send = vi.fn(async () => {});
-    const r = pixelTravelRelays({ open: c.open, send });
+    const r = pixelTravelRelays({ open: c.open, send, mayPublish: () => true });
     await r.query('wss://relay.ditto.pub', { kinds: [31126] }, new AbortController().signal);
     expect(c.opened).toEqual(['wss://relay.ditto.pub']);
     expect(c.closed()).toBe(1);
     await r.publish('wss://relay.primal.net', { id: 'x' } as never, new AbortController().signal);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(r.urls).toEqual(['wss://relay.ditto.pub', 'wss://relay.primal.net']);
+    expect(r.urls).toEqual(['wss://relay.blobbi.pet', 'wss://relay.ditto.pub', 'wss://relay.primal.net']); // the primary, then the kit's two
   });
 
   it('the live stream is open only while visible; hidden closes it; shown reopens and asks for a look; a drop reconnects', async () => {
@@ -930,7 +930,7 @@ describe('Pixel’s travel relays (src/nostr/world-travel.ts)', () => {
     const r = pixelTravelRelays({ open: c.open, onReconnect: reconnect });
     const stop = r.subscribe!([{ kinds: [31126] }], () => {});
     await flush();
-    expect(r.openStreams()).toBe(2);
+    expect(r.openStreams()).toBe(3);
     r.setVisible(false);
     await flush();
     expect(r.openStreams()).toBe(0);
@@ -938,12 +938,12 @@ describe('Pixel’s travel relays (src/nostr/world-travel.ts)', () => {
     expect(r.openStreams()).toBe(0);
     r.setVisible(true);
     await flush();
-    expect(r.openStreams()).toBe(2);
+    expect(r.openStreams()).toBe(3);
     expect(reconnect).toHaveBeenCalledTimes(1);
     c.drop();
     await flush(2_100);
-    expect(r.openStreams()).toBe(2);
-    expect(reconnect).toHaveBeenCalledTimes(3);
+    expect(r.openStreams()).toBe(3);
+    expect(reconnect).toHaveBeenCalledTimes(4); // the page shown again (1), then each of the three dropped streams
     stop();
     await flush();
     expect(r.openStreams()).toBe(0);

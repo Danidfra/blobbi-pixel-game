@@ -28,6 +28,9 @@ import { npubEncode, shortNpub } from './keys';
 import type { EventTemplate } from './canonical-events';
 import type { NostrEvent } from 'nostr-tools/pure';
 import { shareCompanion, spreadCompanionShares, type ShareOutcome, type ShareRequest } from './companion-share';
+import { emptyIsKnown, primaryStanding } from './relay-config';
+import { syncOwnEvents } from './relay-sync';
+import { syncConsent } from './sync-consent';
 
 export interface IdentityServiceOptions {
   store: KeyValueStore;
@@ -62,6 +65,9 @@ export interface IdentityServiceOptions {
   findTimeoutMs?: number;
 }
 
+/** How often an account's events are compared across the relays when nothing is left to offer. */
+const SYNC_EVERY_MS = 10 * 60_000;
+
 const fail = <T>(problem: IdentityProblem): IdentityResult<T> => ({ ok: false, problem });
 const problemOf = (e: unknown): IdentityProblem => (e instanceof VaultError ? e.code : e instanceof ActivationError ? e.problem : 'storage');
 
@@ -70,6 +76,13 @@ export class IdentityService implements IdentityPort {
   private readonly now: () => number;
   private busy = false;
   private spreading = false;
+  /**
+   * The ids of the events signed in THIS visit, each the result of something the player did (memory only: a reload
+   * forgets them). Only these may be sent without the account's choice to have copies sent (`maySend`).
+   */
+  private readonly signedHere = new Set<string>();
+  /** When each account's events were last compared across the relays (memory only), and whether offers are left. */
+  private readonly synced = new Map<string, { at: number; pending: number }>();
 
   constructor(private readonly o: IdentityServiceOptions) {
     this.publishMode = o.publisher.mode;
@@ -257,7 +270,8 @@ export class IdentityService implements IdentityPort {
       blobbis.push({ d: item.d, name: here?.name ?? item.name, alreadyHere: !!here });
     }
     if (blobbis.length) this.o.onChanged?.();
-    if (!blobbis.length && !others && res.reachable < relays.length) return unavailable;
+    // Nothing found is "none" only once every secondary relay answered (the primary alone never says so).
+    if (!blobbis.length && !others && !emptyIsKnown(relays, res)) return unavailable;
     return { ok: true, value: { status: blobbis.length || others ? 'found' : 'none', blobbis, others } };
   }
 
@@ -272,15 +286,44 @@ export class IdentityService implements IdentityPort {
       heldBy: Math.min(run?.seenOn?.blobbi.length ?? 0, run?.seenOn?.profile.length ?? 0),
       relays: this.o.publisher.relays.length,
       owed: run && (run.stage === 'done' || run.stage === 'confirmed') ? new Set(Object.values(owedRelays(run, this.o.publisher.relays)).flat()).size : 0,
+      // Shared through the other relays while the primary is still owed it, or refused it: a state, not a problem.
+      primary: run && (run.stage === 'done' || run.stage === 'confirmed') ? primaryStanding(this.o.publisher.relays, (run.seenOn?.blobbi ?? []).filter((r) => run.seenOn?.profile.includes(r)), run.spread?.refused ?? []) : undefined,
       problem: run?.lastProblem ?? null,
+    };
+  }
+
+  /**
+   * Whether one already-signed event may be sent to one relay now, without the player doing anything at this moment.
+   * Yes for an event signed in THIS visit (a delivery owed from what the player just did is part of that publication).
+   * Otherwise it is a copy of an existing event: only for the CONNECTED account, only once it turned copies on, and
+   * only to a relay it was shown then (`sync-consent.ts`). A restored session with no such choice sends nothing.
+   */
+  maySend(event: { id: string; pubkey: string }, relay: string): boolean {
+    if (this.signedHere.has(event.id)) return true;
+    const account = this.o.currentAccount?.() ?? null;
+    return !!account && event.pubkey === account && syncConsent(this.o.store, this.now).allows(account, relay);
+  }
+
+  /** A signer whose every signature is remembered as this visit's. */
+  private here(sign: (t: EventTemplate) => Promise<NostrEvent>): (t: EventTemplate) => Promise<NostrEvent> {
+    return async (t) => {
+      const event = await sign(t);
+      this.signedHere.add(event.id);
+      return event;
     };
   }
 
   /**
    * The deliveries still owed after a share (a relay that was down when a Blobbi or a companion choice was shared):
    * the very same signed events are sent to the relays still missing them. Nothing is signed here (no signer is
-   * involved), nothing in rehearsal, nothing while a registration is under way. Returns how many shares still owe a
-   * relay something (0: nothing left, or no tries left).
+   * involved), nothing in rehearsal, nothing while a registration is under way. Then the connected account's own
+   * Blobbis and profile are compared across the relays, and what one certainly lacks is offered to it (`relay-sync.ts`:
+   * so the primary relay receives what the others hold, and the others what only the primary holds). Returns how many
+   * shares still owe a relay something, plus the offers left (0: nothing left, or no tries left).
+   *
+   * ALL OF THIS IS GATED (`maySend`): what was signed in this visit goes on being delivered; anything from an earlier
+   * visit, and the comparison across relays, waits for the account's own choice (SETTINGS > ACCOUNT). A restored
+   * session that made no such choice sends nothing here.
    */
   async spreadAll(): Promise<number> {
     if (this.publishMode !== 'live') return 0;
@@ -289,10 +332,12 @@ export class IdentityService implements IdentityPort {
     this.spreading = true;
     try {
       let left = 0;
+      const allow = (e: NostrEvent, relay: string) => this.maySend(e, relay);
       for (const d of registrationsToSpread(this.o.store, 'live', this.o.publisher.relays)) {
-        if ((await spreadRegistration(this.o.store, d, { publisher: this.o.publisher, now: this.now, sleep: this.o.sleep })).length) left++;
+        if ((await spreadRegistration(this.o.store, d, { publisher: this.o.publisher, allow, now: this.now, sleep: this.o.sleep })).length) left++;
       }
-      return left + (await spreadCompanionShares(this.o.store, this.o.publisher, { sleep: this.o.sleep }));
+      left += await spreadCompanionShares(this.o.store, this.o.publisher, { allow, sleep: this.o.sleep });
+      return left + (await this.syncAccount());
     } catch {
       return 1; // a network hiccup: tried again later
     } finally {
@@ -300,10 +345,30 @@ export class IdentityService implements IdentityPort {
     }
   }
 
+  /**
+   * The connected account's events compared across the relays, at most every `SYNC_EVERY_MS` unless offers are left
+   * from the last round (each offer keeps its own spaced tries: `SyncLedger`). Only the connected account: its events
+   * are the player's own.
+   */
+  private async syncAccount(): Promise<number> {
+    const owner = this.o.currentAccount?.() ?? null;
+    const consent = syncConsent(this.o.store, this.now);
+    // Off until the account says otherwise: nothing is read for it, nothing is sent.
+    if (!owner || !consent.isEnabled(owner)) return 0;
+    const last = this.synced.get(owner);
+    if (last && !last.pending && this.now() - last.at < SYNC_EVERY_MS) return 0;
+    const round = await syncOwnEvents(owner, { store: this.o.store, publisher: this.o.publisher, consent, now: this.now });
+    this.synced.set(owner, { at: this.now(), pending: round.pending });
+    return round.pending;
+  }
+
   async shareStatus(d: string): Promise<ShareStatus> {
     const b = guestBlobbi(this.o.store, d);
     if (!b) return 'local';
-    if (b.activatedAt) return this.registration(d).owed ? 'spreading' : 'shared';
+    if (b.activatedAt) {
+      const reg = this.registration(d);
+      return reg.owed ? 'spreading' : reg.primary === 'refused' ? 'sharedElsewhere' : 'shared';
+    }
     const reg = this.registration(d);
     if (this.publishMode === 'live' && reg.stage !== 'none' && reg.stage !== 'done') return reg.problem === 'partial' ? 'partial' : reg.problem ? 'failed' : 'pending';
     if (b.practicedAt && this.publishMode === 'rehearsal') return 'practiced';
@@ -320,7 +385,7 @@ export class IdentityService implements IdentityPort {
     if (method === 'vault') sign = (await this.keeps(owner)) ? (t) => this.o.vault.sign(owner, t) : undefined;
     else sign = this.o.accountSigner;
     if (!sign) throw new Error('no signer for this account');
-    const event = await sign(template);
+    const event = await this.here(sign)(template);
     if (event.pubkey !== owner) throw new Error('the signer answered for another account');
     return event;
   }
@@ -336,7 +401,10 @@ export class IdentityService implements IdentityPort {
     if (how.method === 'vault') sign = (await this.keeps(req.owner)) ? (t) => this.o.vault.sign(req.owner, t) : undefined;
     else sign = this.o.accountSigner;
     if (!sign) return { kind: 'sign-failed' };
-    return shareCompanion(req, { store: this.o.store, publisher: this.o.publisher, sign, stillAccount: how.stillAccount, maySign: how.maySign, now: this.now, sleep: this.o.sleep });
+    const out = await shareCompanion(req, { store: this.o.store, publisher: this.o.publisher, sign: this.here(sign), stillAccount: how.stillAccount, maySign: how.maySign, now: this.now, sleep: this.o.sleep });
+    // A write stored in an earlier visit and sent now for the player's choice: what is still owed of it is this visit's.
+    if (out.kind === 'shared' || out.kind === 'partial') this.signedHere.add(out.event.id);
+    return out;
   }
 
   async register(d: string, consent: boolean): Promise<IdentityResult<RegistrationState>> {
@@ -352,7 +420,11 @@ export class IdentityService implements IdentityPort {
       const mode = this.publishMode;
       // The owner may have a profile out there already (an account, or this identity shared another Blobbi before).
       const mayHaveProfile = b.ownerKind === 'account' || ownerRuns(this.o.store, b.owner, mode).some((r) => r.d !== d && (r.stage === 'done' || r.stage === 'confirmed' || r.accepted.profile.length > 0)) || readGuestBlobbis(this.o.store).some((x) => x.owner === b.owner && x.d !== d && !!x.activatedAt);
-      await activate({ facts: { owner: b.owner, petId: b.petId, name: b.name, bornAt: b.bornAt }, consent, backupVerified, ownerKind: b.ownerKind, mayHaveProfile }, { store: this.o.store, publisher: this.o.publisher, sign, now: this.now, sleep: this.o.sleep });
+      await activate({ facts: { owner: b.owner, petId: b.petId, name: b.name, bornAt: b.bornAt }, consent, backupVerified, ownerKind: b.ownerKind, mayHaveProfile }, { store: this.o.store, publisher: this.o.publisher, sign: this.here(sign), now: this.now, sleep: this.o.sleep });
+      // Events of this registration signed in an earlier visit (a resumed run) or adopted from the relays: the player
+      // pressed SHARE for them now, so what is still owed of them in this visit is this publication's too.
+      const ran = activationRun(this.o.store, d, mode);
+      for (const e of [ran?.blobbi, ran?.profile]) if (e) this.signedHere.add(e.id);
       finishActivation(this.o.store, d, this.now());
       // A rehearsal (nothing left the device) is practice, never a registration: no account change, no "shared".
       if (mode === 'rehearsal') {

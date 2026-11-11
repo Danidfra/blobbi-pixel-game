@@ -184,7 +184,7 @@ describe('M11D.8.4: the regression scenarios', () => {
   it('D. every relay times out: the device\'s Blobbi, no question, and no stamp written', async () => {
     const dev = device(NOW - 30 * MIN);
     const before = dev.store.get(SELECTION_KEY);
-    const r = relaysWith(() => [boca, moon, profileNaming(MOON_D, T0 + 300)], { 'relay.ditto.pub': { hang: true }, 'relay.primal.net': { hang: true }, 'relay.dreamith.to': { hang: true } });
+    const r = relaysWith(() => [boca, moon, profileNaming(MOON_D, T0 + 300)], { 'relay.blobbi.pet': { hang: true }, 'relay.ditto.pub': { hang: true }, 'relay.primal.net': { hang: true }, 'relay.dreamith.to': { hang: true } });
     const out = await load(dev, () => r.resolve(80), NOW);
     expect(out.answer).toEqual({ status: 'unavailable' });
     expect(out.decision).toEqual(ENTER);
@@ -194,7 +194,7 @@ describe('M11D.8.4: the regression scenarios', () => {
   it('E. no profile at all and an unreachable profile are different outcomes (and neither invents a choice)', async () => {
     const none = await relaysWith(() => [boca, moon]).resolve();
     expect(none).toMatchObject({ status: 'no-selection', reason: 'no-profile' });
-    const down = await relaysWith(() => [boca, moon, profileNaming(MOON_D, T0)], { 'relay.ditto.pub': { down: true }, 'relay.primal.net': { down: true }, 'relay.dreamith.to': { down: true } }).resolve();
+    const down = await relaysWith(() => [boca, moon, profileNaming(MOON_D, T0)], { 'relay.blobbi.pet': { down: true }, 'relay.ditto.pub': { down: true }, 'relay.primal.net': { down: true }, 'relay.dreamith.to': { down: true } }).resolve();
     expect(down).toEqual({ status: 'unavailable' });
     // Moon's own state event alone (no profile) never makes Moon current.
     expect((await load(device(NOW - 30 * MIN), () => relaysWith(() => [boca, moon]).resolve(), NOW)).decision).toEqual(ENTER);

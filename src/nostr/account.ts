@@ -11,6 +11,7 @@ import { isPublicKeyHex, npubEncode, shortNpub } from './keys';
 import { pickProfile } from './profile';
 import { pickBlobbis } from './blobbis';
 import type { AccountPort, AccountSnapshot, AccountStatus, BlobbiCollectionPort, CollectionSnapshot, ConnectProblem, ExtensionCheck, ProfileStatus } from './port';
+import { emptyIsKnown } from './relay-config';
 import type { BlobbiReader, ProfileReader } from './relays';
 import type { PublicKeySigner } from './signer';
 
@@ -234,7 +235,9 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
         if (picked.status === 'found') {
           status = 'found';
           name = picked.name;
-        } else status = res.reachable === 0 ? 'unavailable' : picked.status;
+        } else if (res.reachable === 0) status = 'unavailable';
+        // "No profile" from the primary relay alone is not knowledge: the relays that know the player were silent.
+        else status = picked.status === 'missing' && res.answered && !emptyIsKnown(this.opts.relays, res) ? 'unavailable' : picked.status;
       } catch {
         status = 'unavailable';
       } finally {
@@ -311,9 +314,10 @@ export class NostrAccount implements AccountPort, BlobbiCollectionPort {
       let next: CollectionSnapshot;
       try {
         const res = await reader.readBlobbis(owner, this.opts.relays, abort.signal);
-        if (res.reachable === 0) next = { ...this.collection, status: 'unavailable', partial: false };
+        const picked = res.reachable === 0 ? null : pickBlobbis(res.events, owner);
+        // No Blobbi from the primary relay alone is not "this account has none": the other relays were silent.
+        if (!picked || (!picked.items.length && !!res.answered && !emptyIsKnown(this.opts.relays, res))) next = { ...this.collection, status: 'unavailable', partial: false };
         else {
-          const picked = pickBlobbis(res.events, owner);
           next = { status: 'ready', owner, items: picked.items, skipped: picked.skipped, partial: res.reachable < this.opts.relays.length, fetchedAt: this.now() };
         }
       } catch {

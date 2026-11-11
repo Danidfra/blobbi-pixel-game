@@ -3,8 +3,10 @@
  * ask relays for events (REQ) and close; it has no way to send an event (EVENT), answer an AUTH challenge or sign.
  *
  * The default reader opens a Nostrify `NRelay1` per relay only for the request (no reconnection, closed straight
- * after), and NRelay1 verifies every event's signature before returning it. The relays are the ones the Blobbi apps
- * already use; no relay list is read from the player's profile in this version.
+ * after), and NRelay1 verifies every event's signature before returning it. The relays are the Blobbi relay first,
+ * then the ones the Blobbi apps already use (`relay-config.ts`); no relay list is read from the player's profile in
+ * this version. Every answer is merged: the newest event wins wherever it came from, and a relay that answers with
+ * nothing never stands for the ones still silent (`emptyIsKnown`).
  */
 
 import { getBlobbonautQueryDValues } from '@blobbi-kit/core';
@@ -18,6 +20,8 @@ export interface ProfileReadResult {
   events: unknown[];
   /** How many relays answered before the deadline. */
   reachable: number;
+  /** Which relays those were (`queryRelays` always says; "nothing found" is judged by it, `emptyIsKnown`). */
+  answered?: string[];
 }
 
 export interface ProfileReader {
@@ -90,6 +94,7 @@ export async function queryRelays(relays: readonly string[], filter: Record<stri
   const both = typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, stop.signal]) : signal;
   const events: unknown[] = [];
   let reachable = 0;
+  const answered: string[] = [];
   let pending = relays.length;
   let grace: ReturnType<typeof setTimeout> | undefined;
   let finish!: () => void;
@@ -105,6 +110,7 @@ export async function queryRelays(relays: readonly string[], filter: Record<stri
         const got = await relay.query([filter], { signal: both });
         if (both.aborted) return;
         reachable++;
+        answered.push(url);
         events.push(...got);
         if (o.graceMs !== undefined && grace === undefined && got.length > 0 && reachable < relays.length) grace = setTimeout(() => (stop.abort(), finish()), o.graceMs);
       } catch {
@@ -119,5 +125,5 @@ export async function queryRelays(relays: readonly string[], filter: Record<stri
   clearTimeout(grace);
   signal.removeEventListener('abort', onAbort);
   stop.abort();
-  return { events: [...events], reachable };
+  return { events: [...events], reachable, answered: [...answered] };
 }

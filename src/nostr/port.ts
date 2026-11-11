@@ -156,9 +156,11 @@ export interface ReservedBlobbi {
  *   partial    some worlds hold it, not enough yet: TRY AGAIN finishes it
  *   failed     the last try did not get through (nothing lost): TRY AGAIN
  *   spreading  shared (read back from a relay); a relay that was down is still owed it and gets it by itself
+ *   sharedElsewhere  shared (read back from the other relays); the Blobbi relay itself refused it for now (its write
+ *              list). Never a failure: nothing for the player to do
  *   shared     published and read back everywhere it was sent: other worlds can recognize it
  */
-export type ShareStatus = 'local' | 'backedUp' | 'practiced' | 'pending' | 'partial' | 'failed' | 'spreading' | 'shared';
+export type ShareStatus = 'local' | 'backedUp' | 'practiced' | 'pending' | 'partial' | 'failed' | 'spreading' | 'sharedElsewhere' | 'shared';
 
 /** M11D.5: the two kinds of backup. A Recovery Key (plain `nsec`, no password) or a Protected Key (NIP-49). */
 export type BackupKind = 'nsec' | 'ncryptsec';
@@ -174,6 +176,8 @@ export interface RegistrationState {
   relays?: number;
   /** After a share: how many relays are still owed an event (sent later, by themselves). */
   owed?: number;
+  /** After a share: whether the Blobbi relay (the primary) holds it, is still owed it, or refused it. Never a problem. */
+  primary?: 'held' | 'pending' | 'refused';
   /** M11D.6: why the last try stopped, or null. */
   problem?: IdentityProblem | null;
 }

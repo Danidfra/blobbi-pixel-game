@@ -13,6 +13,10 @@
  * caller can tell which relays really hold an event (read-back). A relay's own words are reduced to the NIP-01
  * machine prefix (`blocked`, `rate-limited`, ...): untrusted text is never shown or stored.
  *
+ * THE PRIMARY RELAY (relay.blobbi.pet) is one relay among these: asked and sent to like the others, its answer kept
+ * per relay like theirs. Nothing here waits for it or treats its refusal differently; what a refusal means is the
+ * caller's (`activation.ts`, `companion-share.ts`, `relay-sync.ts`).
+ *
  * Live publishing is OFF by default (the owner decides when it ships): see `relay-config.ts` for how a build or a
  * development page switches to real relays.
  */
@@ -25,6 +29,8 @@ export interface PublishFilter {
   kinds: number[];
   authors: string[];
   '#d'?: string[];
+  /** The ecosystem marker (a collection read: `relay-sync.ts`). */
+  '#b'?: string[];
   limit?: number;
 }
 
@@ -55,7 +61,7 @@ export interface Publisher {
 }
 
 /** The NIP-01 machine-readable prefixes a relay may give with `OK` false; anything else is 'refused'. */
-const PREFIXES = new Set(['duplicate', 'pow', 'blocked', 'rate-limited', 'invalid', 'restricted', 'mute', 'error', 'auth-required']);
+const PREFIXES = new Set(['duplicate', 'replaced', 'pow', 'blocked', 'rate-limited', 'invalid', 'restricted', 'mute', 'error', 'auth-required']);
 
 /** A relay's message reduced to its NIP-01 prefix (its free text is never kept). */
 export function reasonOf(message: unknown): string {
@@ -68,7 +74,8 @@ export function reasonOf(message: unknown): string {
 /** Whether a relay's answer means it holds the event (OK true, or a `duplicate:` refusal). */
 export const accepted = (acks: readonly RelayAck[]): string[] => acks.filter((a) => a.ok).map((a) => a.relay);
 
-const matches = (e: NostrEvent, f: PublishFilter) => f.kinds.includes(e.kind) && f.authors.includes(e.pubkey) && (!f['#d'] || e.tags.some((t) => t[0] === 'd' && f['#d']!.includes(t[1])));
+const tagged = (e: NostrEvent, name: string, wanted?: string[]) => !wanted || e.tags.some((t) => t[0] === name && wanted.includes(t[1]));
+const matches = (e: NostrEvent, f: PublishFilter) => f.kinds.includes(e.kind) && f.authors.includes(e.pubkey) && tagged(e, 'd', f['#d']) && tagged(e, 'b', f['#b']);
 
 /**
  * An in-memory relay (with optional failures, for tests): it keeps the newest replaceable event per (kind, author, d),

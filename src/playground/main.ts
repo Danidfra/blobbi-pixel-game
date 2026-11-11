@@ -33,6 +33,7 @@ import { LiveWorld, QUICK_PACE, type LiveInput } from '../sim/live-world';
 import { localStore, memoryStore } from '../game/persistence';
 import { createNostrAccount } from '../nostr';
 import { loadAccount } from '../nostr/account-store';
+import { setSyncChoice, syncChoice } from '../nostr/sync-consent';
 import { effectiveSelection, loadSelection, loadSelectionRecord, markSelectionChosen, markSelectionSynced, noteUnstampedChoice, ownSharedGuestWalker, setSelectionStage, storeGuestSelection, storeSelection, type SeenProfile, type SelectionWhen } from '../game/blobbi-selection';
 import { CompanionSync, type RemoteCompanion } from '../game/companion-sync';
 import { activePresenceKey, createTravelHost, entryDecision, placeUnknown, travelCueFor, worldTravelMode, WORLD_TRAVEL_SWITCH_KEY, type TravelHost } from '../game/travel-host';
@@ -185,6 +186,10 @@ const startupBlobbi: { source: BlobbiSource; message: string; error: boolean; st
 let identity: 'guest' | 'connected' = 'guest';
 /** The connected public key (kept in step by the account's change events: no per-frame work). */
 let connectedPubkey: string | null = null;
+/** The page publishes for real (a live build, or a development page opened with `#publish=live`). */
+const publishesLive = import.meta.env.VITE_BLOBBI_PUBLISH === 'live' || (import.meta.env.DEV && params.get('publish') === 'live');
+/** The player shared something in THIS visit (a Blobbi, a companion choice): its own deliveries may go on. */
+let actedHere = false;
 /** The canonical Blobbi's name for the HUD (null: the seed, as before). */
 let shownName: string | null = null;
 
@@ -712,6 +717,7 @@ function identityService(): Promise<IdentityService> {
       currentAccount: () => connectedPubkey,
       onChanged: () => (shownName = blobbiDisplayName()),
       onRegistered: (b) => {
+        actedHere = true;
         scheduleSpread(true);
         // A guest identity becomes the player's account (an identity this game keeps); the same Blobbi stays, in
         // place: no departure, no arrival, nothing about the island changes. M11D.6: only when no OTHER account is
@@ -742,6 +748,20 @@ async function openIdentity(page: 'activate' | 'restore'): Promise<void> {
   gameUI.open('identity');
 }
 settingsScreen.onIdentity = (page) => void openIdentity(page);
+// Copies of the account's EXISTING events to the relays that lack them: the account's own choice, off by default,
+// made here where the relays are listed (`src/nostr/sync-consent.ts`). Not offered in a practice build or signed out.
+settingsScreen.sync = {
+  state: () => {
+    const st = localStore();
+    return publishesLive && connectedPubkey && st ? syncChoice(st, connectedPubkey) : null;
+  },
+  set: (on) => {
+    const st = localStore();
+    if (!st || !connectedPubkey) return;
+    setSyncChoice(st, connectedPubkey, on);
+    if (on) scheduleSpread(true);
+  },
+};
 /**
  * M11D.6: where each Blobbi met here stands with other worlds (`ShareStatus`), asked of the identity service and
  * kept a moment; until it answers, the public record says enough (shared, practiced or nothing yet).
@@ -1121,6 +1141,7 @@ const companion = new CompanionSync({
       },
     });
     if (out.kind === 'shared') {
+      actedHere = true;
       scheduleSpread(true);
       return { kind: 'shared', stamp: { id: out.event.id, createdAt: out.event.created_at } };
     }
@@ -1349,7 +1370,9 @@ const worldTravel: TravelHost | null =
         session: (owner, d, hooks) => {
           const net = travelNet!;
           let session: ReturnType<typeof createWorldTravel> | null = null;
-          const relays = net.pixelTravelRelays({ onReconnect: () => void session?.refresh() });
+          // Every send is asked first: this visit's own signatures pass; a repair with an existing event needs the
+          // account's choice to have copies sent (`IdentityService.maySend`)
+          const relays = net.pixelTravelRelays({ onReconnect: () => void session?.refresh(), mayPublish: async (url, event) => (await identityService()).maySend(event, url) });
           travelRelays = relays;
           // The kit waits for its signer without a limit: the extension's prompt gets a person's time, then the move
           // ends as declined (Call here is the retry); a late approval is dropped, never published
@@ -1613,6 +1636,12 @@ window.addEventListener('online', () => {
  * is sent to that relay later, the very same signed events and never a new signature (`IdentityService.spreadAll`).
  * Shortly after start (only when this browser keeps a share record: otherwise the network code is not even loaded),
  * after a share, when the connection returns, then less and less often; each share has a few tries in all.
+ * In a live build with an account connected, the same round also compares that account's own Blobbis and profile
+ * across the relays and offers each relay what it certainly lacks (`src/nostr/relay-sync.ts`): how the Blobbi relay
+ * receives what the other relays hold. Nothing is signed, and a rehearsal build carries nothing.
+ * READ MODE BY DEFAULT: none of this runs for a page that was merely opened. It runs after the player shared
+ * something in THIS visit (`actedHere`: only that visit's own events go on being delivered), or once the connected
+ * account turned copies on in SETTINGS > ACCOUNT. The identity service checks every single send again (`maySend`).
  */
 const SPREAD_DELAYS_MS = [10_000, 60_000, 300_000, 900_000];
 const SHARE_RECORD_KEYS = ['blobbi-pixel-lab:activation', 'blobbi-pixel-lab:companion-share'];
@@ -1622,7 +1651,11 @@ function scheduleSpread(restart = false): void {
   if (restart) spreadStep = 0;
   if (spreadTimer) clearTimeout(spreadTimer);
   spreadTimer = null;
-  if (spreadStep >= SPREAD_DELAYS_MS.length || !SHARE_RECORD_KEYS.some((k) => storeGetSafe(k) != null)) return;
+  if (spreadStep >= SPREAD_DELAYS_MS.length || !publishesLive) return;
+  const st = localStore();
+  const copiesOn = !!connectedPubkey && !!st && syncChoice(st, connectedPubkey).on;
+  if (!actedHere && !copiesOn) return;
+  if (!copiesOn && !SHARE_RECORD_KEYS.some((k) => storeGetSafe(k) != null)) return;
   spreadTimer = setTimeout(() => {
     spreadTimer = null;
     void identityService()

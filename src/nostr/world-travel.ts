@@ -2,11 +2,23 @@
  * M16, WORLD TRAVEL: the network half of Pixel's world travel (the rules are `@blobbi-kit/core`'s `world-travel*`;
  * the game's half is `src/game/travel-host.ts`). Only this file and `publisher.ts` touch relays for it.
  *
- *   relays    `BLOBBI_WORLD_TRAVEL_RELAYS` (relay.ditto.pub and relay.primal.net, the two every Blobbi app writes
+ *   relays    `PIXEL_TRAVEL_RELAYS`: the Blobbi relay (the primary) first, then the kit's
+ *             `BLOBBI_WORLD_TRAVEL_RELAYS` (relay.ditto.pub and relay.primal.net, the two every Blobbi app writes
  *             profiles to; Blobbi Standalone uses the same two), each asked and written to on its own
+ *   primary   THE EMPTY PRIMARY IS NOT AN ANSWER BY ITSELF. The kit takes any relay that answered a look as
+ *             knowledge of where the Blobbi is, and "no World Location anywhere" as AT HOME: then Pixel signs an
+ *             arrival here with no `prev`. The primary is young; alone and empty within the kit's deadline, on a
+ *             device with nothing remembered, it would say exactly that for a Blobbi the other relays know to be
+ *             elsewhere. So its answer WITH NOTHING IN IT is passed on only once a secondary relay answered the
+ *             same question in the same look; if none does, it is reported as no answer (the kit then says
+ *             "unreachable": nothing is decided, nothing is signed). What it does return is passed on at once, and a
+ *             primary that is down or refusing is one relay missing, as any other
  *   reads     one NRelay1 per request, closed after (as everywhere in this game)
  *   writes    `sendToRelay` (publisher.ts): one World Location per move the player asked for, and the optional
  *             Active Presence
+ *   gate      NOTHING IS SENT BY ITSELF: every send is asked of `mayPublish` first. A move the player makes in this
+ *             visit goes to every relay; the kit's own repair of a relay with an event from an earlier visit (or from
+ *             another device) waits for the account's choice in SETTINGS > ACCOUNT
  *   stream    THE ONE NARROW EXCEPTION to "no background sockets": while world travel is on, an account is connected
  *             and the page is VISIBLE, one live subscription per relay for the walking Blobbi's World Location and
  *             Active Presence (REQ only, never EVENT or AUTH), so a move made on another device shows up within a
@@ -19,6 +31,11 @@ import type { NostrEvent } from 'nostr-tools/pure';
 import { verifyEvent } from 'nostr-tools/pure';
 import { BLOBBI_WORLD_TRAVEL_RELAYS, type WorldTravelLock, type WorldTravelRelays, type WorldTravelStore } from '@blobbi-kit/core';
 import { sendToRelay } from './publisher';
+import { PRIMARY_RELAY } from './relay-config';
+import { withPrimaryRelay } from './relay-routing';
+
+/** Where World Locations and Active Presence are read and written: the primary first, then the kit's fixed two. */
+export const PIXEL_TRAVEL_RELAYS: readonly string[] = withPrimaryRelay(BLOBBI_WORLD_TRAVEL_RELAYS, PRIMARY_RELAY);
 
 type Filter = Record<string, unknown>;
 
@@ -31,8 +48,18 @@ export interface TravelConnection {
 
 export interface PixelTravelRelaysOptions {
   urls?: readonly string[];
+  /** The relay whose empty answer needs a secondary's (default: the Blobbi relay); null: every answer stands alone. */
+  primary?: string | null;
   /** Opens a connection (default: NRelay1, loaded on first use). */
   open?: (url: string) => Promise<TravelConnection>;
+  /**
+   * Whether one event may be sent to one relay (asked before EVERY send). The kit repairs a relay that lacks the
+   * current World Location by sending it the existing event again, by itself, on a look: that is a copy of an
+   * existing event, and it is the account's choice (`IdentityService.maySend`: an event signed in this visit, or the
+   * account turned copies on for that relay). Absent: nothing is ever sent. A refusal is answered to the kit as
+   * `blocked:`, which it takes as final for that event and relay (no retries).
+   */
+  mayPublish?: (url: string, event: NostrEvent) => boolean | Promise<boolean>;
   /** Sends one event to one relay (default: `sendToRelay`). */
   send?: (url: string, event: NostrEvent, signal: AbortSignal) => Promise<void>;
   /** A stream (re)opened after the page showed again or a drop: the session should look again. */
@@ -56,7 +83,28 @@ async function nrelay(url: string): Promise<TravelConnection> {
 }
 
 export function pixelTravelRelays(o: PixelTravelRelaysOptions = {}): PixelTravelRelays {
-  const urls = o.urls ?? BLOBBI_WORLD_TRAVEL_RELAYS;
+  const urls = o.urls ?? PIXEL_TRAVEL_RELAYS;
+  const primary = o.primary === undefined ? PRIMARY_RELAY : o.primary;
+  /** Whether the primary's empty answers are weighed against the secondaries' (it needs one to weigh against). */
+  const guarded = primary !== null && urls.includes(primary) && urls.length > 1;
+  /** Per question (filter): the asks of the look under way, so an empty primary answer can wait for a secondary's. */
+  const looks = new Map<string, { asked: Set<string>; secondaries: Promise<unknown>[] }>();
+  const lookFor = (key: string, url: string) => {
+    let look = looks.get(key);
+    // The same relay asked the same question again: a new look.
+    if (!look || look.asked.has(url)) {
+      looks.delete(key);
+      if (looks.size >= 8) looks.delete(looks.keys().next().value as string);
+      looks.set(key, (look = { asked: new Set(), secondaries: [] }));
+    }
+    look.asked.add(url);
+    return look;
+  };
+  const anyAnswered = (asks: readonly Promise<unknown>[]): Promise<boolean> =>
+    Promise.any(asks.map((a) => a.then(() => true))).then(
+      () => true,
+      () => false,
+    );
   const open = o.open ?? nrelay;
   const send = o.send ?? ((url, event, signal) => sendToRelay(url, event, signal));
   const setTimer = o.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
@@ -123,15 +171,37 @@ export function pixelTravelRelays(o: PixelTravelRelaysOptions = {}): PixelTravel
 
   return {
     urls,
-    async query(url, filter, signal) {
-      const conn = await open(url);
-      try {
-        return (await conn.query([{ ...filter }], { signal })) as NostrEvent[];
-      } finally {
-        void Promise.resolve(conn.close()).catch(() => {});
+    query(url, filter, signal) {
+      const ask = async () => {
+        const conn = await open(url);
+        try {
+          return (await conn.query([{ ...filter }], { signal })) as NostrEvent[];
+        } finally {
+          void Promise.resolve(conn.close()).catch(() => {});
+        }
+      };
+      const asked = ask();
+      if (!guarded) return asked;
+      const look = lookFor(JSON.stringify(filter), url);
+      if (url !== primary) {
+        look.secondaries.push(asked);
+        return asked;
       }
+      return asked.then(async (events) => {
+        if (events.length || (await anyAnswered(look.secondaries))) return events;
+        throw new Error('the primary relay answered with nothing and no other relay answered: nothing is known');
+      });
     },
-    publish: (url, event, signal) => send(url, event as NostrEvent, signal),
+    async publish(url, event, signal) {
+      let may = false;
+      try {
+        may = !!o.mayPublish && (await o.mayPublish(url, event as NostrEvent));
+      } catch {
+        may = false;
+      }
+      if (!may) throw new Error('blocked: an existing event is copied to a relay only once the account said so');
+      return send(url, event as NostrEvent, signal);
+    },
     subscribe(filters, on) {
       if (live) stop(live);
       const sub = { filters: filters as Filter[], on, stops: [] as (() => void)[] };

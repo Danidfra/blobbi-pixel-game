@@ -33,8 +33,9 @@ import { parseBlobbonautEvent } from '@blobbi-kit/core';
 import type { KeyValueStore } from '../game/persistence';
 import { CHOICE_FRESH_MS, orderChoices, replaces, type ProfileStamp, type SeenProfile } from '../game/companion-order';
 import { companionProfileTemplate, isProfile, preservesProfile, profileFilter, type EventTemplate } from './canonical-events';
+import type { SendGate } from './activation';
 import { accepted, type Publisher, type QueryResult } from './publisher';
-import { missingFrom, permanentRefusal, policyMet, PROFILE_REQUIRED_RELAYS } from './relay-config';
+import { missingFrom, permanentRefusal, policyMet, primaryStanding, PROFILE_REQUIRED_RELAYS, type PrimaryStanding } from './relay-config';
 
 export const COMPANION_SHARE_KEY = 'blobbi-pixel-lab:companion-share';
 
@@ -58,7 +59,8 @@ export interface PendingShare {
 export const SPREAD_MAX_TRIES = 8;
 
 export type ShareOutcome =
-  | { kind: 'shared'; event: NostrEvent }
+  /** Shared: a relay read it back. `primary`: the Blobbi relay holds it, is still owed it, or refused it (never a failure). */
+  | { kind: 'shared'; event: NostrEvent; primary?: PrimaryStanding }
   | { kind: 'unchanged'; profile: ProfileStamp }
   | { kind: 'superseded'; profile: ProfileStamp & { d: string | null } }
   | { kind: 'ambiguous'; profile: ProfileStamp & { d: string | null } }
@@ -241,6 +243,8 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
   let held = [...new Set([...pending.seenOn, ...holders(first.answer, event, owner, d, verify)])];
   const acks = await publisher.publish(event, timeout, publisher.relays.filter((r) => !held.includes(r)));
   const ok = accepted(acks);
+  // A relay refusing for good (the primary's write list: `blocked`) is not owed the event once another holds it.
+  const gone = acks.filter((a) => !a.ok && permanentRefusal(a.reason)).map((a) => a.relay);
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt) await sleep(1500);
     const back = await census(publisher, owner, timeout, verify);
@@ -248,8 +252,9 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
     keepPending(store, { ...pending, seenOn: held }, owner);
     if (policyMet(publisher.relays, held)) {
       // Every relay holds it: nothing left to do. Else it stays stored for the relays still owed it.
-      keepPending(store, missingFrom(publisher.relays, held).length ? { ...pending, seenOn: held, delivered: true } : null, owner);
-      return { kind: 'shared', event };
+      const owedTo = missingFrom(publisher.relays, held).filter((r) => !gone.includes(r));
+      keepPending(store, owedTo.length ? { ...pending, seenOn: held, delivered: true, refused: gone } : null, owner);
+      return { kind: 'shared', event, primary: primaryStanding(publisher.relays, held, gone) };
     }
     const top = back.newest;
     if (top && top.id !== event.id && replaces(stamp(top), stamp(event)) && companionOf(top) !== d) {
@@ -264,9 +269,10 @@ export async function shareCompanion(req: ShareRequest, deps: ShareDeps): Promis
  * The background deliveries of shared choices: for each stored write already `delivered`, look at what the relays
  * hold, then send that very event (no signer here: nothing is ever signed) to the relays still missing it, and read
  * back. A write replaced since by a newer profile of the owner is dropped, never sent. A relay refusing for good is no
- * longer owed. Returns how many writes still owe a relay something.
+ * longer owed. A write of an EARLIER visit goes nowhere until its account turned copies on (`allow`). A relay that did not answer the look is not sent it (its absence there is unknown); it stays owed.
+ * Returns how many writes still owe a relay something.
  */
-export async function spreadCompanionShares(store: KeyValueStore, publisher: Publisher, deps: { timeoutMs?: number; sleep?: (ms: number) => Promise<void>; verify?: (e: NostrEvent) => boolean } = {}): Promise<number> {
+export async function spreadCompanionShares(store: KeyValueStore, publisher: Publisher, deps: { allow: SendGate; timeoutMs?: number; sleep?: (ms: number) => Promise<void>; verify?: (e: NostrEvent) => boolean }): Promise<number> {
   if (publisher.mode !== 'live') return 0;
   const timeout = deps.timeoutMs ?? 8000;
   const verify = deps.verify ?? verifyEvent;
@@ -274,6 +280,8 @@ export async function spreadCompanionShares(store: KeyValueStore, publisher: Pub
   let left = 0;
   for (const p of Object.values(readAll(store))) {
     if (!p.delivered || p.event?.pubkey !== p.owner) continue;
+    // An earlier visit's write, and the account has not said copies may be sent: left as it is (no look, no try).
+    if (!publisher.relays.some((r) => deps.allow(p.event, r))) continue;
     const tries = (p.tries ?? 0) + 1;
     if (tries > SPREAD_MAX_TRIES) continue;
     let refused = p.refused ?? [];
@@ -288,7 +296,7 @@ export async function spreadCompanionShares(store: KeyValueStore, publisher: Pub
       continue;
     }
     let held = [...new Set([...p.seenOn, ...holders(first.answer, p.event, p.owner, p.d, verify)])];
-    const to = owed(held);
+    const to = owed(held).filter((r) => first.answer.byRelay[r] != null && deps.allow(p.event, r));
     if (to.length) {
       const acks = await publisher.publish(p.event, timeout, to);
       refused = [...new Set([...refused, ...acks.filter((a) => !a.ok && permanentRefusal(a.reason)).map((a) => a.relay)])];
@@ -298,7 +306,7 @@ export async function spreadCompanionShares(store: KeyValueStore, publisher: Pub
     }
     const still = owed(held);
     keep(still.length ? { ...p, seenOn: held, tries, refused } : null);
-    if (still.length && tries < SPREAD_MAX_TRIES) left++;
+    if (still.some((r) => deps.allow(p.event, r)) && tries < SPREAD_MAX_TRIES) left++;
   }
   return left;
 }

@@ -11,7 +11,7 @@ import { IdentityService } from '../src/nostr/identity';
 import { memoryRelay, reasonOf, relayGroup, relayPublisher, type Publisher } from '../src/nostr/publisher';
 import { activate, activationRun, ACTIVATION_KEY, SPREAD_MAX_TRIES } from '../src/nostr/activation';
 import { babyStateTemplate, profileTemplate, type EventTemplate } from '../src/nostr/canonical-events';
-import { PUBLISH_RELAYS, READ_RELAYS, missingFrom, permanentRefusal, policyMet, publishModeFor } from '../src/nostr/relay-config';
+import { PRIMARY_RELAY, PUBLISH_RELAYS, READ_RELAYS, SECONDARY_RELAYS, missingFrom, permanentRefusal, policyMet, publishModeFor } from '../src/nostr/relay-config';
 import { DEFAULT_RELAYS } from '../src/nostr/relays';
 import { buildBackupFile } from '../src/nostr/backup';
 import { GUEST_BLOBBIS_KEY, awaitsName, guestBlobbi, readGuestBlobbis, updateGuestBlobbi } from '../src/game/guest-blobbis';
@@ -33,9 +33,12 @@ import type { WorldEntry } from '../src/game/worlds';
 const PASSWORD = 'bubbles and stars';
 const noSleep = async () => {};
 
-/** Three in-memory relays named like the real ones (so the policy's required relay applies), each with its faults. */
+/**
+ * Three in-memory relays named like the real SECONDARY ones (so the policy's required relay applies), each with its
+ * faults. The primary relay's part is `tests/relay-primary.test.ts`.
+ */
 function threeRelays(faults: { down?: Set<string>; refuse?: Set<string>; forget?: Set<string> } = {}) {
-  const members = PUBLISH_RELAYS.map((url) => memoryRelay({ url, mode: 'live', down: () => !!faults.down?.has(url), refuse: () => !!faults.refuse?.has(url), forget: () => !!faults.forget?.has(url) }));
+  const members = SECONDARY_RELAYS.map((url) => memoryRelay({ url, mode: 'live', down: () => !!faults.down?.has(url), refuse: () => !!faults.refuse?.has(url), forget: () => !!faults.forget?.has(url) }));
   return { members, group: relayGroup(members, 'live') };
 }
 
@@ -63,7 +66,10 @@ const sentKinds = (m: { sent: NostrEvent[] }) => m.sent.map((e) => e.kind);
 
 describe('M11D.6: the relays and the confirmation policy', () => {
   it('publishes where the Blobbi apps read: relay.ditto.pub (every app), primal (Standalone, Island), dreamith (Ditto)', () => {
-    expect(PUBLISH_RELAYS).toEqual(['wss://relay.ditto.pub', 'wss://relay.primal.net', 'wss://relay.dreamith.to']);
+    // The Blobbi relay first (the primary), then the three the game always used, unchanged and in their order.
+    expect(PRIMARY_RELAY).toBe('wss://relay.blobbi.pet');
+    expect(SECONDARY_RELAYS).toEqual(['wss://relay.ditto.pub', 'wss://relay.primal.net', 'wss://relay.dreamith.to']);
+    expect(PUBLISH_RELAYS).toEqual([PRIMARY_RELAY, ...SECONDARY_RELAYS]);
     expect(READ_RELAYS).toEqual(PUBLISH_RELAYS);
     expect(DEFAULT_RELAYS).toEqual(READ_RELAYS); // what is published can be found by the same game
     expect(PUBLISH_RELAYS).not.toContain('wss://relay.nostr.band');
@@ -74,7 +80,7 @@ describe('M11D.6: the relays and the confirmation policy', () => {
     expect(policyMet(PUBLISH_RELAYS, ['wss://relay.ditto.pub'])).toBe(true);
     expect(policyMet(PUBLISH_RELAYS, [])).toBe(false);
     expect(policyMet(PUBLISH_RELAYS, ['wss://elsewhere.example'])).toBe(false); // only our relays count
-    expect(missingFrom(PUBLISH_RELAYS, ['wss://relay.primal.net'])).toEqual(['wss://relay.ditto.pub', 'wss://relay.dreamith.to']);
+    expect(missingFrom(PUBLISH_RELAYS, ['wss://relay.primal.net'])).toEqual([PRIMARY_RELAY, 'wss://relay.ditto.pub', 'wss://relay.dreamith.to']);
     expect(['blocked', 'invalid', 'restricted', 'pow', 'auth-required'].every(permanentRefusal)).toBe(true);
     expect(['timeout', 'rate-limited', 'error', 'refused', 'unreachable'].some(permanentRefusal)).toBe(false); // those may pass later
   });
@@ -112,7 +118,7 @@ describe('M11D.6: registration against several relays (partial outages, retries,
     expect(r).toMatchObject({ ok: true, value: { stage: 'done', mode: 'live', heldBy: 3, relays: 3 } });
     for (const m of members) expect(sentKinds(m)).toEqual([31124, 11125]);
     const run = activationRun(s.store, b.d)!;
-    expect(run.seenOn!.blobbi.sort()).toEqual([...PUBLISH_RELAYS].sort());
+    expect(run.seenOn!.blobbi.sort()).toEqual([...SECONDARY_RELAYS].sort());
     const g = guestBlobbi(s.store, b.d)!;
     expect(g.activatedAt).not.toBe(null);
     expect([g.owner, g.d, g.petId]).toEqual([b.owner, b.d, b.petId]);
@@ -170,7 +176,7 @@ describe('M11D.6: registration against several relays (partial outages, retries,
     const s = setup(a.group);
     const b = await readyGuest(s);
     expect(await s.svc.register(b.d, true)).toMatchObject({ ok: true, value: { owed: 2 } }); // ditto really holds them: shared; the two that lost them are owed
-    const refuse = new Set(PUBLISH_RELAYS);
+    const refuse = new Set(SECONDARY_RELAYS);
     const c = threeRelays({ refuse });
     const s2 = setup(c.group);
     const b2 = await readyGuest(s2);
@@ -219,7 +225,7 @@ describe('2026-10-17 outage: one relay down never holds a share back (regression
   }, 30_000);
 
   it('both offline: a failure, never "shared" (not registered, nothing lost); TRY AGAIN later resends the same events', async () => {
-    const down = new Set(PUBLISH_RELAYS);
+    const down = new Set(SECONDARY_RELAYS);
     const { members, group } = threeRelays({ down });
     const s = await counted(group);
     const first = await s.svc.register(s.b.d, true);
@@ -274,8 +280,9 @@ describe('2026-10-17 outage: one relay down never holds a share back (regression
     const refuse = new Set([DITTO]);
     const a = threeRelays({ refuse });
     const s = await counted(a.group);
-    expect(await s.svc.register(s.b.d, true)).toMatchObject({ ok: true, value: { owed: 1 } });
-    expect(await s.svc.spreadAll()).toBe(0); // 'blocked': given up, not retried
+    // 'blocked' while the other relays took it: known at the share itself, so Ditto is not owed it from the start.
+    expect(await s.svc.register(s.b.d, true)).toMatchObject({ ok: true, value: { owed: 0 } });
+    expect(await s.svc.spreadAll()).toBe(0); // given up, not retried
     const n = a.members[0].sent.length;
     await s.svc.spreadAll();
     expect(a.members[0].sent.length).toBe(n);
