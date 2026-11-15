@@ -6,6 +6,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CSP } from '../vite.config';
+import { PIXEL_TRAVEL_RELAYS } from '../src/nostr/world-travel';
+import { PUBLISH_RELAYS, READ_RELAYS } from '../src/nostr/relay-config';
 
 interface VercelHeaders {
   headers: { source: string; headers: { key: string; value: string }[] }[];
@@ -31,5 +33,20 @@ describe('PX-S2: the CSP header served by Vercel is the build\'s CSP, plus frame
   it('clickjacking stays closed for browsers without CSP 2 (X-Frame-Options DENY)', () => {
     const all = vercel.headers.find((r) => r.source === '/(.*)')!.headers;
     expect(all.find((h) => h.key === 'X-Frame-Options')?.value).toBe('DENY');
+  });
+});
+
+// PX-Q5: the World-Travel relays come from a kit constant (`BLOBBI_WORLD_TRAVEL_RELAYS`), not from relay-config.ts.
+// A kit bump that adds a travel relay would be blocked by the CSP in production only (the dev server has no CSP).
+describe('PX-Q5: every relay the page talks to fits the CSP connect-src', () => {
+  const connect = (policy: string) => directives(policy).find((d) => d.startsWith('connect-src '))!.split(' ').slice(1);
+
+  it('the World-Travel relays (the primary plus the kit\'s) are allowed by the <meta> and by the header', () => {
+    expect(PIXEL_TRAVEL_RELAYS.length).toBeGreaterThan(0);
+    for (const policy of [CSP, cspHeaders[0].value]) for (const url of PIXEL_TRAVEL_RELAYS) expect(connect(policy), url).toContain(url);
+  });
+
+  it('so are the publish and read relays', () => {
+    for (const policy of [CSP, cspHeaders[0].value]) for (const url of [...PUBLISH_RELAYS, ...READ_RELAYS]) expect(connect(policy), url).toContain(url);
   });
 });
