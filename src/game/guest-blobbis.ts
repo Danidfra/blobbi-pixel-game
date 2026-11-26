@@ -101,6 +101,12 @@ function wasNamed(g: GuestBlobbi): boolean {
 /** M11D.5: a born Blobbi whose name the player has not chosen yet (and can still change: not registered). */
 export const awaitsName = (b: GuestBlobbi): boolean => b.born && !b.named && !b.activatedAt;
 
+/**
+ * Seconds of calm play before the naming prompt, after one more frame: `dt` added while calm, reset when not. A frame
+ * gap of a second or more is time away (a hidden tab), never calm play, or coming back would open the prompt at once.
+ */
+export const nextNamingCalm = (calmSoFar: number, dt: number, calm: boolean): number => (calm ? calmSoFar + (dt < 1 ? dt : 0) : 0);
+
 function write(store: KeyValueStore, list: GuestBlobbi[]): void {
   store.set(GUEST_BLOBBIS_KEY, JSON.stringify({ version: 1, blobbis: list }));
 }

@@ -45,7 +45,7 @@ import { resolveBlobbi, describeSource, sourceFromSeed, worldFormSource, DEMO_BL
 import { cleanWorldFormTraits } from '../blobbi/world-form';
 import { acceptWorldForm, worldFormSeen } from '../game/world-form-memory';
 import { isLocalBlobbiSeed, localBlobbi, markBorn } from '../game/local-blobbis';
-import { awaitsName, chooseGuestName, forgetUnbornGuestBlobbi, guestBlobbi, readGuestBlobbis, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
+import { awaitsName, chooseGuestName, nextNamingCalm, forgetUnbornGuestBlobbi, guestBlobbi, readGuestBlobbis, updateGuestBlobbi, type GuestBlobbi } from '../game/guest-blobbis';
 import { IdentityScreen } from '../ui/screens/identity';
 import { NamingScreen } from '../ui/screens/naming';
 import type { IdentityService } from '../nostr/identity';
@@ -919,7 +919,7 @@ function updateNaming(dt: number): void {
   const g = walkingGuest();
   if (!g || !awaitsName(g)) return;
   const calm = !l.reveal && !l.boat?.aboard && !l.fishing && !l.restPlan && l.getPresenceState() === 'present' && !(l.bubble && l.bubble.until > l.clock.time);
-  namingCalm = calm ? namingCalm + dt : 0;
+  namingCalm = nextNamingCalm(namingCalm, dt, calm);
   // After a birth: a breath after the Blobbi stands on its island. Put off before: some calm play first.
   if (namingCalm < (namingAfterBirth || g.namingLaterAt === null ? 1.2 : 20)) return;
   namingAskedThisSession = true;
