@@ -322,15 +322,51 @@ Blobbi registered (a 31124 exists); online. Otherwise the action stays local and
 8. Verification across devices: after a confirmed publish the panel shows the new event's time; a check opens
    Home on another device and compares; the read path above re-reads on the panel's next opening.
 
-**Kit changes to ask for (separate review).**
-- A pure `planCareStateWrite(prev: NostrEvent, interaction: InteractionTemplate, now, resolver?)` returning the
-  31124 template (decay, effect, checkpoint, tags, `created_at` bump): today that plan lives in Home
-  (`~/Developer/nostr-pet/src/features/care/care-plan.ts`), so Pixel and Island would each write their own.
-- A `writeBlobbiStateSafely(deps, build)` like `writeProfileSafely` for 31124 (fresh census read, build, sign,
-  publish, read back, outcomes `stale` / `unsafe` / `wrong-account`), and a `blobbiStateWriteQueue` per address.
-- `fetchFreshBlobbiState(nostr, address)` beside `fetchFreshBlobbonautProfile`.
-- Docs: retire 14919 in `WORLD-TRAVEL.md`; the decay header's "0..100" versus the code's clamp to 1.
-- Not Pixel's to change, but blocking consistency: Island's item use republishes from a stale cache without decay
-  or a `prev` bump; Home writes no `social_checkpoint`, so its own interactions can be applied twice elsewhere.
+**Kit changes to ask for (separate review): a concrete proposal (2026-11-26).** Two new files in
+`~/Developer/blobbi-kit/packages/blobbi-core/src/`, both in the style of the existing `safe-profile-write.ts` (pure
+planning, I/O injected, no Nostr library, no signer of its own), exported from `index.ts`:
+
+1. `blobbi-care-plan.ts`, pure. The plan Home keeps today in `~/Developer/nostr-pet/src/features/care/care-plan.ts`
+   (`planCareInteraction`: build the 1124, parse it, decay, `consolidateSocialInteractions`, XP, streak,
+   `updateBlobbiTags`), moved into the kit so every app applies the same effect:
+   ```ts
+   planCareStateWrite(prev: NostrEvent, intent: CareIntent, opts?: { resolveCareItemEffect?: CareItemEffectResolver; xp?: boolean })
+     : { state: StateTemplate; interaction: InteractionEventParams; stats: BlobbiStats; skipped?: 'already-applied' }
+   interface CareIntent { action: InteractionAction; source: string; item?: string; at: number; id: string }
+   ```
+   It decays from `prev`'s `last_decay_at` to `intent.at`, applies the one interaction through
+   `consolidateSocialInteractions`, writes `statsToTagUpdates(stats, at)` with `mergeBlobbiStateTagsForRepublish`,
+   sets `created_at = max(at, prev.created_at + 1)`, and puts `social_checkpoint {processed_until: at, last_event_id}`
+   in the content (`serializeSocialCheckpoint`). Idempotent: if `prev`'s checkpoint already names this
+   interaction (`last_event_id`) it returns `skipped: 'already-applied'` and no state.
+2. `blobbi-state-write.ts`, the read-modify-write, modelled on `writeProfileSafely`:
+   ```ts
+   readBlobbiStateCensus(relays: StateRelays, owner: string, d: string, o: { verify; timeoutMs? }): Promise<StateCensus>
+   writeBlobbiStateSafely(deps: SafeStateWriteDeps, address: string, build: (base: NostrEvent) => StateBuild)
+     : Promise<{ kind: 'sent'; state: NostrEvent; interaction: NostrEvent; confirmed: boolean } | { kind: 'skipped'; reason }
+               | { kind: 'missing' } | { kind: 'unsafe' } | { kind: 'stale' } | { kind: 'wrong-account' } | { kind: 'failed'; message }>
+   blobbiStateWriteQueue  // one write at a time per address and page, as profileWriteQueue is per account
+   ```
+   Sequence: a census of the required relays (every one must answer, else `unsafe`; the newest 31124 by NIP-01
+   order, signatures verified) → `build(base)` → sign the 1124, then the 31124 (`stillAccount` before and after) →
+   a second census: anything newer than `base` means `stale`, nothing sent → publish the 31124, read it back
+   (`confirmed` at `confirmations` relays, default 1, the rule every app already uses) → publish the 1124 only
+   after its state is out (an unpublished 1124 is never double-applied; a stale attempt sent neither).
+3. Tests in the kit: `blobbi-care-plan.test.ts` (golden cases taken from Home's current `care-plan` tests, so moving
+   the plan changes no stat; decay-then-effect order; the 1..100 clamp; a clock behind the checkpoint; the
+   `created_at` bump on a tie; `already-applied`), `blobbi-state-write.test.ts` (unsafe on a silent relay, stale
+   on a newer state between the two censuses, wrong-account, a refused publish, read-back confirmation, two writers
+   through the queue), and a consolidation test that Ditto's `useCanonicalSync` does not re-apply an interaction
+   the checkpoint names.
+
+**Adoption.** Home replaces its own plan with `planCareStateWrite` (identical stats; it starts writing the
+checkpoint, which ends the double application in Ditto). Island's item use moves to `writeBlobbiStateSafely`
+(ending republishes from a 30-s cache with no decay and no `prev`). Pixel adds what stays its own: the durable
+local intent queue (localStorage, per owner; `id` = hash of address, action, `at` and a per-device nonce), offline
+retries with backoff, a six-hour drop (the consolidation window), the panel's per-intent status, and the mapping
+and throttles above. Backward compatible: the tags are unchanged, and `social_checkpoint` is already a field of the
+content that older clients ignore. Not part of this: decay rates (the kit's unmerged
+`feat/blobbi-care-pacing-rebalance`, August, would change them for every app at once), and the docs fixes (retire
+14919 in `WORLD-TRAVEL.md`; the decay header's "0..100" against the clamp to 1).
 
 **Stop.** No canonical write is implemented; the first one needs the review above and explicit approval.
