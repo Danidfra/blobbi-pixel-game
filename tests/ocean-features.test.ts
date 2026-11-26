@@ -96,6 +96,24 @@ describe('ocean features', () => {
     expect(live.nearbyFeature()?.kind ?? null).not.toBe('kelp');
   });
 
+  it('the kelp with no room for seaweed is left as it is: nothing gathered, nothing growing back', () => {
+    const live = quiet(CARRIERS[1][1]('of-3'));
+    while (live.inventory.add(SEAWEED_ITEM.id, 1)) {
+      /* fill the stack */
+    }
+    const full = live.inventory.count(SEAWEED_ITEM.id);
+    const kelp = live.oceanNow().find((f) => f.kind === 'kelp')!;
+    afloatAt(live, kelp.x, kelp.y);
+    live.update(1 / 60, { ...IDLE_INPUT, interact: true });
+    expect(live.inventory.count(SEAWEED_ITEM.id)).toBe(full);
+    expect(live.kelpReady()).toBe(true);
+    live.inventory.remove(SEAWEED_ITEM.id, 3);
+    live.update(1 / 60, IDLE_INPUT);
+    live.update(1 / 60, { ...IDLE_INPUT, interact: true });
+    expect(live.inventory.count(SEAWEED_ITEM.id)).toBe(full);
+    expect(live.kelpReady()).toBe(false);
+  });
+
   it('what was found and gathered is saved; the sea itself is not', () => {
     const store = memoryStore();
     const live = quiet(CARRIERS[2][1]('of-4'), store);

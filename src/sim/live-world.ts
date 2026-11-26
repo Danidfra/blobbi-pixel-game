@@ -3218,8 +3218,11 @@ export class LiveWorld {
       }
       if (!this.visitor) {
         const got = this.inventory.add(SEAWEED_ITEM.id, 3);
-        this.collected.add('sea:kelp');
-        this.collectedAt.set('sea:kelp', this.worldTime);
+        // A full bag leaves the kelp as it is (like `collect()`): nothing gathered, nothing to regrow.
+        if (got) {
+          this.collected.add('sea:kelp');
+          this.collectedAt.set('sea:kelp', this.worldTime);
+        }
         say(got ? `+${got} ${got === 1 ? itemLabel('blobbi-pixel:food:seaweed') : itemPlural('blobbi-pixel:food:seaweed')}` : lang('say.noRoomFor', itemNoun('blobbi-pixel:food:seaweed')));
         this.meetAtSea('sea:kelp-garden', f);
       } else say(lang('sea.kelpSways'));
