@@ -68,6 +68,7 @@ import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { GameUI, hudScale, readStoredSettings, settingsRecord } from '../ui/game-ui';
 import { hotbarIndexForKey, isTypingTarget, nextToolInCycle } from '../ui/hotbar';
+import { isSystemShortcut, releasesHeldKeys } from '../ui/input-guards';
 import { AccountInvite, isBusy } from '../ui/account-invite';
 import { textPreference } from '../ui/surface';
 import { getLocale, initialLocale, loadLocale, LOCALE_KEY, onLocaleChange, setLocale, t } from '../i18n';
@@ -2985,6 +2986,8 @@ view.addEventListener('keydown', (e) => {
     if (e.code === 'Backspace') e.preventDefault();
     return;
   }
+  // Cmd, Ctrl or Alt with a key is the browser's or the system's (find, copy, reload), never a game key.
+  if (isSystemShortcut(e)) return;
   // Menus first: an open screen takes every key (held keys let go, so the Blobbi stops), and I/K/J/U/Esc open them.
   if ((!e.repeat || gameUI.capturing) && gameUI.handleKey(e.code, e.shiftKey)) {
     keys.clear();
@@ -3078,7 +3081,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) audioEngine.suspend();
   else if (gameUI.settings.sound) audioEngine.resume();
 });
-view.addEventListener('keyup', (e) => keys.delete(e.code));
+view.addEventListener('keyup', (e) => {
+  // macOS sends no keyup for a key let go while Cmd was held: letting go of Cmd lets go of them all.
+  if (releasesHeldKeys(e.code)) keys.clear();
+  else keys.delete(e.code);
+});
 view.addEventListener('blur', () => keys.clear());
 
 $('play-toggle').addEventListener('click', () => {
