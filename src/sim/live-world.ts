@@ -2183,6 +2183,8 @@ export class LiveWorld {
       this.bubble = { text: lang('canoe.landFirst'), until: this.clock.time + 1.6, x: this.blobbi.x, y: this.blobbi.y - this.blobbi.size - 2, head: this.blobbi.size };
       return;
     }
+    // A line out is reeled in: the cast holds the Blobbi still every step and would undo the rest at once.
+    this.fishing = null;
     // Seated or in the bath: up first; the rest follows once it stands (no second R needed).
     if (this.occupation) {
       this.occupation.then = 'rest';
