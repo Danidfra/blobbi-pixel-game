@@ -11,6 +11,10 @@ where they exist on this machine), then the plan. Nothing in Pixel writes canoni
   "Read path, implemented"). It never publishes or changes them.
 - Canonical care writes from Pixel are designed below ("Write pipeline, proposed") and not implemented; they
   need the kit changes listed there, reviewed separately.
+- Re-checked 2026-11-26: the kit's source (`~/Developer/blobbi-kit`, HEAD 3cf5e44 of 2026-11-02; installed core
+  0.11.1, still the newest on npm) has gained relay routing and the house protocol, but still no 31124 write
+  helper (`planCareStateWrite`, `writeBlobbiStateSafely`, `fetchFreshBlobbiState` do not exist). The write path
+  stays blocked on those asks.
 
 ## Summary of findings
 
@@ -123,7 +127,8 @@ where they exist on this machine), then the plan. Nothing in Pixel writes canoni
   (`src/nostr/identity.ts:318-324`); activation re-verifies `pubkey === owner && verifyEvent(e)`
   (`src/nostr/activation.ts:219-228`).
 - Publishing: `relayPublisher` (one NRelay1 per relay, closed after; `src/nostr/publisher.ts:124-153`); relays
-  `relay.ditto.pub`, `relay.primal.net`, `relay.dreamith.to`; delivered means read back from at least one relay;
+  `relay.blobbi.pet` first (the primary since ec70501, 2026-11-11), then `relay.ditto.pub`, `relay.primal.net`,
+  `relay.dreamith.to`; delivered means read back from at least one relay;
   LIVE only with `VITE_BLOBBI_PUBLISH=live`, else an in-browser rehearsal (`src/nostr/relay-config.ts:27-52`).
 
 ## 6. The current companion and the canonical identity
@@ -249,7 +254,9 @@ What the Blobbi panel (U) shows under "Shared Blobbi care", for the Blobbi walki
   clock behind the checkpoint projects nothing. The projection is computed for display only: no event is built.
 - **States.** `none` (not a shared Blobbi), `loading` ("reading from the relays…"), `ready` (bars, "read N min
   ago", "(some relays silent)" when not every relay answered, "(asleep)" when the apps have it sleeping),
-  `missing` ("not found on the relays"), `unavailable` ("no relay answered"; the last state read stays on show).
+  `missing` ("not found on the relays": only once every secondary relay answered, `emptyIsKnown`; the primary's
+  empty answer alone is silence), `unavailable` ("no relay answered", or not enough of them to know; the last state
+  read stays on show).
 - **When.** On opening the panel; kept for two minutes per Blobbi, then read again; switching Blobbi starts
   afresh, and an answer that comes back for the previous Blobbi is dropped (`SharedCareService`). The network
   module is loaded on the first read, never on the first screen.
