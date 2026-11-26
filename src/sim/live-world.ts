@@ -6541,7 +6541,9 @@ export class LiveWorld {
           say(lang('say.noRoomFor', itemNoun('blobbi-pixel:resource:herb')));
           return;
         }
-        this.producers.set(this.containerKey(building), this.worldTime - Math.max(0, (this.worldTime - (this.producers.get(this.containerKey(building)) ?? building.placedAt)) - got * HERB_SECONDS));
+        // Growing stops at a full planter: time beyond HERB_MAX herbs is not banked (else it pays out press after press).
+        const grown = Math.min(HERB_MAX * HERB_SECONDS, this.worldTime - (this.producers.get(this.containerKey(building)) ?? building.placedAt));
+        this.producers.set(this.containerKey(building), this.worldTime - Math.max(0, grown - got * HERB_SECONDS));
         say(lang('bubble.gotN', { ...itemNoun('blobbi-pixel:resource:herb'), count: got, what: got === 1 ? itemLabel('blobbi-pixel:resource:herb') : itemPlural('blobbi-pixel:resource:herb') }));
         b.animator.react('happy', time, 0.8, 2);
         this.save();
