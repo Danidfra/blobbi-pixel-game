@@ -1524,7 +1524,10 @@ export class LiveWorld {
       this.sound('fail');
       return false;
     }
+    const held = this.equipped;
     if (!craft(this.inventory, recipe)) return false;
+    // The tool in hand went into the new one (an upgrade): the new one is in hand now.
+    if (held && this.inventory.count(held) === 0) this.equipped = isTool(recipe.output.item) ? recipe.output.item : null;
     this.stats.crafted++;
     this.tally.crafted++;
     if (recipe.output.item === ITEMS.axe.id) this.tally.axesCrafted++;
@@ -4727,6 +4730,8 @@ export class LiveWorld {
       // Net items in chests: taking out what was put in undoes its count (to and fro is not storing).
       if (toChest) this.tally.stored += n;
       else this.untally('stored', n);
+      // The tool in hand, put away: the paw is empty (and a line out ends with the rod).
+      if (toChest && this.equipped === item && this.inventory.count(item) === 0) this.equipped = null;
       this.sound(toChest ? 'store' : 'take');
       this.save();
     }

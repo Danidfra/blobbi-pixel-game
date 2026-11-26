@@ -9,6 +9,7 @@ import { LiveWorld } from '../src/sim/live-world';
 import { NEW_WORLD_SHELL_VARIANT } from '../src/carrier/types';
 import { memoryStore } from '../src/game/persistence';
 import { run, stand } from '../src/dev/scripted-play';
+import { recipeById } from '../src/game/crafting';
 
 const ROD = 'blobbi-pixel:tool:fishing-rod';
 
@@ -56,5 +57,32 @@ describe('the line and the rest', () => {
     live.equip(ROD);
     run(live, 2);
     expect(live.fishing).toBeNull(); // the old line is gone for good: re-equipping does not bring back a bite to reel
+  });
+
+});
+
+describe('the tool in hand follows the bag', () => {
+  it('a tool stored in a chest leaves the paw and no longer works', () => {
+    const live = fishing();
+    const chest = { id: 'chest:test', kind: 'chest', x: 0, y: 0, placedAt: 0, seed: 's' } as const;
+    expect(live.moveItems(chest, ROD, 1, true)).toBe(1);
+    expect(live.inventory.count(ROD)).toBe(0);
+    expect(live.equipped).toBeNull();
+    expect(live.fish()).toBe(false);
+  });
+
+  it('crafting the upgrade of the tool in hand puts the new tool in hand', () => {
+    const live = fishing();
+    const AXE = 'blobbi-pixel:tool:simple-axe';
+    const COPPER = 'blobbi-pixel:tool:copper-axe';
+    live.inventory.add(AXE, 1);
+    live.equip(AXE);
+    live.inventory.add('blobbi-pixel:material:copper-ore', 3);
+    live.inventory.add('blobbi-pixel:material:wood', 2);
+    (live.objectives.completed as Record<string, number>)['side-miner'] = 1;
+    (live as unknown as { nearStation: () => boolean }).nearStation = () => true;
+    expect(live.craftRecipe(recipeById('blobbi-pixel:recipe:copper-axe')!)).toBe(true);
+    expect(live.inventory.count(AXE)).toBe(0);
+    expect(live.equipped).toBe(COPPER);
   });
 });
