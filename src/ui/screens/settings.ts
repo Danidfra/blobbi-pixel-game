@@ -262,8 +262,14 @@ export class SettingsScreen implements Screen {
     g.para(note, x, cy + 3, 150, UI.muted, 6);
     const cx = x + 172;
     g.heading(t('settings.controls'), cx, y + 18, UI.accent);
-    CONTROLS.forEach((k, i) => g.text(t(k), cx, y + 30 + i * 9, UI.ink));
-    g.para(t('settings.controls.note'), cx, y + 30 + CONTROLS.length * 9 + 4, w - 174, UI.muted, 4);
+    // Each line wraps to the column when it must (Spanish and Portuguese on a portrait phone); otherwise one row each.
+    let ly = y + 30;
+    for (const k of CONTROLS)
+      for (const line of g.lines(t(k), w - 174)) {
+        g.text(line, cx, ly, UI.ink);
+        ly += 9;
+      }
+    g.para(t('settings.controls.note'), cx, ly + 4, w - 174, UI.muted, 4);
   }
 
   /** The ACCOUNT page: a friendly status, the buttons, and (on request) an explanation or the technical details. */

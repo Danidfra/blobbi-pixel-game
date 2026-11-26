@@ -101,20 +101,25 @@ export class InventoryScreen implements Screen {
   draw(g: Gfx, ui: GameUI, x: number, y: number, w: number, h: number): void {
     const live = ui.live!;
     const palette = ui.palette();
-    // Tabs.
+    // Tabs: one row, or a second when they do not fit (longer names on a narrow panel: Spanish on a portrait phone).
     let tx = x;
-    TABS.forEach((tab, i) => {
+    let ty = y;
+    for (const tab of TABS) {
       const n = bagEntries(ui, tab).length;
       const label = upper(`${tabLabel(tab)} ${n}`);
-      tx += g.button(label, tx, y, () => ((this.tab = tab), (this.index = 0)), { primary: this.tab === tab, w: g.measure(label) + 5 }) + 1;
-      void i;
-    });
+      const bw = g.measure(label) + 5;
+      if (tx > x && tx + bw > x + w) {
+        tx = x;
+        ty += 13;
+      }
+      tx += g.button(label, tx, ty, () => ((this.tab = tab), (this.index = 0)), { primary: this.tab === tab, w: bw }) + 1;
+    }
     // Grid.
     const list = bagEntries(ui, this.tab);
     this.index = Math.max(0, Math.min(this.index, list.length - 1));
-    const gy = y + 14;
+    const gy = ty + 14;
     // (A moored canoe's line takes the grid's last row.)
-    const rows = Math.floor((h - 14 - (live.boat && !live.boat.aboard ? 16 : 0)) / (SLOT + 2));
+    const rows = Math.floor((h - (gy - y) - (live.boat && !live.boat.aboard ? 16 : 0)) / (SLOT + 2));
     const row = Math.floor(this.index / COLS);
     if (row < this.scroll) this.scroll = row;
     if (row >= this.scroll + rows) this.scroll = row - rows + 1;
@@ -140,7 +145,8 @@ export class InventoryScreen implements Screen {
     // Details.
     const dx = x + COLS * (SLOT + 2) + 4;
     const dw = x + w - dx;
-    g.box(dx, gy, dw, h - 14, UI.panel, UI.line);
+    const dh = h - (gy - y); // (below the tabs, one row or two)
+    g.box(dx, gy, dw, dh, UI.panel, UI.line);
     const item = this.selected(ui);
     if (!item) return;
     const def = itemById(item)!;
@@ -170,6 +176,6 @@ export class InventoryScreen implements Screen {
     }
     if (qty >= limit) g.text(upper(t('bag.stackFull')), dx + 4, ly, UI.accent);
     const action = primaryAction(ui, item);
-    if (action) g.button(`${action.label} (ENTER)`, dx + 4, gy + h - 14 - 15, action.run, { primary: true });
+    if (action) g.button(`${action.label} (ENTER)`, dx + 4, gy + dh - 15, action.run, { primary: true });
   }
 }

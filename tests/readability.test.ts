@@ -95,6 +95,8 @@ const VIEWS: [string, number, number][] = [
   ['small phone', 667, 375],
   ['phone', 844, 390],
   ['desktop', 1280, 720],
+  ['portrait phone', 390, 844],
+  ['small portrait phone', 360, 640],
 ];
 
 describe('menus fit their words, in every language, at every size', () => {
