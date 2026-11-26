@@ -1,5 +1,5 @@
 /**
- * INPUT GUARDS: which key presses are the game's. Pure, so the rules are tested without a page (the handlers that use
+ * INPUT GUARDS: which presses are the game's (keys and pointers). Pure, so the rules are tested without a page (the handlers that use
  * them live in src/playground/main.ts).
  */
 
@@ -22,3 +22,15 @@ export const isSystemShortcut = (e: Modifiers): boolean => e.metaKey || e.ctrlKe
  * held, or the Blobbi would walk on by itself.
  */
 export const releasesHeldKeys = (code: string): boolean => code === 'MetaLeft' || code === 'MetaRight';
+
+/** The pointer event fields that tell a primary press from the others. */
+export interface PointerPress {
+  pointerType: string;
+  button: number;
+}
+
+/**
+ * A press that acts in the game: any touch or pen contact, or the main mouse button. A right or middle click is the
+ * browser's (its context menu, auto-scroll), never a tap on a menu button or a walk-to.
+ */
+export const isPrimaryPress = (e: PointerPress): boolean => e.pointerType !== 'mouse' || e.button === 0;

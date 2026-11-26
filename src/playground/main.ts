@@ -68,7 +68,7 @@ import { paletteFor } from '../world/generate';
 import { LiveRenderer, DEFAULT_LIVE_OPTIONS, type LiveRenderOptions } from '../render/live-render';
 import { GameUI, hudScale, readStoredSettings, settingsRecord } from '../ui/game-ui';
 import { hotbarIndexForKey, isTypingTarget, nextToolInCycle } from '../ui/hotbar';
-import { isSystemShortcut, releasesHeldKeys } from '../ui/input-guards';
+import { isPrimaryPress, isSystemShortcut, releasesHeldKeys } from '../ui/input-guards';
 import { AccountInvite, isBusy } from '../ui/account-invite';
 import { textPreference } from '../ui/surface';
 import { getLocale, initialLocale, loadLocale, LOCALE_KEY, onLocaleChange, setLocale, t } from '../i18n';
@@ -3821,8 +3821,11 @@ function zoomAt(next: number, sx: number, sy: number): void {
 }
 
 let drag: { x: number; y: number; panX: number; panY: number } | null = null;
+// A right or middle click is the browser's: no context menu over the game, and no press in it either.
+view.addEventListener('contextmenu', (e) => e.preventDefault());
 view.addEventListener('pointerdown', (e) => {
   view.focus();
+  if (!isPrimaryPress(e)) return;
   lastInputAt = performance.now();
   // Any touch (on the title, the intro or a menu too) switches the game to touch: bigger buttons, "tap" in tips.
   if (e.pointerType === 'touch' || e.pointerType === 'pen') touch.enabled = true;

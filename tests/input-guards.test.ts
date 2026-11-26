@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { isSystemShortcut, releasesHeldKeys } from '../src/ui/input-guards';
+import { isPrimaryPress, isSystemShortcut, releasesHeldKeys } from '../src/ui/input-guards';
 
 const none = { metaKey: false, ctrlKey: false, altKey: false };
 
@@ -24,9 +24,19 @@ describe('input guards', () => {
     expect(releasesHeldKeys('ShiftLeft')).toBe(false);
   });
 
+  it('a touch, a pen or the main mouse button presses; right and middle clicks do not', () => {
+    expect(isPrimaryPress({ pointerType: 'mouse', button: 0 })).toBe(true);
+    expect(isPrimaryPress({ pointerType: 'mouse', button: 1 })).toBe(false);
+    expect(isPrimaryPress({ pointerType: 'mouse', button: 2 })).toBe(false);
+    expect(isPrimaryPress({ pointerType: 'touch', button: 0 })).toBe(true);
+    expect(isPrimaryPress({ pointerType: 'pen', button: 0 })).toBe(true);
+  });
+
   it('the page uses them', () => {
     const main = readFileSync('src/playground/main.ts', 'utf8');
     expect(main).toContain('isSystemShortcut(e)');
     expect(main).toContain('releasesHeldKeys(e.code)');
+    expect(main).toContain('isPrimaryPress(e)');
+    expect(main).toMatch(/addEventListener\('contextmenu'/);
   });
 });
