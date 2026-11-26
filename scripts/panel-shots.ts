@@ -5,7 +5,7 @@
  *   npx tsx scripts/panel-shots.ts <label> [screen=care] [--shared=ready|loading|missing|unavailable|none]
  *
  * `--shared` picks the state of the care panel's shared block (default ready, with its bars).
- * Writes out/ui/<label>/<screen>-<locale>-<desktop|phone>.png (ignored by git).
+ * Writes out/ui/<label>/<screen>-<locale>-<desktop|phone|portrait>.png (ignored by git).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { generateTurtleWorld } from '../src/world/turtle-world';
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   await loadLocale('es');
   for (const locale of ['en', 'pt-BR', 'es'] as Locale[]) {
     setLocale(locale);
-    for (const [name, w, h] of [['desktop', 1280, 720], ['phone', 844, 390]] as const) {
+    for (const [name, w, h] of [['desktop', 1280, 720], ['phone', 844, 390], ['portrait', 390, 844]] as const) {
       const screen = new PixelBuffer(w, h);
       screen.data.fill(0xff1a1d24);
       ui.open(which);
@@ -69,6 +69,6 @@ async function main(): Promise<void> {
     }
   }
   setLocale('en');
-  console.log(`wrote 6 images to ${dir}/`);
+  console.log(`wrote 9 images to ${dir}/`);
 }
 void main();
