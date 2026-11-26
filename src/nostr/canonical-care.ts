@@ -9,6 +9,7 @@ import { applyBlobbiDecay, classifyBlobbiEvent, parseBlobbiEvent } from '@blobbi
 import { verifyEvent, type NostrEvent } from 'nostr-tools/pure';
 import { isWellFormedEvent } from './profile';
 import { queryRelays, BLOBBI_MARKER, type ProfileReadResult, type QueryOptions } from './relays';
+import { emptyIsKnown } from './relay-config';
 import type { SharedCare, SharedCareRead, SharedStats } from '../game/shared-care';
 
 export interface CanonicalCareReader {
@@ -81,7 +82,11 @@ export function pickCanonicalCare(events: readonly unknown[], owner: string, d: 
   return null;
 }
 
-/** The Blobbi's shared care from the relays: ready, missing (none holds it), or unavailable (none answered). */
+/**
+ * The Blobbi's shared care from the relays: ready, missing (none holds it), or unavailable (none answered). "Missing"
+ * is a fact only once every secondary relay answered (`emptyIsKnown`): the young primary relay may hold nothing of a
+ * Blobbi the others know, so its empty answer alone is silence, not absence.
+ */
 export async function readCanonicalCare(owner: string, d: string, deps: CanonicalCareDeps): Promise<SharedCareRead> {
   if (!HEX64.test(owner) || !deps.relays.length) return { status: 'unavailable' };
   const abort = new AbortController();
@@ -102,5 +107,6 @@ export async function readCanonicalCare(owner: string, d: string, deps: Canonica
   if (!res || res.reachable === 0) return { status: 'unavailable' };
   const partial = res.reachable < deps.relays.length;
   const care = pickCanonicalCare(res.events, owner, d, deps.verify);
-  return care ? { status: 'ready', care, partial } : { status: 'missing', partial };
+  if (care) return { status: 'ready', care, partial };
+  return emptyIsKnown(deps.relays, res) ? { status: 'missing', partial } : { status: 'unavailable' };
 }

@@ -115,9 +115,16 @@ describe('reading the shared care', () => {
 
   it('missing: the relays answered and none holds the Blobbi; partial when some did not answer', async () => {
     expect(await read(relays([[], [], []]))).toEqual({ status: 'missing', partial: false });
-    expect(await read(relays([[], 'down', []]))).toEqual({ status: 'missing', partial: true });
+    // READ_RELAYS is the primary first, then the three secondaries: only the primary down still lets absence be known.
+    expect(await read(relays(['down', [], [], []]))).toEqual({ status: 'missing', partial: true });
     const res = await read(relays([[state({ stats: { hunger: 42 }, decayAt: T0 })], 'down', 'down']));
     expect(res).toMatchObject({ status: 'ready', partial: true });
+  });
+
+  it('an empty answer from the primary alone, or with a secondary silent, is not "missing": it is unavailable', async () => {
+    expect(await read(relays([[], 'down', 'down', 'down']))).toEqual({ status: 'unavailable' });
+    expect(await read(relays([[], 'down', [], []]))).toEqual({ status: 'unavailable' });
+    expect(await read(relays([[], [], 'hang', []]), 150)).toEqual({ status: 'unavailable' });
   });
 
   it('relay failures: every relay refused or hung means unavailable (within the deadline), never a guess', async () => {
