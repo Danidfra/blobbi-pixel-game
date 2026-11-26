@@ -4101,6 +4101,11 @@ export class LiveWorld {
     const f = this.fishing;
     if (!f) return;
     const time = this.clock.time;
+    // The line belongs to the rod: another tool in the paw (or none) ends it, and nothing bites an empty hand.
+    if (!this.equipped || !toolSupports(this.equipped, 'fish')) {
+      this.fishing = null;
+      return;
+    }
     this.brain.manual(time); // the Blobbi holds still while the line is out
     if (this.movedLastStep) {
       this.fishing = null;

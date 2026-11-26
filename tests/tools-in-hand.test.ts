@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { generateTurtleWorld } from '../src/world/turtle-world';
-import { LiveWorld, IDLE_INPUT } from '../src/sim/live-world';
+import { LiveWorld } from '../src/sim/live-world';
 import { NEW_WORLD_SHELL_VARIANT } from '../src/carrier/types';
 import { memoryStore } from '../src/game/persistence';
 import { run, stand } from '../src/dev/scripted-play';
@@ -44,5 +44,17 @@ describe('the line and the rest', () => {
     run(live, 2);
     expect(live.fishing).toBeNull();
     expect(live.brain.state).toBe('rest');
+  });
+
+  it('swapping the rod for another tool mid-cast ends the line: nothing can be landed after', () => {
+    const live = fishing();
+    live.inventory.add('blobbi-pixel:tool:simple-axe', 1);
+    expect(live.fish()).toBe(true);
+    live.equip('blobbi-pixel:tool:simple-axe');
+    run(live, 2);
+    expect(live.fishing).toBeNull();
+    live.equip(ROD);
+    run(live, 2);
+    expect(live.fishing).toBeNull(); // the old line is gone for good: re-equipping does not bring back a bite to reel
   });
 });
