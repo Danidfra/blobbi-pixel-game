@@ -40,23 +40,29 @@ discovery · bag → Read for a note item.
 - `QuestContent` (`src/content/quests.ts`): id, type (main, side, discovery), chapter, title, story, hint, requires,
   goal, reward. Goals: a tally count, having an item, a finished building kind, decorations placed, a discovery found,
   friendship level, or `all` / `any` combinations.
-- `Tally` (`src/game/objectives.ts`): 28 counters of what the player did (collected, crafted, felled, mined, plots,
+- `Tally` (`src/game/objectives.ts`): 29 counters of what the player did (collected, crafted, felled, mined, plots,
   planted, watered, harvested, fed, petted, built, decorations, entered, furnished, stored, cooked, mealsFed,
-  discoveries, looked, sat, played, talked, flowers, shells, foraged, favourites, fished, axesCrafted).
+  discoveries, looked, sat, played, talked, flowers, shells, foraged, favourites, fished, axesCrafted, waved).
+  Most only go up. Five follow what stands rather than every press: `built`, `decorations` and `furnished` go down
+  when a piece is picked back into the bag, `plots` when an empty plot is filled in, and `stored` when items are
+  taken out of a chest (net items stored), never below 0, so one piece placed again and again is not several.
+  `petted` counts only attention that counted (outside the cooldown, awake).
 - `ObjectiveState`: `completed` (id → world time), the active request, requests done, next request time, lore found.
 - `RequestContent`: tally goal counted from a baseline when the request starts.
 
 ## 6. State transitions
 locked (prerequisites not done) → active → done (once; `advanceObjectives` repeats until nothing more completes).
-Request: none → active (at or after `nextRequestAt`, after the shelter) → done → none until the next dawn.
+Request: none → active (at or after `nextRequestAt`, after the shelter) → done → none until the next dawn. A met
+request whose whole reward would not fit in the bag stays active (the Blobbi says once that there is no room) and
+completes as soon as it fits; its progress never reads below 0.
 
 ## 7. Persistence
 Save fields `tally`, `objectives` (completed, request, requestsDone, nextRequestAt, lore), `found`. Main chapter 1
 keeps the M4 objective ids, so migrated saves never earn rewards twice.
 
 ## 8. Edge cases
-Only the player's own actions count (autonomous looks do not); opening menus never counts; a reward that does not fit
-in the bag says what did not fit; an unknown quest id in a save is dropped. A visitor (M7) neither advances the
+Only the player's own actions count (autonomous looks do not); opening menus never counts; a quest reward that does
+not fit in the bag says what did not fit (`say.noRoomFor`), a request's reward waits for room (§6); an unknown quest id in a save is dropped. A visitor (M7) neither advances the
 host's quests nor receives rewards.
 
 ## 9. Failure handling
