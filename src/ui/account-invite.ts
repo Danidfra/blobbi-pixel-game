@@ -146,7 +146,8 @@ export class AccountInvite {
     if (this.visible) {
       // Connected meanwhile, or the card was left alone long enough: it leaves without a fuss.
       if (this.connected()) this.visible = false;
-      else if (o.running && !o.busy && (this.visibleFor += dt) >= SHOW_SECONDS) this.answer('later');
+      // A frame gap of a second or more is time away (a hidden tab), not time the card was on show.
+      else if (o.running && !o.busy && dt < 1 && (this.visibleFor += dt) >= SHOW_SECONDS) this.answer('later');
       return;
     }
     if (o.running && o.inputAge <= IDLE_AFTER && dt > 0 && dt < 1) {

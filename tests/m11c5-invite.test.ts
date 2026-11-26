@@ -160,6 +160,14 @@ describe('answers, frequency and memory', () => {
     expect(loadInvite(store).answer).toBe('later');
   });
 
+  it('time away (one huge frame gap, a hidden tab) does not count as time on show', () => {
+    const store = memoryStore();
+    const inv = ready(store);
+    inv.update(SHOW_SECONDS * 3, { running: true, inputAge: 1, world: fond(), busy: false });
+    expect(inv.visible).toBe(true);
+    expect(loadInvite(store).answer).not.toBe('later');
+  });
+
   it('a damaged or old record is read as new (never throws)', () => {
     const store = memoryStore();
     for (const raw of ['{', 'null', '{"version":9}', '{"version":1,"activeSeconds":-5,"optOut":"yes","shownAt":"x"}']) {
