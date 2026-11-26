@@ -339,7 +339,17 @@ interface LandMood {
   /** A songbird: it came with a ribbon; where it left it. */
   ribbon: boolean;
   drop: LandPt | null;
+  /** Clock time it was last in view: a mood outlives a short absence (LAND_MOOD_GRACE), then is forgotten. */
+  lastSeen: number;
 }
+
+/**
+ * Seconds a creature's mood (its trust, its phase, what it has shown) is kept while it is out of view: a step
+ * indoors, a walk to the edge of the 260 px it is followed within, a teleport. Longer than that, it is forgotten.
+ */
+export const LAND_MOOD_GRACE = 20;
+/** World seconds a Keeper trace a creature showed (a dug-up button, a ribbon left at a feeder) stays there to find. */
+export const KEEPER_TRACE_SECONDS = 300;
 
 /** Dust motes alive in a room at most (interior atmosphere). */
 export const MAX_MOTES = 6;
@@ -2837,16 +2847,25 @@ export class LiveWorld {
   }
 
   /**
-   * Keeper traces a creature has just shown (Living Home): a button a bunny dug up, a ribbon a songbird left at the
-   * feeder. Findable like any discovery while that creature's appearance lasts; the creature's own memory holds
-   * them, so nothing is saved until they are found.
+   * Keeper traces a creature has shown (Living Home): a button a bunny dug up, a ribbon a songbird left at the feeder.
+   * Findable like any discovery for KEEPER_TRACE_SECONDS of world time, whether or not the creature is still about
+   * (the player may need a moment to come over); kept in memory only, so nothing is saved until they are found.
    */
+  private readonly keeperTraces = new Map<'keeper:button' | 'keeper:ribbon', { x: number; y: number; until: number }>();
+  /** A trace shown and still there to find: no other creature brings a second one meanwhile. */
+  private traceWaiting(id: 'keeper:button' | 'keeper:ribbon'): boolean {
+    const tr = this.keeperTraces.get(id);
+    return !!tr && this.worldTime < tr.until && !this.found.has(id);
+  }
   private shownSpots(): DiscoverySpot[] {
     if (this.inside) return [];
     const out: DiscoverySpot[] = [];
-    for (const m of this.landMoods.values()) {
-      if (m.shown && m.dig && !this.found.has('keeper:button')) out.push({ id: 'keeper:button', x: m.dig.x, y: m.dig.y, content: keeperContent('keeper:button') });
-      if (m.drop && !this.found.has('keeper:ribbon')) out.push({ id: 'keeper:ribbon', x: m.drop.x, y: m.drop.y, content: keeperContent('keeper:ribbon') });
+    for (const [id, tr] of this.keeperTraces) {
+      if (this.found.has(id) || this.worldTime >= tr.until) {
+        this.keeperTraces.delete(id);
+        continue;
+      }
+      out.push({ id, x: tr.x, y: tr.y, content: keeperContent(id) });
     }
     return out;
   }
@@ -3355,7 +3374,8 @@ export class LiveWorld {
       for (const s of this.landSightings()) {
         seen.add(s.id);
         let m = this.landMoods.get(s.id);
-        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, approachHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false, led: false, dig: null, shown: false, digTick: -1, ribbon: s.kind === 'songbird' && s.traits.bold > 0.35 && (birdCarriesRibbon(s.seed) || this.keeperDev.ribbon) && !this.visitor, drop: null }));
+        if (!m) this.landMoods.set(s.id, (m = { frozen: 0, hiddenUntil: 0, bolt: null, rest: null, gone: 0, noticed: false, still: 0, lastNote: 0, phase: 'routine', since: time, hop: null, curiousGap: 0, curiousHops: 0, approachHops: 0, lastHop: 0, stay: 0, trust: false, haste: 0, cheered: false, led: false, dig: null, shown: false, digTick: -1, ribbon: s.kind === 'songbird' && s.traits.bold > 0.35 && (birdCarriesRibbon(s.seed) || this.keeperDev.ribbon) && !this.visitor, drop: null, lastSeen: time }));
+        m.lastSeen = time;
         const view = this.poseLand(s, m, bp, dt, time);
         if (!view) continue;
         views.push(view);
@@ -3372,7 +3392,7 @@ export class LiveWorld {
         }
       }
     }
-    for (const id of this.landMoods.keys()) if (!seen.has(id)) this.landMoods.delete(id);
+    for (const [id, m] of this.landMoods) if (!seen.has(id) && time - m.lastSeen > LAND_MOOD_GRACE) this.landMoods.delete(id);
     this.landViews = views;
   }
 
@@ -3400,7 +3420,7 @@ export class LiveWorld {
     }
     if (s.kind === 'bunny') return this.poseBunny(s, m, bp, dt, time);
     // The songbird (with a ribbon in its beak, now and then: Keeper encounter C).
-    const carrying = m.ribbon && !m.drop && !this.found.has('keeper:ribbon');
+    const carrying = m.ribbon && !m.drop && !this.found.has('keeper:ribbon') && !this.traceWaiting('keeper:ribbon');
     const bird = (x: number, y: number, pose: LandPose, dir: 1 | -1): LandView => (carrying ? { ...view(x, y, pose, dir), ribbon: true } : view(x, y, pose, dir));
     if (m.gone) {
       const k = (time - m.gone) / BIRD_FLIGHT;
@@ -3425,6 +3445,7 @@ export class LiveWorld {
       if (carrying) {
         // It leaves the ribbon at the feeder's foot as it sings: there to find while it stays.
         m.drop = this.feederFoot(s.home);
+        this.keeperTraces.set('keeper:ribbon', { x: m.drop.x, y: m.drop.y, until: this.worldTime + KEEPER_TRACE_SECONDS });
         const hs = hash32(`${s.id}:ribbon`);
         for (let i = 0; i < 4; i++) this.islandParticles.spawn({ kind: 'sparkle', x: m.drop.x + (((hs >>> (i * 4)) % 5) - 2), y: m.drop.y - 2 - ((hs >>> (i * 4 + 2)) % 4), vx: 0, vy: 0, life: 0.5, color: hex('#ffd0f0'), phase: 0, front: true });
       }
@@ -3625,7 +3646,7 @@ export class LiveWorld {
           enter('wary');
           return sitting();
         }
-        if (!m.led && time - m.since >= BUNNY_LEAD_AFTER && !this.visitor && (bunnyLeads(s.seed) || this.keeperDev.lead) && !this.found.has('keeper:button')) {
+        if (!m.led && time - m.since >= BUNNY_LEAD_AFTER && !this.visitor && (bunnyLeads(s.seed) || this.keeperDev.lead) && !this.found.has('keeper:button') && !this.traceWaiting('keeper:button')) {
           // Keeper encounter B: now and then, a bunny that has settled in leads the Blobbi a few hops to something buried.
           m.led = true;
           const spot = this.land.digSpot(at, bp, hash32(`${s.id}:dig`));
@@ -3659,6 +3680,7 @@ export class LiveWorld {
         if (time - m.since >= BUNNY_DIG) {
           // Found: it hops a short hop aside and sits by it, so the Blobbi can come and see.
           m.shown = true;
+          if (m.dig) this.keeperTraces.set('keeper:button', { x: m.dig.x, y: m.dig.y, until: this.worldTime + KEEPER_TRACE_SECONDS });
           const side = this.land.hopAlong(at, { x: at.x + (bp.x >= at.x ? -8 : 8), y: at.y }, 8) ?? this.land.hopAlong(at, { x: at.x, y: at.y + 6 }, 6);
           if (side) m.hop = { from: { x: at.x, y: at.y }, to: side, t0: time };
           const hs = hash32(`${s.id}:found`);

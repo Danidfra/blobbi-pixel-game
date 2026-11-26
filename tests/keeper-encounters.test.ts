@@ -9,7 +9,7 @@
  *    it sings; a shy bird never; never once it has been found.
  */
 import { describe, expect, it } from 'vitest';
-import { IDLE_INPUT, LiveWorld } from '../src/sim/live-world';
+import { IDLE_INPUT, KEEPER_TRACE_SECONDS, LAND_MOOD_GRACE, LiveWorld } from '../src/sim/live-world';
 import { KEEPER_DISCOVERIES, ALL_DISCOVERIES } from '../src/content/discoveries';
 import { loreById } from '../src/content/lore';
 import { CAIRN_REACH, cairnStones, placeKeeperCairn } from '../src/game/keeper';
@@ -215,7 +215,7 @@ describe('B. the bunny\'s discovery', () => {
     expect(live.hiddenDiscoveries.some((d) => d.id === 'keeper:button')).toBe(false);
   });
 
-  it('every other appearance leads, never once the button is found; not picked up, the find goes with the bunny; the same every run', () => {
+  it('every other appearance leads, never once the button is found; not picked up, the find stays a while after the bunny; the same every run', () => {
     expect([0, 1, 2, 3].map(bunnyLeads)).toEqual([true, false, true, false]);
     const plain = grown();
     const s1 = beside(plain, (x) => !bunnyLeads(x.seed));
@@ -227,7 +227,7 @@ describe('B. the bunny\'s discovery', () => {
     const s2 = beside(found, (x) => bunnyLeads(x.seed));
     still(found, BUNNY_LEAD_AFTER + 2);
     expect(['beside', 'leaving']).toContain(mood(found, s2.id)?.phase);
-    // Shown but not taken: gone with the appearance.
+    // Shown but not taken: still there after the bunny has gone (the player may need a moment), then gone.
     const live = grown();
     const s3 = beside(live, (x) => bunnyLeads(x.seed));
     expect(untilPhase(live, s3.id, 'showing', 12)).toBe(true);
@@ -235,7 +235,11 @@ describe('B. the bunny\'s discovery', () => {
     const shownHere = () => live.hiddenDiscoveries.some((d) => d.id === 'keeper:button' && d.x === dug.x && d.y === dug.y);
     expect(shownHere()).toBe(true);
     still(live, s3.span + 2);
-    expect(mood(live, s3.id)).toBeUndefined();
+    expect(shownHere()).toBe(true);
+    still(live, LAND_MOOD_GRACE + 1);
+    expect(mood(live, s3.id)).toBeUndefined(); // the bunny is forgotten, its find is not
+    expect(shownHere()).toBe(true);
+    (live as unknown as { timeOffset: number }).timeOffset += KEEPER_TRACE_SECONDS;
     expect(shownHere()).toBe(false); // (another bunny about may be showing its own by now)
     expect(live.found.has('keeper:button')).toBe(false);
     // Determinism: the dig spot and the moments agree between two worlds.
@@ -350,6 +354,42 @@ describe('D. the dev tools\' switches (never saved; the production odds untouche
     expect(nextBunny!.s.kind).toBe('bunny');
     expect(bird.devNextLand('songbird', (x) => x.traits.bold > 0.35)?.s.kind).toBe('songbird');
     expect(grown().devNextLand('songbird')).toBeNull(); // no feeder, no songbird
+  });
+});
+
+describe('E. an encounter outlives a short absence', () => {
+  /** Out of view (a step indoors, a walk past the 260 px creatures are followed within): the island shows no one. */
+  function hideable(live: LiveWorld) {
+    const land = live.land;
+    const real = land.at.bind(land);
+    let hidden = false;
+    land.at = (...a: Parameters<typeof real>) => (hidden ? [] : real(...a));
+    return (h: boolean) => (hidden = h);
+  }
+
+  it('a bunny beside the Blobbi keeps its trust and its phase through a few seconds out of view', () => {
+    const live = grown();
+    const hide = hideable(live);
+    const s = beside(live);
+    const before = mood(live, s.id)!;
+    hide(true);
+    still(live, 5);
+    expect(live.landViews.some((v) => v.id === s.id)).toBe(false);
+    hide(false);
+    live.update(1 / 60, IDLE_INPUT);
+    const after = mood(live, s.id)!;
+    expect(after).toBe(before); // the same memory, not a fresh one
+    expect((after as unknown as { trust: boolean }).trust).toBe(true);
+    expect(['beside', 'leaving']).toContain(after.phase);
+  });
+
+  it('longer than the grace, it is forgotten', () => {
+    const live = grown();
+    const hide = hideable(live);
+    const s = beside(live);
+    hide(true);
+    still(live, LAND_MOOD_GRACE + 1);
+    expect(mood(live, s.id)).toBeUndefined();
   });
 });
 
