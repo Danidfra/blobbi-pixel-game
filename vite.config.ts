@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
+import { configDefaults } from 'vitest/config';
 import { PUBLISH_RELAYS, READ_RELAYS } from './src/nostr/relay-config';
 import { checkTravelBuild } from './src/game/travel-build';
 
@@ -48,6 +49,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    // Performance budgets run on their own, one worker (`npm run test:perf`, vitest.perf.config.ts).
+    exclude: [...configDefaults.exclude, 'tests/perf/**'],
     testTimeout: 60000,
   },
 });

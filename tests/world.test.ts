@@ -133,20 +133,5 @@ describe('world generation', () => {
     expect(full.data).not.toEqual(noTerrain.data);
     for (const b of [full, noVeg, noStruct, noTerrain]) expect(() => b.validate()).not.toThrow();
   });
-
-  // KI-34 (fixed in M10 phase B): this used to time one run by the wall clock, so in the full parallel suite —
-  // nine other test processes on the same cores — a busy moment doubled it (3.3 s measured; 0.5 s alone). It now
-  // times this process's own CPU (vitest runs each file in its own process) and keeps the fastest of three runs,
-  // which is what the budget is about: a real slowdown makes every run slow, interference only some.
-  it('generates a default world quickly', () => {
-    let best = Infinity;
-    for (let i = 0; i < 3; i++) {
-      const c0 = process.cpuUsage();
-      const w = generateWorld('perf');
-      renderWorld(w);
-      const c = process.cpuUsage(c0);
-      best = Math.min(best, (c.user + c.system) / 1000);
-    }
-    expect(best).toBeLessThan(1500);
-  });
+  // The CPU budget for generating and drawing a default world (KI-34) is in tests/perf (`npm run test:perf`).
 });

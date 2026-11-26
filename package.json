@@ -12,8 +12,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:perf": "vitest run -c vitest.perf.config.ts",
     "seeds": "tsx scripts/render-seeds.ts",
-    "check": "npm run typecheck && npm run test && npm run build",
+    "check": "npm run typecheck && npm run test && npm run test:perf && npm run build",
     "perf": "tsx scripts/perf.ts",
     "blobbi": "tsx scripts/blobbi-sheet.ts",
     "icons": "tsx scripts/app-icons.ts"

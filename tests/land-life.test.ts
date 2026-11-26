@@ -130,9 +130,8 @@ describe('land life: what is about', () => {
     expect(wet.crab).toBeGreaterThan(0);
   });
 
-  it('is bounded and cheap, and every routine step stands on dry ground', () => {
+  it('is bounded, and every routine step stands on dry ground (its cost: tests/perf)', () => {
     const land = grown().land;
-    const t0 = performance.now();
     let most = 0;
     for (let t = 0; t < DAY_SECONDS; t += 0.5) {
       const list = land.at(t, 0, PERCH);
@@ -148,7 +147,6 @@ describe('land life: what is about', () => {
     }
     expect(most).toBeLessThanOrEqual(MAX_LAND_CREATURES);
     expect(MAX_LAND_CREATURES).toBe(Object.values(LAND_SCHEDULE).reduce((n, s) => n + s.lanes, 0));
-    expect(performance.now() - t0).toBeLessThan(2500);
   });
 
   it('has a character: boldness and pace vary between appearances and shrink the reaction reach', () => {

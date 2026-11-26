@@ -44,8 +44,9 @@ Event kinds 31124, 11125 and 31126 are Blobbi ecosystem conventions, not NIPs in
 ```
 npm install
 npm run dev        # http://127.0.0.1:5177, open the Play tab
-npm run check      # typecheck + tests + build
-npm test           # vitest
+npm run check      # typecheck + tests + performance budgets + build
+npm test           # vitest: the correctness suite (add --maxWorkers=3 on a busy machine, KI-61)
+npm run test:perf  # the performance budgets alone, one worker (tests/perf)
 npm run seeds      # many world seeds to PNG + a contact sheet
 npm run perf       # headless frame-cost measurement
 npx tsx scripts/check-docs.ts        # documentation links and source paths
