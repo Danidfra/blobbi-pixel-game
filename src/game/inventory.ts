@@ -90,9 +90,13 @@ export class Inventory {
   /** Rebuild from a snapshot; entries over the stack limit are clamped, invalid ones dropped. */
   static fromSnapshot(snapshot: InventorySnapshot, maxStack?: (item: string) => number): Inventory {
     const inv = new Inventory(snapshot.context, maxStack);
-    for (const e of snapshot.items ?? []) {
-      if (typeof e.item !== 'string' || !Number.isInteger(e.quantity) || e.quantity <= 0) continue;
-      inv.stacks.set(e.item, Math.min(e.quantity, inv.maxStack(e.item)));
+    // A save is data from disk: anything not a list of {item, quantity} is dropped, never thrown on.
+    const items: unknown[] = Array.isArray(snapshot.items) ? snapshot.items : [];
+    for (const raw of items) {
+      if (!raw || typeof raw !== 'object') continue;
+      const e = raw as Partial<InventoryEntry>;
+      if (typeof e.item !== 'string' || !Number.isInteger(e.quantity) || (e.quantity as number) <= 0) continue;
+      inv.stacks.set(e.item, Math.min(e.quantity as number, inv.maxStack(e.item)));
     }
     inv.revision = Number.isInteger(snapshot.revision) ? snapshot.revision : 0;
     return inv;

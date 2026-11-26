@@ -175,6 +175,27 @@ describe('inventory', () => {
     expect(back.revision).toBe(inv.revision);
     expect(Inventory.fromSnapshot({ version: 1, context: 'c', revision: 0, items: [{ item: 'bad', quantity: -1 }, { item: 'ok', quantity: 1 }] }).entries()).toEqual([{ item: 'ok', quantity: 1 }]);
   });
+
+  it('a damaged snapshot (items not a list, or holes in it) loads what is sound instead of throwing', () => {
+    const bad = (items: unknown) => Inventory.fromSnapshot({ version: 1, context: 'c', revision: 0, items } as never).entries();
+    expect(bad({})).toEqual([]);
+    expect(bad('stone')).toEqual([]);
+    expect(bad([null, 7, 'x', { item: 'ok', quantity: 2 }])).toEqual([{ item: 'ok', quantity: 2 }]);
+  });
+
+  it('a save whose inventory is damaged still starts the island (with the sound part of the bag)', () => {
+    const store = memoryStore();
+    const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16, { store });
+    live.save();
+    const key = saveKey(live.identity);
+    const raw = JSON.parse(store.get(key)!);
+    raw.inventory.items = [null, ...raw.inventory.items];
+    store.set(key, JSON.stringify(raw));
+    expect(() => new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16, { store })).not.toThrow();
+    raw.inventory.items = {};
+    store.set(key, JSON.stringify(raw));
+    expect(() => new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16, { store })).not.toThrow();
+  });
 });
 
 describe('persistence', () => {
