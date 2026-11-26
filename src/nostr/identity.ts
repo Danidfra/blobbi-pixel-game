@@ -151,6 +151,15 @@ export class IdentityService implements IdentityPort {
     }
   }
 
+  /** How the vault came to keep this identity (`generated` here or `restored` from a backup); null when unknown. */
+  private async vaultOrigin(owner: string): Promise<'generated' | 'restored' | null> {
+    try {
+      return (await this.o.vault.identity(owner))?.origin ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async makeBackup(owner: string, password: string, lines: readonly string[]): Promise<IdentityResult<{ fileName: string; text: string }>> {
     try {
       const ncryptsec = await this.o.vault.exportBackup(owner, password);
@@ -418,8 +427,11 @@ export class IdentityService implements IdentityPort {
       const sign = b.ownerKind === 'guest' ? (t: EventTemplate) => this.o.vault.sign(b.owner, t) : this.o.accountSigner;
       if (!sign) return fail('sign-failed');
       const mode = this.publishMode;
-      // The owner may have a profile out there already (an account, or this identity shared another Blobbi before).
-      const mayHaveProfile = b.ownerKind === 'account' || ownerRuns(this.o.store, b.owner, mode).some((r) => r.d !== d && (r.stage === 'done' || r.stage === 'confirmed' || r.accepted.profile.length > 0)) || readGuestBlobbis(this.o.store).some((x) => x.owner === b.owner && x.d !== d && !!x.activatedAt);
+      // The owner may have a profile out there already: an account, an identity restored from a backup (a Recovery Key
+      // or Protected Key may be a key other Blobbi apps have used, and its Blobbis may come back with no local run),
+      // or this identity shared another Blobbi before. Only a key generated on this device with no share behind it
+      // cannot have one; an identity the vault cannot describe is taken as one that may.
+      const mayHaveProfile = b.ownerKind === 'account' || (await this.vaultOrigin(b.owner)) !== 'generated' || ownerRuns(this.o.store, b.owner, mode).some((r) => r.d !== d && (r.stage === 'done' || r.stage === 'confirmed' || r.accepted.profile.length > 0)) || readGuestBlobbis(this.o.store).some((x) => x.owner === b.owner && x.d !== d && !!x.activatedAt);
       await activate({ facts: { owner: b.owner, petId: b.petId, name: b.name, bornAt: b.bornAt }, consent, backupVerified, ownerKind: b.ownerKind, mayHaveProfile }, { store: this.o.store, publisher: this.o.publisher, sign: this.here(sign), now: this.now, sleep: this.o.sleep });
       // Events of this registration signed in an earlier visit (a resumed run) or adopted from the relays: the player
       // pressed SHARE for them now, so what is still owed of them in this visit is this publication's too.

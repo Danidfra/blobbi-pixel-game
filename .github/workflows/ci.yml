@@ -1,0 +1,50 @@
+# CI: typecheck, tests and the production build on every pull request and on every push to develop or main, plus
+# an audit of the runtime dependencies. Read-only: no secrets, no deployment, no publishing, no pull_request_target.
+# Third-party actions are pinned to full commit SHAs (the release tag is in the comment); bump both together.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node (the engines floor, package.json ">=22")
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (lockfile only)
+        run: npm ci
+
+      # The steps of `npm run check`, one by one (an argument after `npm run check --` would reach only the build).
+      - name: Typecheck
+        run: npm run typecheck
+
+      # KI-61: a full parallel run on a loaded machine hits the generation-heavy files' limits; three workers, never
+      # longer timeouts.
+      - name: Test
+        run: npm test -- --maxWorkers=3
+
+      - name: Build
+        run: npm run build
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
