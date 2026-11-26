@@ -99,6 +99,25 @@ describe('joy from the living world', () => {
     expect(live.care.happiness).toBeCloseTo(50, 0);
   });
 
+  it('a creature out of sight for a moment (a step indoors, a walk away) and back does not cheer twice', () => {
+    const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16, { store: memoryStore() });
+    live.brain.enabled = false;
+    const b = live.blobbi;
+    const bird: LandSighting = { id: 'songbird:0:7', kind: 'songbird', lane: 0, slot: 7, home: { x: b.x + 30, y: b.y }, age: 5, span: 1000, seed: 1, traits: { bold: 0.9, pace: 1 }, dir: 1 };
+    let show = true;
+    (live as unknown as { land: { at: () => LandSighting[] } }).land.at = () => (show ? [{ ...bird }] : []);
+    live.care.happiness = 10;
+    run(live, 150);
+    expect(live.care.happiness).toBe(10 + JOY.song);
+    for (let round = 0; round < 3; round++) {
+      show = false; // its mood is forgotten while it is not in view
+      run(live, 1);
+      show = true;
+      run(live, 150);
+    }
+    expect(live.care.happiness).toBe(10 + JOY.song);
+  });
+
   it('the music box: +2 per play, twenty seconds apart, on its own gate beside the decorations\', and never past 100', () => {
     const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16, { store: memoryStore() });
     live.brain.enabled = false;

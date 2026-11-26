@@ -213,6 +213,12 @@ export const HARVEST_POP_SECONDS = 0.8;
 const MAX_DRAWN_BETWEEN = 3;
 /** A herb planter grows one herb per this many seconds of world time, holding up to HERB_MAX. */
 export const HERB_SECONDS = 240;
+/**
+ * A creature appearance cheers the Blobbi once: its id is unique to its time slot and it stays at most 44 s, so a
+ * gate longer than any stay means once per appearance, even when its mood is forgotten (out of sight, a step
+ * indoors) and made afresh on the way back.
+ */
+export const APPEARANCE_JOY_GATE = 120;
 export const HERB_MAX = 3;
 /** Seconds a fish's bite lasts: E within them reels it in. */
 export const BITE_SECONDS = 1.2;
@@ -2155,6 +2161,8 @@ export class LiveWorld {
     const last = this.joyAt.get(source);
     if (last !== undefined && this.worldTime - last < cooldown) return false;
     this.joyAt.set(source, this.worldTime);
+    // One entry per creature appearance accumulates: forget the long-past ones (their ids never come back).
+    if (this.joyAt.size > 64) for (const [k, t] of this.joyAt) if (this.worldTime - t > APPEARANCE_JOY_GATE) this.joyAt.delete(k);
     addHappiness(this.care, amount);
     return true;
   }
@@ -3412,7 +3420,7 @@ export class LiveWorld {
       // A tame bird sings to a Blobbi that keeps still: a note now and then (from a hash, never from a stream).
       if (!m.cheered) {
         m.cheered = true;
-        this.cheerFrom(`songbird:${s.id}`, JOY.song, 0);
+        this.cheerFrom(`songbird:${s.id}`, JOY.song, APPEARANCE_JOY_GATE);
       }
       if (carrying) {
         // It leaves the ribbon at the feeder's foot as it sings: there to find while it stays.
@@ -3588,7 +3596,7 @@ export class LiveWorld {
           m.stay = BUNNY_STAY.min + (s.seed % (BUNNY_STAY.max - BUNNY_STAY.min + 1));
           if (!m.cheered) {
             m.cheered = true;
-            this.cheerFrom(`bunny:${s.id}`, JOY.bunny, 0);
+            this.cheerFrom(`bunny:${s.id}`, JOY.bunny, APPEARANCE_JOY_GATE);
           }
           b.animator.state.direction = Math.abs(at.x - b.x) > Math.abs(at.y - b.y) ? (at.x > b.x ? 'right' : 'left') : at.y > b.y ? 'down' : 'up';
           b.animator.react('happy', time, 1.5, 2);
