@@ -1431,8 +1431,21 @@ export class LiveWorld {
       this.absentKey = key;
       this.stagesKey = stages;
       this.rebuildIsland();
+      this.stepClearIfStuck();
       if (returned) this.save();
     }
+  }
+
+  /**
+   * Something grew solid where the Blobbi stands (a sapling past its seedling stage, a rock re-forming from its
+   * deposit, a tree regrowing): it steps to the nearest free ground instead of being held there for good.
+   */
+  private stepClearIfStuck(): void {
+    if (this.inside || this.boat?.aboard) return;
+    const b = this.blobbi;
+    if (this.islandCollision.canStand(b.x, b.y, b.footRx, b.footRy)) return;
+    const spot = this.islandCollision.nearestFree(b.x, b.y, b.footRx, b.footRy);
+    if (spot) Object.assign(b, { x: spot.x, y: spot.y });
   }
 
   /** Grown trees standing now (felled, cleared or regrowing ones do not count). */
@@ -6352,6 +6365,7 @@ export class LiveWorld {
         this.islandCollision.blockEllipse(t.placement.x, t.placement.y, s.footRx, Math.max(1, s.footRy));
         t.solid = true;
         this.islandNav.rebuild(t.placement.x - 16, t.placement.y - 12, t.placement.x + 16, t.placement.y + 12);
+        this.stepClearIfStuck();
       }
     }
     if (this.bubble && time >= this.bubble.until) this.bubble = null;
