@@ -2,8 +2,9 @@
  * PANEL SHOTS: a menu panel rendered headless at desktop and phone sizes, in every language, for a look at its
  * words and bars without a browser. Deterministic for a given code state.
  *
- *   npx tsx scripts/panel-shots.ts <label> [screen=care]
+ *   npx tsx scripts/panel-shots.ts <label> [screen=care] [--shared=ready|loading|missing|unavailable|none]
  *
+ * `--shared` picks the state of the care panel's shared block (default ready, with its bars).
  * Writes out/ui/<label>/<screen>-<locale>-<desktop|phone>.png (ignored by git).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -24,6 +25,10 @@ import { toPng } from '../src/node/png';
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const label = args[0] ?? 'run';
 const which = (args[1] ?? 'care') as ScreenId;
+const SHARED = ['ready', 'loading', 'missing', 'unavailable', 'none'] as const;
+const sharedFlag = process.argv.find((a) => a.startsWith('--shared='))?.slice('--shared='.length) ?? 'ready';
+if (!(SHARED as readonly string[]).includes(sharedFlag)) throw new Error(`--shared must be one of ${SHARED.join(', ')}`);
+const sharedStatus = sharedFlag as (typeof SHARED)[number];
 const dir = `out/ui/${label}`;
 mkdirSync(dir, { recursive: true });
 
@@ -39,7 +44,12 @@ const ui = new GameUI(() => live, () => paletteFor('cozy'));
 const sharedCare = (() => {
   const stats = { hunger: 66, happiness: 81, health: 93, hygiene: 47, energy: 58 };
   const care = { pubkey: 'a'.repeat(64), d: 'blobbi-aaaaaaaaaaaa-0123456789', name: 'Pudding', stage: 'adult' as const, state: 'active' as const, stats, lastDecayAt: 1_760_000_000, lastInteraction: 1_760_000_000, createdAt: 1_760_000_000, eventId: 'x', project: () => stats };
-  return { snapshot: () => ({ status: 'ready' as const, address: `31124:${care.pubkey}:${care.d}`, care, partial: true, fetchedAt: 1_760_000_000_000 }), nowSec: () => 1_760_000_190, refresh: () => {} };
+  const address = `31124:${care.pubkey}:${care.d}`;
+  const snapshot = () =>
+    sharedStatus === 'ready'
+      ? { status: 'ready' as const, address, care, partial: true, fetchedAt: 1_760_000_000_000 }
+      : { status: sharedStatus, address: sharedStatus === 'none' ? null : address, care: null, partial: false, fetchedAt: null };
+  return { snapshot, nowSec: () => 1_760_000_190, refresh: () => {} };
 })();
 const care = new CareScreen();
 care.shared = sharedCare;
