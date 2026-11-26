@@ -215,7 +215,7 @@ describe('happiness and reactions', () => {
     expect(live.blobbi.animator.state.reaction?.expression).toBe('happy');
     run(live, 60 * (PET_COOLDOWN + 1));
     expect(live.pet()).toBe(true);
-    expect(live.tally.petted).toBe(3);
+    expect(live.tally.petted).toBe(2); // the press inside the cooldown got a reaction, not a quest count
   });
 
   it('exploring (autonomous inspections) raises joy', () => {

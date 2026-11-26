@@ -2071,13 +2071,16 @@ export class LiveWorld {
   pet(): boolean {
     const time = this.clock.time;
     const b = this.blobbi;
-    this.tally.petted++;
     if (this.brain.state === 'rest') {
       this.particles.heart(b.x, b.y - this.bodyH - 2);
       return false;
     }
     const counted = petCare(this.care, this.worldTime);
-    if (counted) this.addFriendship(FRIEND.pet);
+    // Only attention that counted counts for quests: three quick presses are not "time with Blobbi".
+    if (counted) {
+      this.addFriendship(FRIEND.pet);
+      this.tally.petted++;
+    }
     for (let i = 0; i < (counted ? 3 : 1); i++) this.particles.heart(b.x + this.particles.rng.range(-4 * this.bodyK, 4 * this.bodyK), b.y - this.bodyH - 1 - i * 3);
     b.animator.react('happy', time, counted ? 1.1 : 0.6, counted ? 3 : 1);
     this.sound(counted ? 'pet' : 'happy');
