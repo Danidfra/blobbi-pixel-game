@@ -164,7 +164,8 @@ export function composeIntroFrame(screen: PixelBuffer, view: ViewRect, world: Wo
   // The water's own colours: a part's wake and the game's wave strokes, which the sea beneath simply replaces.
   const white = 0xffffffff;
   const seaish = (c: Color) => c === foam || c === foamLight || c === palette.shallow.mid || c === palette.water.mid || c === palette.water.light || c === white;
-  const isWater = (c: number) => c === T.DEEP || c === T.WATER || c === T.SHALLOW || c === T.FOAM;
+  // Water is the first four classes (DEEP, WATER, SHALLOW, FOAM): one comparison in the per-pixel loop.
+  const LAST_WATER = T.FOAM;
 
   // ── Pass 1: water beyond the edge, the birth of the island, the shape beneath, the foam front ───────
   for (let y = 0; y < H; y++) {
@@ -191,7 +192,6 @@ export function composeIntroFrame(screen: PixelBuffer, view: ViewRect, world: Wo
       }
       const wi = wy * width + wx;
       const c = cls[wi];
-      const water = isWater(c);
       // Open water that no moving part can reach, or everything up and grown: the game's own pixel.
       if (all || (c === T.DEEP && (!parts[wi] || d[i] === still[wi]))) {
         kinds[i] = 0;
@@ -199,7 +199,7 @@ export function composeIntroFrame(screen: PixelBuffer, view: ViewRect, world: Wo
       }
       // The pixel as it is now, before the water: the island forming on the bare Carrier, life sparkling in.
       let px = d[i];
-      if (!allFormed && !water && !parts[wi]) {
+      if (!allFormed && c > LAST_WATER && !parts[wi]) {
         const fo = form[wi];
         if (formSet[wi]) {
           const made = lp - fo;
@@ -244,7 +244,7 @@ export function composeIntroFrame(screen: PixelBuffer, view: ViewRect, world: Wo
       // over the deep as over the sea's own bands round the still body. Only its wake, and water with nothing
       // drawn on it, is the sea.
       const partHere = parts[wi] !== 0 && px !== still[wi] && !seaish(px);
-      if (shadow <= 0 || (water && !partHere)) {
+      if (shadow <= 0 || (c <= LAST_WATER && !partHere)) {
         d[i] = base;
         kinds[i] = 1;
         continue;
