@@ -151,11 +151,15 @@ saved, no new economy):
   at: E ("look at the cairn") the first time is the discovery; after that a word.
 - *The bunny's button:* every other bunny (by its appearance's seed) that has settled beside the Blobbi for three
   seconds leads it a few hops (22 px, away from the Blobbi, on dry standable ground), digs for 2.4 s with puffs of
-  soil, hops aside and sits by what it found; the button glints there, findable with E while the appearance lasts
-  (walking over does not worry it; haste still does). Not taken, it goes with the bunny; never once found.
+  soil, hops aside and sits by what it found; the button glints there, findable with E for five minutes of world
+  time, the bunny there or not (walking over does not worry it; haste still does). Not taken, it is gone after that;
+  while one waits no other bunny digs; never once found.
 - *The ribbon:* one tame songbird in four comes to the feeder with a ribbon in its beak (two pixels of it); when it
-  sings to a still Blobbi it leaves the ribbon at the feeder's foot, findable while it stays. A shy bird never
-  carries one; none once it is found; a visitor sees none.
+  sings to a still Blobbi it leaves the ribbon at the feeder's foot, findable for five minutes of world time (no
+  second ribbon meanwhile). A shy bird never carries one; none once it is found; a visitor sees none.
+- *Continuity:* a creature out of view (a step indoors, a walk away) keeps its mood (trust, phase, what it has
+  shown) for 20 s (`LAND_MOOD_GRACE`), so a brief interruption does not end an encounter; its joy counts once per
+  appearance however often it is seen again (`APPEARANCE_JOY_GATE`).
 - Source: `src/content/discoveries.ts` (`KEEPER_DISCOVERIES`), `src/content/lore.ts`, `src/game/keeper.ts`,
   `src/render/keeper-render.ts`, `LiveWorld.visitCairn`, `shownSpots`, `poseBunny` (`leading`, `digging`,
   `showing`), the songbird's `ribbon`; tests `tests/keeper-encounters.test.ts`; captures
