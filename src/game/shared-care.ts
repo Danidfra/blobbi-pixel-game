@@ -7,7 +7,7 @@
  * This module knows nothing of relays or of the kit: it keeps the last answer per Blobbi address, asks the reader
  * it was given (`src/nostr/canonical-care.ts`, loaded by the host only when needed), drops an answer that comes
  * back for a Blobbi the player has since switched away from, and never invents a value: a demo or seed-only
- * Blobbi has no shared stats ("none"), a Blobbi no relay answered for is "unavailable", one the relays do not hold
+ * Blobbi has no shared stats ("none"), a Blobbi the relays could not tell about is "unavailable", one the relays do not hold
  * is "missing".
  */
 import type { BlobbiSource } from '../blobbi/source';

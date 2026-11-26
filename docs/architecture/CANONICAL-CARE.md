@@ -255,7 +255,7 @@ What the Blobbi panel (U) shows under "Shared Blobbi care", for the Blobbi walki
 - **States.** `none` (not a shared Blobbi), `loading` ("reading from the relays…"), `ready` (bars, "read N min
   ago", "(some relays silent)" when not every relay answered, "(asleep)" when the apps have it sleeping),
   `missing` ("not found on the relays": only once every secondary relay answered, `emptyIsKnown`; the primary's
-  empty answer alone is silence), `unavailable` ("no relay answered", or not enough of them to know; the last state
+  empty answer alone is silence), `unavailable` ("the relays could not be read": none answered, or not enough to know; the last state
   read stays on show).
 - **When.** On opening the panel; kept for two minutes per Blobbi, then read again; switching Blobbi starts
   afresh, and an answer that comes back for the previous Blobbi is dropped (`SharedCareService`). The network

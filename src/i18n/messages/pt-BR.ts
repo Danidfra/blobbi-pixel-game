@@ -738,7 +738,7 @@ export const ptBR: Catalog = {
   'care.shared': 'Cuidado compartilhado',
   'care.sharedNone': 'não é um Blobbi compartilhado: nada a ler',
   'care.sharedLoading': 'lendo dos relays…',
-  'care.sharedOffline': 'nenhum relay respondeu',
+  'care.sharedOffline': 'não foi possível ler os relays',
   'care.sharedMissing': 'não encontrado nos relays',
   'care.sharedPartial': '(alguns relays em silêncio)',
   'care.readNow': 'lido agora mesmo',

@@ -738,7 +738,7 @@ export const es: Catalog = {
   'care.shared': 'Cuidado compartido',
   'care.sharedNone': 'no es un Blobbi compartido: nada que leer',
   'care.sharedLoading': 'leyendo de los relays…',
-  'care.sharedOffline': 'ningún relay respondió',
+  'care.sharedOffline': 'no se pudo leer los relays',
   'care.sharedMissing': 'no se encontró en los relays',
   'care.sharedPartial': '(algunos relays callan)',
   'care.readNow': 'leído ahora mismo',

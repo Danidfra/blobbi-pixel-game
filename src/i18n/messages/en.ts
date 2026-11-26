@@ -745,7 +745,7 @@ export const en = {
   'care.shared': 'Shared Blobbi care',
   'care.sharedNone': 'not a shared Blobbi: nothing to read',
   'care.sharedLoading': 'reading from the relays…',
-  'care.sharedOffline': 'no relay answered',
+  'care.sharedOffline': 'the relays could not be read',
   'care.sharedMissing': 'not found on the relays',
   'care.sharedPartial': '(some relays silent)',
   'care.readNow': 'read just now',
