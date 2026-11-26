@@ -4517,6 +4517,13 @@ export class LiveWorld {
     if (!def.item) return lang('build.homeStays');
     if (def.capacity && !this.containerEmpty(this.containerKey(r))) return lang('build.emptyFirst');
     if (this.inventory.count(def.item) + 1 > this.inventory.limit(def.item)) return lang('build.noRoomInBag');
+    // A finished crate's room is in use: without it a fuller stack would be cut back to the smaller limit on loading.
+    if (r.kind === 'crate' && buildingProgress(r, this.worldTime) >= 1) {
+      let crates = 0;
+      for (const x of this.buildings) if (x.kind === 'crate' && buildingProgress(x, this.worldTime) >= 1) crates++;
+      const lost = (Math.min(MAX_CRATES, crates) - Math.min(MAX_CRATES, crates - 1)) * CRATE_BONUS;
+      if (lost > 0 && this.inventory.entries().some((e) => !isTool(e.item) && e.quantity > this.inventory.limit(e.item) - lost)) return lang('build.crateInUse');
+    }
     return null;
   }
 

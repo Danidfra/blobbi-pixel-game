@@ -574,6 +574,7 @@ export const es: Catalog = {
   'build.started': 'construyendo {a}',
   'build.homeStays': 'el hogar se queda. muévelo en su lugar',
   'build.emptyFirst': 'vacíalo primero',
+  'build.crateInUse': 'la bolsa usa su espacio: guarda o usa algo antes',
   'build.noRoomInBag': 'no cabe en la bolsa',
   'build.backInBag': '{name} de vuelta en la bolsa',
   'build.moved': 'moviste {the}',

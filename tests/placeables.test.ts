@@ -226,6 +226,28 @@ describe('storage chests', () => {
     expect(live.tally.decorations).toBe(decorations);
   });
 
+  it('a storage crate whose room the bag is using cannot be picked up (a reload would cut the stack back)', () => {
+    const store = memoryStore();
+    const live = quiet(store);
+    const limit = live.inventory.limit(ITEMS.stone.id);
+    const crate = placeOutside(live, 'crate');
+    live.timeOffset += 5000; // finished
+    expect(live.inventory.limit(ITEMS.stone.id)).toBeGreaterThan(limit);
+    live.inventory.add(ITEMS.stone.id, live.inventory.limit(ITEMS.stone.id));
+    const full = live.inventory.count(ITEMS.stone.id);
+    stand(live, crate.x, crate.y + BUILDINGS.crate.footRy + 4, 'up');
+    live.toggleManage();
+    expect(live.selectedPlaced()).toBe(crate);
+    expect(live.removeSelected()).toBe(false);
+    expect(live.buildings).toContain(crate);
+    live.save();
+    expect(quiet(store).inventory.count(ITEMS.stone.id)).toBe(full);
+    // Within the smaller limit, it goes back to the bag.
+    live.inventory.remove(ITEMS.stone.id, full - limit);
+    expect(live.removeSelected()).toBe(true);
+    expect(live.buildings).not.toContain(crate);
+  });
+
   it('a chest holding items cannot be picked up; moved, it keeps its contents; empty, it goes back to the bag', () => {
     const live = quiet();
     const chest = placeOutside(live, 'chest');

@@ -574,6 +574,7 @@ export const ptBR: Catalog = {
   'build.started': 'construindo {a}',
   'build.homeStays': 'a casa fica. mova-a em vez disso',
   'build.emptyFirst': 'esvazie antes',
+  'build.crateInUse': 'a bolsa está usando o espaço dela: guarde ou use algo antes',
   'build.noRoomInBag': 'não cabe na bolsa',
   'build.backInBag': '{name} de volta na bolsa',
   'build.moved': 'moveu {the}',

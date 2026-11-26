@@ -581,6 +581,7 @@ export const en = {
   'build.started': 'building {a}',
   'build.homeStays': 'a home stays. move it instead',
   'build.emptyFirst': 'empty it first',
+  'build.crateInUse': 'the bag is using its room: store or use some first',
   'build.noRoomInBag': 'no room in the bag',
   'build.backInBag': '{name} back in the bag',
   'build.moved': 'moved {the}',
