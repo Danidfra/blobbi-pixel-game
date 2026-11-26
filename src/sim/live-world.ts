@@ -58,7 +58,7 @@ import { doorOffsetX, doorSpot, doorwayRect, footOf, footprintRect, houseChimney
 import { consumeIngredients, RECIPES } from '../game/crafting';
 import { CROPS, CROP_KINDS, STAGE_NAMES, afterHarvest, harvestFor, cellAt, cellCentre, cellKey, cellRect, cropColour, cropProgress, cropStage, growthRemaining, isMature, needsWater, plantCrop, waterCrop, SOIL_COLOURS, type Cell, type CropKind, type FarmPlot, PLOT_GRID } from '../game/farming';
 import { CLEAN, DIRT, GLAD, JOY, JOY_SOURCE_COOLDOWN, STAMINA, TIRED_TEMPO, addHappiness, eat, getDirty, isExhausted, isGrubby, isHungry, isRested, isTired, mood, newCare, pet as petCare, spendEnergy, speedFactor, stepCare, careToSave, wash as washCare, type CareState } from '../game/care';
-import { advanceObjectives, finishRequest, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
+import { advanceObjectives, finishRequest, requestProgress, newObjectives, newTally, startRequest, unlockedKinds, type Objective, type ObjectiveContext, type ObjectiveState, type Tally, objectiveById, activeQuests } from '../game/objectives';
 import { DAY_SECONDS, nextDawn, clockLabel, clockHour, lightAt, rainAt, roomLightAt, type LightSource } from '../game/daylight';
 import { loreById } from '../content/lore';
 import { ALL_DISCOVERIES, KEEPER_DISCOVERIES, SEA_DISCOVERIES, type DiscoveryContent } from '../content/discoveries';
@@ -2679,13 +2679,26 @@ export class LiveWorld {
     return { tally: this.tally, inventory: this.inventory, buildings: this.buildings, worldTime: this.worldTime, found: this.found, friendship: friendLevel(this.companion.friendship), growthStage: this.growth.stage };
   }
 
+  /** The request whose reward was last said not to fit (said once per request; not saved). */
+  private requestRoomSaid: string | null = null;
+
   private stepObjectives(): void {
     // Island requests: one at a time, the next from the following dawn.
     if (!this.objectives.request) {
       const started = startRequest(this.objectives, this.tally, this.worldTime);
       if (started) this.notices.push({ heading: lang('notice.newRequest'), title: started.title, text: lang('notice.seeJournal'), until: (this.notices.at(-1)?.until ?? this.clock.time) + 3 });
     } else {
-      const finished = finishRequest(this.objectives, this.tally, nextDawn(this.worldTime));
+      // A request whose reward would not fit waits, done, until there is room (nothing is lost), and says so once.
+      const ready = requestProgress(this.objectives, this.tally);
+      const noRoom = ready && ready.have >= ready.need ? ready.request.reward.items.find((r) => this.inventory.limit(r.item) - this.inventory.count(r.item) < r.quantity) : undefined;
+      if (noRoom) {
+        if (this.requestRoomSaid !== ready!.request.id) {
+          this.requestRoomSaid = ready!.request.id;
+          const b = this.blobbi;
+          this.bubble = { text: lang('say.noRoomFor', itemNoun(noRoom.item)), until: this.clock.time + 2.4, x: b.x, y: b.y - b.size - 2, head: b.size };
+        }
+      }
+      const finished = noRoom ? null : finishRequest(this.objectives, this.tally, nextDawn(this.worldTime));
       if (finished) {
         for (const r of finished.reward.items) this.inventory.add(r.item, r.quantity);
         this.addFriendship(FRIEND.quest);

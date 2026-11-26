@@ -130,6 +130,34 @@ describe('quests in the world', () => {
   });
 });
 
+describe('an island request with no room for its reward', () => {
+  it('waits, done, until there is room, says so once, then pays the whole reward', () => {
+    const live = new LiveWorld(generateTurtleWorld('turtle-0'), 'blobbi-9', 16, { store: memoryStore() });
+    live.brain.enabled = false;
+    for (const q of QUESTS) live.objectives.completed[q.id] = 0;
+    const req = REQUEST_POOL[0];
+    live.objectives.request = { id: req.id, baseline: live.tally[req.goal.tally] ?? 0, startedAt: live.worldTime };
+    const item = req.reward.items[0];
+    while (live.inventory.add(item.item, 1)) {
+      /* fill the reward's stack */
+    }
+    const full = live.inventory.count(item.item);
+    live.tally[req.goal.tally] = (live.tally[req.goal.tally] ?? 0) + req.goal.n;
+    live.update(1 / 60, IDLE_INPUT);
+    expect(live.objectives.request?.id).toBe(req.id);
+    expect(live.inventory.count(item.item)).toBe(full);
+    const said = live.bubble?.text;
+    expect(said).toBeTruthy();
+    live.bubble = null;
+    run(live, 1);
+    expect((live.bubble as { text: string } | null)?.text ?? null).not.toBe(said); // once, not every frame
+    live.inventory.remove(item.item, item.quantity);
+    live.update(1 / 60, IDLE_INPUT);
+    expect(live.objectives.request).toBeNull();
+    expect(live.inventory.count(item.item)).toBe(full);
+  });
+});
+
 describe('discoveries and the Carrier', () => {
   it('eight finds at stable, reachable spots; E picks one up with its item and note; nothing is built on them', () => {
     const a = quiet();
