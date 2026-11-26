@@ -571,6 +571,7 @@ export const ptBR: Catalog = {
   'prompt.feed': 'alimentar o Blobbi',
   'say.homeExclaim': 'casa!',
   'build.placed': 'colocou {a}',
+  'build.started': 'construindo {a}',
   'build.homeStays': 'a casa fica. mova-a em vez disso',
   'build.emptyFirst': 'esvazie antes',
   'build.noRoomInBag': 'não cabe na bolsa',

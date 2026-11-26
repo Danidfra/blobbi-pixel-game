@@ -571,6 +571,7 @@ export const es: Catalog = {
   'prompt.feed': 'dar de comer al Blobbi',
   'say.homeExclaim': '¡casa!',
   'build.placed': 'colocaste {a}',
+  'build.started': 'construyendo {a}',
   'build.homeStays': 'el hogar se queda. muévelo en su lugar',
   'build.emptyFirst': 'vacíalo primero',
   'build.noRoomInBag': 'no cabe en la bolsa',

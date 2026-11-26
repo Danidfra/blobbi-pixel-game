@@ -578,6 +578,7 @@ export const en = {
   'prompt.feed': 'feed Blobbi',
   'say.homeExclaim': 'home!',
   'build.placed': 'placed {a}',
+  'build.started': 'building {a}',
   'build.homeStays': 'a home stays. move it instead',
   'build.emptyFirst': 'empty it first',
   'build.noRoomInBag': 'no room in the bag',

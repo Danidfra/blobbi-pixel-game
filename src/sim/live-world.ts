@@ -2766,7 +2766,7 @@ export class LiveWorld {
     const got: string[] = [];
     for (const r of o.reward.items) {
       const n = this.inventory.add(r.item, r.quantity);
-      if (n < r.quantity) got.push(`${r.quantity - n} ${itemPlural(r.item)} did not fit`);
+      if (n < r.quantity) got.push(lang('say.noRoomFor', itemNoun(r.item)));
     }
     addHappiness(this.care, JOY.objective);
     for (const id of o.reward.lore) this.learn(id);
@@ -5172,7 +5172,15 @@ export class LiveWorld {
     if ('item' in pay) {
       if (this.inventory.remove(pay.item, 1) !== 1) return null;
     } else if (!consumeIngredients(this.inventory, pay.cost)) {
-      say(pay.cost.filter((c) => this.inventory.count(c.item) < c.quantity).map((c) => `need ${c.quantity - this.inventory.count(c.item)} ${itemLabel(c.item)}`).join(', '));
+      say(
+        pay.cost
+          .filter((c) => this.inventory.count(c.item) < c.quantity)
+          .map((c) => {
+            const short = c.quantity - this.inventory.count(c.item);
+            return lang('craft.need', { count: short, what: short === 1 ? itemLabel(c.item) : itemPlural(c.item) });
+          })
+          .join(', '),
+      );
       b.animator.react('sad', time, 0.6, 0);
       return null;
     }
@@ -5185,7 +5193,7 @@ export class LiveWorld {
     if (isDecoration(kind)) this.tally.decorations++;
     const palette = paletteFor(this.world.options.palette);
     for (let i = 0; i < 6; i++) this.particles.dust(spot.x + this.particles.rng.range(-def.footRx, def.footRx), spot.y + this.particles.rng.range(-2, 2), i % 2 ? palette.wood.light : palette.path.dark);
-    say(def.category === 'building' ? `building a ${def.label}` : `placed a ${def.label}`);
+    say(lang(def.category === 'building' ? 'build.started' : 'build.placed', buildingNoun(kind)));
     b.animator.react('excited', time, 1, 2);
     this.sound('place');
     this.save();
