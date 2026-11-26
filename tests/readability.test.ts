@@ -100,33 +100,34 @@ const VIEWS: [string, number, number][] = [
 ];
 
 describe('menus fit their words, in every language, at every size', () => {
-  for (const locale of ['en', 'pt-BR', 'es'] as Locale[])
-    for (const [name, w, h] of VIEWS)
-      it(`${locale}, ${name} ${w}×${h}: no text outside the panel, no label wider than its button`, () => {
-        setLocale(locale);
-        const { ui } = setup();
-        const screen = new PixelBuffer(w, h);
-        const problems: string[] = [];
-        let seen = 0;
-        for (const id of SCREENS) {
-          ui.open(id);
-          drawn = [];
-          ui.render(screen, 0);
-          expect(drawn.length, `${id} drew its words`).toBeGreaterThan(id === "worlds" ? 0 : 3);
-          seen += drawn.length;
-          for (const d of drawn) {
-            if (d.x0 < 0 || d.x1 > PANEL_W) problems.push(`${id}: "${d.text}" ${d.x0}..${d.x1}`);
-            if (d.kind === 'button') {
-              const g = new Gfx(1, 1, ui.scale);
-              const label = d.text.toLocaleUpperCase(locale);
-              if (g.measure(label) > d.w! - 2 && d.text.length > 1) problems.push(`${id}: button "${d.text}" ${g.measure(label)} > ${d.w! - 2}`);
+  for (const size of ['normal', 'large'] as TextSize[])
+    for (const locale of ['en', 'pt-BR', 'es'] as Locale[])
+      for (const [name, w, h] of VIEWS)
+        it(`${locale}, ${name} ${w}×${h}, ${size} text: no text outside the panel, no label wider than its button`, () => {
+          setLocale(locale);
+          const { ui } = setup(size);
+          const screen = new PixelBuffer(w, h);
+          const problems: string[] = [];
+          let seen = 0;
+          for (const id of SCREENS) {
+            ui.open(id);
+            drawn = [];
+            ui.render(screen, 0);
+            expect(drawn.length, `${id} drew its words`).toBeGreaterThan(id === "worlds" ? 0 : 3);
+            seen += drawn.length;
+            for (const d of drawn) {
+              if (d.x0 < 0 || d.x1 > PANEL_W) problems.push(`${id}: "${d.text}" ${d.x0}..${d.x1}`);
+              if (d.kind === 'button') {
+                const g = new Gfx(1, 1, ui.scale);
+                const label = d.text.toLocaleUpperCase(locale);
+                if (g.measure(label) > d.w! - 2 && d.text.length > 1) problems.push(`${id}: button "${d.text}" ${g.measure(label)} > ${d.w! - 2}`);
+              }
             }
+            ui.close();
           }
-          ui.close();
-        }
-        expect(seen).toBeGreaterThan(150);
-        expect(problems).toEqual([]);
-      });
+          expect(seen).toBeGreaterThan(150);
+          expect(problems).toEqual([]);
+        });
 });
 
 describe('text size', () => {
