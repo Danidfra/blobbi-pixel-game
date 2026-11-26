@@ -90,7 +90,7 @@ where they exist on this machine), then the plan. Nothing in Pixel writes canoni
   (`dist/blobbi-decay.d.ts:16`) but the code clamps to 1 (`.d.ts:108`, `.js:92`).
 - Where it runs: client-side, at read for display (`useProjectedBlobbiState`, a 60-s tick, "no 31124 mutation":
   `blobbi-react/src/hooks/useProjectedBlobbiState.ts:5-11, 38`) and at write inside each action plan (Home:
-  `nostr-pet/src/features/care/care-plan.ts:156-163`; Ditto: `useCanonicalSync.ts:145-151, 184-190`). It is
+  `~/Developer/nostr-pet/src/features/care/care-plan.ts:156-163`; Ditto: `useCanonicalSync.ts:145-151, 184-190`). It is
   persisted by `statsToTagUpdates` writing `last_decay_at = now` (`dist/blobbi.js:748-759`).
 
 ## 4. Consolidating interactions into the state
@@ -325,7 +325,7 @@ Blobbi registered (a 31124 exists); online. Otherwise the action stays local and
 **Kit changes to ask for (separate review).**
 - A pure `planCareStateWrite(prev: NostrEvent, interaction: InteractionTemplate, now, resolver?)` returning the
   31124 template (decay, effect, checkpoint, tags, `created_at` bump): today that plan lives in Home
-  (`nostr-pet/src/features/care/care-plan.ts`), so Pixel and Island would each write their own.
+  (`~/Developer/nostr-pet/src/features/care/care-plan.ts`), so Pixel and Island would each write their own.
 - A `writeBlobbiStateSafely(deps, build)` like `writeProfileSafely` for 31124 (fresh census read, build, sign,
   publish, read back, outcomes `stale` / `unsafe` / `wrong-account`), and a `blobbiStateWriteQueue` per address.
 - `fetchFreshBlobbiState(nostr, address)` beside `fetchFreshBlobbonautProfile`.

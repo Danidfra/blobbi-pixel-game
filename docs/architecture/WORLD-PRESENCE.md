@@ -15,7 +15,7 @@ island, and nothing about its place is read, kept, signed or published.
 **Status: implemented, off by default (the kinds are experimental, `@blobbi-kit/core` 0.11.0).** With it
 on, the Blobbi's place is its **World Location** on Nostr (kind 31126; the
 protocol is `@blobbi-kit/core`'s world travel, specified in the kit's
-`packages/blobbi-core/WORLD-TRAVEL.md`). The place is the same on every
+`~/Developer/blobbi-kit/packages/blobbi-core/WORLD-TRAVEL.md`). The place is the same on every
 device and browser. With it off, there is no host, no network module, no
 session and no signature: play's entry always has the Blobbi here.
 
