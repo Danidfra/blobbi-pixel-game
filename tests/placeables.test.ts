@@ -193,7 +193,13 @@ describe('storage chests', () => {
     expect(live.containerFor(b)!.inventory.total()).toBe(0);
     const after = live.inventory.total() + live.containerFor(a)!.inventory.total() + live.containerFor(b)!.inventory.total();
     expect(after).toBe(before);
-    expect(live.tally.stored).toBe(11);
+    expect(live.tally.stored).toBe(6); // net: 11 in, 5 taken back out (what is in the chest)
+    // To and fro is not storing: the same stone in and out twenty times leaves the count where it was.
+    for (let i = 0; i < 20; i++) {
+      live.moveItems(a, ITEMS.stone.id, 1, true);
+      live.moveItems(a, ITEMS.stone.id, 1, false);
+    }
+    expect(live.tally.stored).toBe(6);
     live.save();
     const raw = JSON.parse(store.get(saveKey(live.identity))!);
     expect(Object.keys(raw.containers)).toEqual([`island/${a.id}`]);
@@ -201,6 +207,23 @@ describe('storage chests', () => {
     const ra = re.buildings.find((x) => x.id === a.id)!;
     expect(re.containerFor(ra)!.inventory.entries()).toEqual(live.containerFor(a)!.inventory.entries());
     expect(re.inventory.entries()).toEqual(live.inventory.entries());
+  });
+
+  it('a piece picked up into the bag stops counting: placing the same lantern again is not a second decoration', () => {
+    const live = quiet();
+    const lantern = placeOutside(live, 'lantern');
+    const built = live.tally.built;
+    const decorations = live.tally.decorations;
+    stand(live, lantern.x, lantern.y + BUILDINGS.lantern.footRy + 4, 'up');
+    live.toggleManage();
+    expect(live.selectedPlaced()).toBe(lantern);
+    expect(live.removeSelected()).toBe(true);
+    expect(live.tally.built).toBe(built - 1);
+    expect(live.tally.decorations).toBe(decorations - 1);
+    live.toggleManage();
+    placeOutside(live, 'lantern');
+    expect(live.tally.built).toBe(built);
+    expect(live.tally.decorations).toBe(decorations);
   });
 
   it('a chest holding items cannot be picked up; moved, it keeps its contents; empty, it goes back to the bag', () => {

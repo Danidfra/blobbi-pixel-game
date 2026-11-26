@@ -178,7 +178,8 @@ export function requestProgress(state: ObjectiveState, tally: Tally): { request:
   const a = state.request;
   const r = a ? requestById(a.id) : null;
   if (!a || !r) return null;
-  return { request: r, have: Math.min(r.goal.n, (tally[r.goal.tally] ?? 0) - a.baseline), need: r.goal.n };
+  // A count can be taken back (a piece picked up again), so progress never reads below nothing.
+  return { request: r, have: Math.max(0, Math.min(r.goal.n, (tally[r.goal.tally] ?? 0) - a.baseline)), need: r.goal.n };
 }
 
 /** Finish the active request if its goal is met; `nextDawn` is when the next one may begin. Returns it once. */

@@ -4520,6 +4520,11 @@ export class LiveWorld {
     return null;
   }
 
+  /** Take back a count an undone action had added (a piece picked up, a plot filled in, items taken out), never below 0. */
+  private untally(key: 'plots' | 'furnished' | 'built' | 'decorations' | 'stored', n: number): void {
+    this.tally[key] = Math.max(0, (this.tally[key] ?? 0) - n);
+  }
+
   /** X in management mode: pick the object up into the bag (refused, with the reason, when that would lose anything). */
   removeSelected(): boolean {
     if (this.denied('build')) return false;
@@ -4533,6 +4538,7 @@ export class LiveWorld {
       if (plot && !plot.crop) {
         this.plots.splice(this.plots.indexOf(plot), 1);
         this.plotByCell.delete(cellKey(plot));
+        this.untally('plots', 1);
         say(lang('farm.plotFilled'));
         this.save();
         return true;
@@ -4548,6 +4554,12 @@ export class LiveWorld {
     }
     const def = BUILDINGS[r.kind];
     this.inventory.add(def.item!, 1);
+    // Back in the bag, it no longer counts as placed: putting the same piece down again is not a second piece.
+    if (this.inside) this.untally('furnished', 1);
+    else {
+      this.untally('built', 1);
+      if (isDecoration(r.kind)) this.untally('decorations', 1);
+    }
     const list = this.placedHere;
     list.splice(list.indexOf(r), 1);
     this.containers.delete(this.containerKey(r));
@@ -4698,7 +4710,9 @@ export class LiveWorld {
     if (!c) return 0;
     const n = toChest ? transfer(this.inventory, c.inventory, item, quantity, c.capacity) : transfer(c.inventory, this.inventory, item, quantity);
     if (n > 0) {
+      // Net items in chests: taking out what was put in undoes its count (to and fro is not storing).
       if (toChest) this.tally.stored += n;
+      else this.untally('stored', n);
       this.sound(toChest ? 'store' : 'take');
       this.save();
     }
