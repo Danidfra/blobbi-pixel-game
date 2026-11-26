@@ -4886,6 +4886,12 @@ export class LiveWorld {
         const plan = this.upgradeRooms(house, next.level);
         out.displaced = plan?.displaced.length ?? 0;
         if (plan && !plan.bagOk) out.blocked = lang('home.bagNoRoom');
+        // The new rooms' gift goes to the bag when the rooms have no spot for it: there must be room, or it would be lost.
+        const giftItem = next.gift ? BUILDINGS[next.gift]?.item : undefined;
+        if (!out.blocked && giftItem) {
+          const alsoBack = plan?.displaced.filter((f) => BUILDINGS[f.kind].item === giftItem).length ?? 0;
+          if (this.inventory.count(giftItem) + alsoBack + 1 > this.inventory.limit(giftItem)) out.blocked = lang('home.bagNoRoom');
+        }
       }
     }
     out.ready = met && !out.blocked;

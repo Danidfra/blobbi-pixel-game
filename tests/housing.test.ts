@@ -18,6 +18,7 @@ import { NEW_WORLD_SHELL_VARIANT } from '../src/carrier/types';
 import { findBuildSpot, pressE, pressUntil, run, stand } from '../src/dev/scripted-play';
 import { ITEMS } from '../src/game/items';
 import { advanceObjectives } from '../src/game/objectives';
+import { t as lang } from '../src/i18n';
 
 const palette = paletteFor('cozy');
 const h = (a: ArrayLike<number>) => hash32(Array.from(a, (v) => v.toString(36)).join(','));
@@ -205,6 +206,22 @@ describe('upgrading the home in play', () => {
     stand(live, house.x + 4, house.y + footOf(house).footRy + live.blobbi.footRy + 3, 'up');
     pressUntil(live, () => live.inside);
     expect(live.sceneBounds()).toEqual({ width: LAYOUTS[2].w, height: LAYOUTS[2].h });
+  });
+
+  it('refuses while the bag could not take the new rooms\' gift, so the gift is never lost', () => {
+    const { live } = withHouse();
+    grant(live, ['home', 'harvest']);
+    pay(live, 10, 6, 2);
+    const gift = BUILDINGS[live.houseUpgrade().next!.gift!].item!;
+    while (live.inventory.add(gift, 1)) {
+      /* a full stack of the gift */
+    }
+    const check = live.houseUpgrade();
+    expect(check.ready).toBe(false);
+    expect(check.blocked).toBe(lang('home.bagNoRoom'));
+    expect(live.upgradeHouse().ok).toBe(false);
+    live.inventory.remove(gift, 1);
+    expect(live.houseUpgrade().ready).toBe(true);
   });
 
   it('refuses from inside, and when the bigger house does not fit', () => {
